@@ -78,7 +78,7 @@ class MainActivity : ComponentActivity() {
     private val patientRemoteDeviceId = mutableStateOf<Int?>(null)
     private val remoteRegistrationTarget = mutableStateOf<String?>(null)
     private val roomMode = mutableStateOf("consultation")
-    private var backendUrlValue = "https://losing-designers-advisory-intent.trycloudflare.com"
+    private var backendUrlValue = "https://clinic-voice-room-ufz4.vercel.app"
     private var roomIdValue = ""
     private var roomTokenValue = ""
     private var connectedDirection: String? = null
@@ -546,7 +546,7 @@ private fun SpikeScreen(
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit
 ) {
-    var backendUrl by remember { mutableStateOf("https://losing-designers-advisory-intent.trycloudflare.com") }
+    var backendUrl by remember { mutableStateOf("https://clinic-voice-room-ufz4.vercel.app") }
     var roomId by remember { mutableStateOf("") }
     var roomToken by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("patient") }
