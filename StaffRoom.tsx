@@ -57,6 +57,7 @@ const qrCopy: Record<PatientLanguage, { heading: string; instruction: string; wa
 export function StaffRoom({ room, joinUrl, androidJoinUrl, roomMode = "consultation" }: StaffRoomProps) {
   const [snapshot, setSnapshot] = useState(room);
   const [copied, setCopied] = useState<"web" | "android" | null>(null);
+  const [qrExpanded, setQrExpanded] = useState(false);
   const connected = snapshot.status !== "waiting_for_patient";
   const copy = qrCopy[snapshot.patientLanguage];
   const isProcedureMode = roomMode === "procedure";
@@ -163,7 +164,15 @@ export function StaffRoom({ room, joinUrl, androidJoinUrl, roomMode = "consultat
         <p className="mx-auto mt-2 max-w-sm text-sm font-semibold leading-6 text-slate-500">
           {isProcedureMode ? "Use a second web device near the patient. The doctor's device and patient device each use their own microphone." : primaryQrCopy.body}
         </p>
-        <div className="mx-auto mt-5 inline-block rounded-lg border border-line bg-white p-5">
+        <div
+          className="mx-auto mt-5 inline-block rounded-lg border border-line bg-white p-5"
+          style={{
+            colorScheme: "light",
+            forcedColorAdjust: "none",
+            filter: "none",
+            WebkitFilter: "none"
+          }}
+        >
           <QRCodeCanvas
             value={primaryQrUrl}
             size={288}
@@ -172,7 +181,15 @@ export function StaffRoom({ room, joinUrl, androidJoinUrl, roomMode = "consultat
             fgColor="#000000"
             marginSize={4}
             className="block h-[288px] w-[288px] max-w-full"
-            style={{ imageRendering: "pixelated" }}
+            style={{
+              background: "#ffffff",
+              colorScheme: "light",
+              display: "block",
+              filter: "none",
+              forcedColorAdjust: "none",
+              imageRendering: "pixelated",
+              WebkitFilter: "none"
+            }}
           />
         </div>
         <p className="mx-auto mt-5 max-w-sm break-all rounded-lg bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-600">{primaryQrUrl}</p>
@@ -189,7 +206,66 @@ export function StaffRoom({ room, joinUrl, androidJoinUrl, roomMode = "consultat
               ? primaryQrCopy.copied
               : primaryQrCopy.button}
         </button>
+        <button
+          type="button"
+          onClick={() => setQrExpanded(true)}
+          className="ml-2 mt-4 inline-flex h-12 items-center justify-center rounded-lg bg-slate-100 px-5 font-bold text-ink transition hover:bg-slate-200"
+        >
+          QR 크게 보기
+        </button>
       </section>
+
+      {qrExpanded ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-white p-5"
+          style={{
+            colorScheme: "light",
+            forcedColorAdjust: "none",
+            filter: "none",
+            WebkitFilter: "none"
+          }}
+        >
+          <div className="w-full max-w-[420px] text-center text-black">
+            <p className="text-base font-bold text-black">QR 코드를 스캔하세요</p>
+            <div
+              className="mx-auto mt-5 inline-block bg-white p-6"
+              style={{
+                colorScheme: "light",
+                forcedColorAdjust: "none",
+                filter: "none",
+                WebkitFilter: "none"
+              }}
+            >
+              <QRCodeCanvas
+                value={primaryQrUrl}
+                size={340}
+                level="H"
+                bgColor="#ffffff"
+                fgColor="#000000"
+                marginSize={4}
+                className="block h-[340px] w-[340px] max-w-full"
+                style={{
+                  background: "#ffffff",
+                  colorScheme: "light",
+                  display: "block",
+                  filter: "none",
+                  forcedColorAdjust: "none",
+                  imageRendering: "pixelated",
+                  WebkitFilter: "none"
+                }}
+              />
+            </div>
+            <p className="mx-auto mt-4 max-w-sm break-all rounded-lg bg-slate-100 px-3 py-3 text-sm font-bold leading-6 text-black">{primaryQrUrl}</p>
+            <button
+              type="button"
+              onClick={() => setQrExpanded(false)}
+              className="mt-5 h-12 rounded-lg bg-black px-6 font-bold text-white"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-sm">
         <div className="flex items-start gap-3">
