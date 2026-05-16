@@ -17,7 +17,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,8 +27,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -38,7 +44,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -58,6 +66,7 @@ import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpReceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -384,8 +393,8 @@ class MainActivity : ComponentActivity() {
 
     private fun connectForDirection(direction: String, micEnabled: Boolean) {
         desiredMicEnabled = micEnabled
-        if (backendUrlValue.isBlank() || roomIdValue.isBlank() || roomTokenValue.isBlank()) {
-            appendLog("direction connect skipped: missing backend url, room id, or room token")
+        if (backendUrlValue.isBlank() || roomTokenValue.isBlank()) {
+            appendLog("direction connect skipped: missing backend url or room token")
             return
         }
 
@@ -459,10 +468,15 @@ class MainActivity : ComponentActivity() {
         role: String,
         direction: String? = null
     ): String {
+        val normalizedRoomToken = extractRoomToken(roomToken)
+        val effectiveRoomId = roomId.ifBlank {
+            resolveRoomIdByToken(backendUrl, normalizedRoomToken)
+        }
+
         val bodyJson = JSONObject()
-            .put("roomId", roomId)
+            .put("roomId", effectiveRoomId)
             .put("role", role)
-            .put("roomToken", roomToken)
+            .put("roomToken", normalizedRoomToken)
             .also { body ->
                 if (direction != null) body.put("direction", direction)
             }
@@ -486,6 +500,33 @@ class MainActivity : ComponentActivity() {
                 else -> token.optString("value")
             }.ifBlank { error("missing ephemeral client secret") }
         }
+    }
+
+    private fun resolveRoomIdByToken(backendUrl: String, roomToken: String): String {
+        if (roomToken.isBlank()) error("missing room token")
+        val encodedToken = URLEncoder.encode(roomToken, "UTF-8")
+        val request = Request.Builder()
+            .url("${backendUrl.trimEnd('/')}/api/rooms/by-token/$encodedToken")
+            .get()
+            .build()
+
+        OkHttpClient().newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            appendLog("room lookup response: ${response.code}")
+            if (!response.isSuccessful) error(text.ifBlank { "room lookup failed" })
+            val roomId = JSONObject(text).getJSONObject("room").getString("id")
+            roomIdValue = roomId
+            appendLog("room id resolved=$roomId")
+            return roomId
+        }
+    }
+
+    private fun extractRoomToken(input: String): String {
+        val trimmed = input.trim()
+        if (!trimmed.startsWith("http")) return trimmed
+        val withoutQuery = trimmed.substringBefore("?")
+        val token = withoutQuery.substringAfterLast("/")
+        return token.ifBlank { trimmed }
     }
 
     private fun appendLog(message: String) {
@@ -551,129 +592,303 @@ private fun SpikeScreen(
     var roomToken by remember { mutableStateOf("") }
     var role by remember { mutableStateOf("patient") }
     var token by remember { mutableStateOf("") }
+    val hasRoom = roomToken.isNotBlank()
+    val hasRemotes = staffRemoteDeviceId != null && patientRemoteDeviceId != null
+    val latestTranscript = transcriptMessages.lastOrNull()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .background(Color(0xFFF6F7FB))
+            .padding(18.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("Clinic Voice Room Android Spike", style = MaterialTheme.typography.titleLarge)
-        Text("Start with role=patient. Staff currently needs web cookie auth.")
-        Text("Remote test: register two Bluetooth controls, then press each to set direction.")
-        Text("Mode: ${roomModeLabel(roomMode)}", style = MaterialTheme.typography.titleMedium)
-        Text("Direction: ${directionLabel(direction)}", style = MaterialTheme.typography.titleMedium)
-        Text("Staff remote: ${staffRemoteDeviceId?.toString() ?: "not registered"}")
-        Text("Patient remote: ${patientRemoteDeviceId?.toString() ?: "not registered"}")
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("BTSKIN CLINIC", color = Color(0xFF2563EB), fontWeight = FontWeight.Bold)
+            Text("Procedure Interpreter", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("One phone, two remotes, shared earphones", color = Color(0xFF64748B))
+        }
+
+        StatusCard(
+            mode = roomMode,
+            direction = direction,
+            hasRoom = hasRoom,
+            hasToken = token.isNotBlank(),
+            hasRemotes = hasRemotes,
+            staffRemoteDeviceId = staffRemoteDeviceId,
+            patientRemoteDeviceId = patientRemoteDeviceId
+        )
+
         if (remoteRegistrationTarget != null) {
-            Text("Waiting for ${remoteRegistrationTargetLabel(remoteRegistrationTarget)} remote button...")
+            AlertPanel("Press ${remoteRegistrationTargetLabel(remoteRegistrationTarget)} remote now")
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { onModeChanged("consultation") }) {
-                Text("Consultation PTT")
-            }
-            Button(onClick = { onModeChanged("procedure") }) {
-                Text("Procedure")
-            }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onRegisterStaffRemote) {
-                Text("Register Staff")
-            }
-            Button(onClick = onRegisterPatientRemote) {
-                Text("Register Patient")
-            }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onSwitchDirection) {
-                Text("Switch Direction")
-            }
-            Button(onClick = onClearRemoteRegistration) {
-                Text("Clear Remotes")
+        SectionCard(title = "Mode") {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                ModeButton(
+                    label = "Consultation PTT",
+                    active = roomMode == "consultation",
+                    modifier = Modifier.weight(1f),
+                    onClick = { onModeChanged("consultation") }
+                )
+                ModeButton(
+                    label = "Procedure",
+                    active = roomMode == "procedure",
+                    modifier = Modifier.weight(1f),
+                    onClick = { onModeChanged("procedure") }
+                )
             }
         }
 
-        OutlinedTextField(
-            value = backendUrl,
-            onValueChange = {
-                backendUrl = it
-                onBackendUrlChanged(it)
-            },
-            label = { Text("Backend URL") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = roomId,
-            onValueChange = {
-                roomId = it
-                onRoomIdChanged(it)
-            },
-            label = { Text("Room ID") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            value = roomToken,
-            onValueChange = {
-                roomToken = it
-                onRoomTokenChanged(it)
-            },
-            label = { Text("Room Token") },
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { role = "patient"; onLog("role=patient") }) {
-                Text("Patient")
+        SectionCard(title = "Remote Controls") {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                RemoteRegisterButton(
+                    label = "Staff",
+                    deviceId = staffRemoteDeviceId,
+                    modifier = Modifier.weight(1f),
+                    onClick = onRegisterStaffRemote
+                )
+                RemoteRegisterButton(
+                    label = "Patient",
+                    deviceId = patientRemoteDeviceId,
+                    modifier = Modifier.weight(1f),
+                    onClick = onRegisterPatientRemote
+                )
             }
-            Button(onClick = { role = "staff"; onLog("role=staff") }) {
-                Text("Staff")
-            }
-            Text("Role: $role", modifier = Modifier.padding(12.dp))
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                onRequestToken(backendUrl, roomId, roomToken, role, direction) { fetched ->
-                    token = fetched
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = onSwitchDirection,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
+                ) {
+                    Text("Switch")
                 }
-            }) {
-                Text("Request Token")
-            }
-            Button(onClick = { onConnect(token) }, enabled = token.isNotBlank()) {
-                Text("Connect")
-            }
-            Button(onClick = onDisconnect) {
-                Text("Disconnect")
-            }
-        }
-
-        Button(onClick = {
-            token = ""
-            onLog("local token cleared")
-        }) {
-            Text("Clear Token")
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Recent Translation Text", style = MaterialTheme.typography.titleMedium)
-        if (transcriptMessages.isEmpty()) {
-            Text("Translated text will appear here during consultation mode.")
-        } else {
-            transcriptMessages.forEach {
-                Text(it, style = MaterialTheme.typography.bodyLarge)
+                Button(
+                    onClick = onClearRemoteRegistration,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE2E8F0), contentColor = Color(0xFF0F172A))
+                ) {
+                    Text("Clear")
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Logs", style = MaterialTheme.typography.titleMedium)
-        logs.forEach {
-            Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+        SectionCard(title = "Room Connection") {
+            OutlinedTextField(
+                value = backendUrl,
+                onValueChange = {
+                    backendUrl = it
+                    onBackendUrlChanged(it)
+                },
+                label = { Text("Backend URL") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = roomId,
+                onValueChange = {
+                    roomId = it
+                    onRoomIdChanged(it)
+                },
+                label = { Text("Room ID (optional)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = roomToken,
+                onValueChange = {
+                    roomToken = it
+                    onRoomTokenChanged(it)
+                },
+                label = { Text("Room Token or Join Link") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                ModeButton(
+                    label = "Patient",
+                    active = role == "patient",
+                    modifier = Modifier.weight(1f),
+                    onClick = { role = "patient"; onLog("role=patient") }
+                )
+                ModeButton(
+                    label = "Staff",
+                    active = role == "staff",
+                    modifier = Modifier.weight(1f),
+                    onClick = { role = "staff"; onLog("role=staff") }
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = {
+                        onRequestToken(backendUrl, roomId, roomToken, role, direction) { fetched ->
+                            token = fetched
+                        }
+                    },
+                    enabled = hasRoom,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Token")
+                }
+                Button(
+                    onClick = { onConnect(token) },
+                    enabled = token.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
+                ) {
+                    Text("Connect")
+                }
+                Button(
+                    onClick = onDisconnect,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                ) {
+                    Text("End")
+                }
+            }
+            Button(
+                onClick = {
+                    token = ""
+                    onLog("local token cleared")
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE2E8F0), contentColor = Color(0xFF0F172A)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Clear Local Token")
+            }
+        }
+
+        SectionCard(title = "Translation Text") {
+            Text(
+                latestTranscript ?: "Translated text will appear here.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (latestTranscript == null) Color(0xFF94A3B8) else Color(0xFF0F172A)
+            )
+            if (transcriptMessages.size > 1) {
+                Spacer(modifier = Modifier.height(6.dp))
+                transcriptMessages.takeLast(3).dropLast(1).forEach {
+                    Text(it, color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+
+        SectionCard(title = "System Log") {
+            if (logs.isEmpty()) {
+                Text("No logs yet.", color = Color(0xFF94A3B8))
+            } else {
+                logs.take(12).forEach {
+                    Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = Color(0xFF334155))
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            content()
+        }
+    }
+}
+
+@Composable
+private fun StatusCard(
+    mode: String,
+    direction: String,
+    hasRoom: Boolean,
+    hasToken: Boolean,
+    hasRemotes: Boolean,
+    staffRemoteDeviceId: Int?,
+    patientRemoteDeviceId: Int?
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A))
+    ) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(roomModeLabel(mode), color = Color(0xFFC7D2FE), fontWeight = FontWeight.Bold)
+            Text(directionLabel(direction), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                StatusPill("Room", hasRoom, Modifier.weight(1f))
+                StatusPill("Token", hasToken, Modifier.weight(1f))
+                StatusPill("Remotes", hasRemotes, Modifier.weight(1f))
+            }
+            Text(
+                "Staff ${staffRemoteDeviceId ?: "-"}  |  Patient ${patientRemoteDeviceId ?: "-"}",
+                color = Color(0xFFCBD5E1),
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusPill(label: String, ready: Boolean, modifier: Modifier = Modifier) {
+    Text(
+        text = if (ready) "$label OK" else "$label -",
+        modifier = modifier
+            .background(
+                color = if (ready) Color(0xFFDCFCE7) else Color(0xFF334155),
+                shape = RoundedCornerShape(100.dp)
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        color = if (ready) Color(0xFF166534) else Color(0xFFCBD5E1),
+        fontWeight = FontWeight.Bold,
+        style = MaterialTheme.typography.bodySmall
+    )
+}
+
+@Composable
+private fun ModeButton(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(48.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (active) Color(0xFF2563EB) else Color(0xFFE2E8F0),
+            contentColor = if (active) Color.White else Color(0xFF0F172A)
+        )
+    ) {
+        Text(label)
+    }
+}
+
+@Composable
+private fun RemoteRegisterButton(label: String, deviceId: Int?, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(56.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (deviceId == null) Color(0xFFEEF2FF) else Color(0xFFDCFCE7),
+            contentColor = if (deviceId == null) Color(0xFF3730A3) else Color(0xFF166534)
+        )
+    ) {
+        Text(if (deviceId == null) "$label Register" else "$label #$deviceId", fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun AlertPanel(text: String) {
+    Text(
+        text = text,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFFFF7ED), RoundedCornerShape(14.dp))
+            .padding(14.dp),
+        color = Color(0xFF9A3412),
+        fontWeight = FontWeight.Bold
+    )
 }
 
 private fun directionLabel(direction: String): String {

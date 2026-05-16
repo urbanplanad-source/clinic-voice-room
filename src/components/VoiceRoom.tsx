@@ -877,6 +877,7 @@ export function VoiceRoom({
   async function stopSpeaking() {
     if (!speakingStartedAt) return;
     markActivity();
+    setBusy(true);
     const durationSeconds = Math.max(1, Math.round((Date.now() - speakingStartedAt) / 1000));
     setSpeakingStartedAt(null);
     setMicEnabled(false);
@@ -903,7 +904,8 @@ export function VoiceRoom({
     } finally {
       setRoom(readyRoom);
       void broadcastRoomUpdate(readyRoom);
-      void transition("ready");
+      await transition("ready");
+      setBusy(false);
     }
   }
 
