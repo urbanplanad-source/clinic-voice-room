@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { QRCodeSVG } from "qrcode.react";
+import { QRCodeCanvas } from "qrcode.react";
 import { Check, Copy, Link2, QrCode, Smartphone, Stethoscope } from "lucide-react";
 import { VoiceRoom } from "./VoiceRoom";
 import { languageLabels, type PatientLanguage } from "@/lib/languages";
@@ -163,8 +163,17 @@ export function StaffRoom({ room, joinUrl, androidJoinUrl, roomMode = "consultat
         <p className="mx-auto mt-2 max-w-sm text-sm font-semibold leading-6 text-slate-500">
           {isProcedureMode ? "Use a second web device near the patient. The doctor's device and patient device each use their own microphone." : primaryQrCopy.body}
         </p>
-        <div className="mx-auto mt-5 inline-block rounded-lg border border-line bg-white p-4">
-          <QRCodeSVG value={primaryQrUrl} size={224} level="M" fgColor="#0f172a" />
+        <div className="mx-auto mt-5 inline-block rounded-lg border border-line bg-white p-5">
+          <QRCodeCanvas
+            value={primaryQrUrl}
+            size={288}
+            level="H"
+            bgColor="#ffffff"
+            fgColor="#000000"
+            marginSize={4}
+            className="block h-[288px] w-[288px] max-w-full"
+            style={{ imageRendering: "pixelated" }}
+          />
         </div>
         <p className="mx-auto mt-5 max-w-sm break-all rounded-lg bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-600">{primaryQrUrl}</p>
         <button
