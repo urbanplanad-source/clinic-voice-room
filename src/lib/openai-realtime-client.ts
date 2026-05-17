@@ -14,9 +14,11 @@ type SessionTokenResponse = {
   token?: {
     mode?: "demo";
     value?: string;
-    client_secret?: string | {
-      value?: string;
-    };
+    client_secret?:
+      | string
+      | {
+          value?: string;
+        };
   };
 };
 
@@ -39,6 +41,8 @@ export class OpenAIRealtimeClient {
   private pendingTranslation: PendingTranslation | null = null;
   private connectPromise: Promise<void> | null = null;
   private currentOutputText = "";
+  private currentInputText = "";
+  private firstOutputDeltaSeen = false;
 
   constructor(
     private readonly params: {
@@ -49,27 +53,33 @@ export class OpenAIRealtimeClient {
     private readonly callbacks: {
       onStatus?: (status: string) => void;
       onTranscriptDelta?: (text: string) => void;
+      onInputTranscriptDelta?: (text: string) => void;
+      onFirstOutputDelta?: () => void;
+      onRemoteAudioStream?: (stream: MediaStream) => void;
       onError?: (message: string) => void;
     }
   ) {}
 
   connect(stream: MediaStream) {
-    this.callbacks.onStatus?.("Realtime 연결 준비 중");
+    this.callbacks.onStatus?.("Realtime session preparing");
     this.connectPromise ??= this.createConnection(stream);
     return this.connectPromise;
   }
 
   startTurn() {
     this.currentOutputText = "";
+    this.currentInputText = "";
+    this.firstOutputDeltaSeen = false;
     this.clearPendingTranslation();
     this.callbacks.onTranscriptDelta?.("");
-    this.callbacks.onStatus?.("음성 입력 중");
+    this.callbacks.onInputTranscriptDelta?.("");
+    this.callbacks.onStatus?.("Listening");
   }
 
   async stopTurnAndTranslate(options: StopTurnOptions = {}) {
     await this.waitUntilOpen();
-    const quietMs = options.quietMs ?? 2200;
-    const maxMs = options.maxMs ?? 12000;
+    const quietMs = options.quietMs ?? 900;
+    const maxMs = options.maxMs ?? 6500;
 
     return new Promise<string>((resolve, reject) => {
       const finish = () => {
@@ -78,7 +88,7 @@ export class OpenAIRealtimeClient {
         if (finalText) {
           resolve(finalText);
         } else {
-          reject(new Error("번역 텍스트가 아직 도착하지 않았습니다. 조금 더 길게 말한 뒤 다시 시도해주세요."));
+          reject(new Error("No translated text was received yet. Please speak a little longer and try again."));
         }
       };
 
@@ -102,8 +112,11 @@ export class OpenAIRealtimeClient {
     this.peerConnection = null;
     this.connectPromise = null;
     this.currentOutputText = "";
+    this.currentInputText = "";
+    this.firstOutputDeltaSeen = false;
     this.callbacks.onTranscriptDelta?.("");
-    this.callbacks.onStatus?.("Realtime 연결 종료");
+    this.callbacks.onInputTranscriptDelta?.("");
+    this.callbacks.onStatus?.("Realtime session closed");
   }
 
   private async createConnection(stream: MediaStream) {
@@ -116,12 +129,18 @@ export class OpenAIRealtimeClient {
 
     dataChannel.addEventListener("message", (event) => this.handleServerEvent(event));
     dataChannel.addEventListener("open", () => {
-      this.callbacks.onStatus?.("Realtime 연결됨");
+      this.callbacks.onStatus?.("Realtime ready");
     });
     dataChannel.addEventListener("close", () => {
       this.pendingTranslation?.reject(new Error("Realtime translation data channel closed."));
       this.clearPendingTranslation();
-      this.callbacks.onStatus?.("Realtime 연결 닫힘");
+      this.callbacks.onStatus?.("Realtime session closed");
+    });
+
+    peerConnection.addEventListener("track", (event) => {
+      if (event.track.kind !== "audio") return;
+      const stream = event.streams[0] ?? new MediaStream([event.track]);
+      this.callbacks.onRemoteAudioStream?.(stream);
     });
 
     const audioTrack = stream.getAudioTracks()[0];
@@ -223,8 +242,12 @@ export class OpenAIRealtimeClient {
 
     if (serverEvent.type === "session.output_transcript.delta" && typeof serverEvent.delta === "string") {
       this.currentOutputText += serverEvent.delta;
+      if (!this.firstOutputDeltaSeen) {
+        this.firstOutputDeltaSeen = true;
+        this.callbacks.onFirstOutputDelta?.();
+      }
       this.callbacks.onTranscriptDelta?.(this.currentOutputText);
-      this.callbacks.onStatus?.("번역 수신 중");
+      this.callbacks.onStatus?.("Receiving translation");
       this.resetQuietTimer();
       return;
     }
@@ -233,6 +256,18 @@ export class OpenAIRealtimeClient {
       this.currentOutputText = serverEvent.transcript;
       this.callbacks.onTranscriptDelta?.(this.currentOutputText);
       this.resolvePendingTranslation();
+      return;
+    }
+
+    if (serverEvent.type === "session.input_transcript.delta" && typeof serverEvent.delta === "string") {
+      this.currentInputText += serverEvent.delta;
+      this.callbacks.onInputTranscriptDelta?.(this.currentInputText);
+      return;
+    }
+
+    if (serverEvent.type === "session.input_transcript.done" && typeof serverEvent.transcript === "string") {
+      this.currentInputText = serverEvent.transcript;
+      this.callbacks.onInputTranscriptDelta?.(this.currentInputText);
     }
   }
 
@@ -255,10 +290,10 @@ export class OpenAIRealtimeClient {
     const finalText = this.currentOutputText.trim();
     this.clearPendingTranslation();
     if (finalText) {
-      this.callbacks.onStatus?.("번역 완료");
+      this.callbacks.onStatus?.("Translation ready");
       pending.resolve(finalText);
     } else {
-      pending.reject(new Error("번역 텍스트가 아직 도착하지 않았습니다. 조금 더 길게 말한 뒤 다시 시도해주세요."));
+      pending.reject(new Error("No translated text was received yet. Please speak a little longer and try again."));
     }
   }
 

@@ -40,7 +40,8 @@ export async function POST(request: Request) {
     token = await createRealtimeSessionToken({
       role: parsed.data.role,
       patientLanguage: room.patientLanguage,
-      direction: parsed.data.direction
+      direction: parsed.data.direction,
+      safetyIdentifier: `${room.hospitalId}:${room.hostStaffId}:${room.id}:${parsed.data.role}:${parsed.data.direction ?? "default"}`
     });
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : "Realtime translation token request failed";

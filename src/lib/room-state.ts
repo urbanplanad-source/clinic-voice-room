@@ -19,11 +19,11 @@ const allowedTransitions: Record<RoomStatus, RoomStatus[]> = {
   waiting_for_patient: ["ready", "ended", "error"],
   ready: ["staff_speaking", "patient_speaking", "ended", "error"],
   staff_speaking: ["ready", "translating_to_patient", "ended", "error"],
-  translating_to_patient: ["patient_listening", "ready", "ended", "error"],
-  patient_listening: ["ready", "ended", "error"],
+  translating_to_patient: ["patient_listening", "patient_speaking", "ready", "ended", "error"],
+  patient_listening: ["patient_speaking", "ready", "ended", "error"],
   patient_speaking: ["ready", "translating_to_staff", "ended", "error"],
-  translating_to_staff: ["staff_listening", "ready", "ended", "error"],
-  staff_listening: ["ready", "ended", "error"],
+  translating_to_staff: ["staff_listening", "staff_speaking", "ready", "ended", "error"],
+  staff_listening: ["staff_speaking", "ready", "ended", "error"],
   ended: [],
   error: ["ready", "ended"]
 };
@@ -44,6 +44,8 @@ export function canRoleRequestStatus(role: ParticipantRole, status: RoomStatus) 
 }
 
 export function isMicEnabled(status: RoomStatus, role: ParticipantRole) {
-  if (status !== "ready") return false;
-  return role === "staff" || role === "patient";
+  if (status === "ended" || status === "error" || status === "waiting_for_patient") return false;
+  if (status === "staff_speaking") return role === "staff";
+  if (status === "patient_speaking") return role === "patient";
+  return true;
 }

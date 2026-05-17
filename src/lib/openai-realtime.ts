@@ -1,4 +1,5 @@
 import type { ParticipantRole, PatientLanguage } from "./languages";
+import { createHash } from "crypto";
 
 export type TranslationDirection = "staff_to_patient" | "patient_to_staff";
 
@@ -16,6 +17,7 @@ export async function createRealtimeSessionToken(params: {
   role: ParticipantRole;
   patientLanguage: PatientLanguage;
   direction?: TranslationDirection;
+  safetyIdentifier?: string;
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -35,12 +37,15 @@ export async function createRealtimeSessionToken(params: {
       ? params.patientLanguage
       : "ko";
   const model = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-translate";
+  const safetyIdentifier = params.safetyIdentifier
+    ? `clinic-voice-room-${createHash("sha256").update(params.safetyIdentifier).digest("hex").slice(0, 32)}`
+    : `clinic-voice-room-${params.role}`;
   const response = await fetch("https://api.openai.com/v1/realtime/translations/client_secrets", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "OpenAI-Safety-Identifier": `clinic-voice-room-${params.role}`
+      "OpenAI-Safety-Identifier": safetyIdentifier
     },
     body: JSON.stringify({
       expires_after: {
