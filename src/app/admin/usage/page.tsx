@@ -1,22 +1,14 @@
 import { redirect } from "next/navigation";
 import { AppFrame } from "@/components/AppFrame";
 import { getCurrentStaff } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
+import { getAdminUsageSummary } from "@/lib/admin-usage";
 
 export default async function AdminUsagePage() {
   const staff = await getCurrentStaff();
   if (!staff) redirect("/login");
   if (staff.role !== "internal_admin") redirect("/staff");
 
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-
-  const hospitals = await prisma.hospital.findMany({ include: { usageSessions: true } });
-  const monthlyUsage = hospitals.flatMap((hospital) =>
-    hospital.usageSessions.filter((usage) => usage.roomStartedAt >= monthStart)
-  );
-  const minutes = Math.round(monthlyUsage.reduce((sum, usage) => sum + usage.totalRoomSeconds, 0) / 60);
+  const usage = await getAdminUsageSummary();
 
   return (
     <AppFrame>
@@ -27,10 +19,10 @@ export default async function AdminUsagePage() {
         </header>
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Metric label="병원" value={hospitals.length} />
-          <Metric label="파트너 무료" value={hospitals.filter((item) => item.planType === "partner_free").length} />
-          <Metric label="이번 달 방" value={monthlyUsage.length} />
-          <Metric label="이번 달 분" value={minutes} />
+          <Metric label="병원" value={usage.totalHospitals} />
+          <Metric label="파트너 무료" value={usage.planCounts.partner_free} />
+          <Metric label="이번 달 방" value={usage.monthlyRoomCount} />
+          <Metric label="이번 달 분" value={usage.monthlyActiveMinutes} />
         </section>
 
         <section className="overflow-x-auto rounded-lg bg-white shadow-soft">
@@ -45,19 +37,17 @@ export default async function AdminUsagePage() {
               </tr>
             </thead>
             <tbody>
-              {hospitals.map((hospital) => {
-                const seconds = hospital.usageSessions.reduce((sum, usage) => sum + usage.totalRoomSeconds, 0);
-                const lastUsed = hospital.usageSessions.sort((a, b) => b.roomStartedAt.getTime() - a.roomStartedAt.getTime())[0]?.roomStartedAt;
-                return (
-                  <tr key={hospital.id} className="border-t border-line">
-                    <td className="px-5 py-4 font-bold text-ink">{hospital.name}</td>
-                    <td className="px-5 py-4 font-semibold text-slate-600">{hospital.planType}</td>
-                    <td className="px-5 py-4 font-semibold text-slate-600">{hospital.usageSessions.length}</td>
-                    <td className="px-5 py-4 font-semibold text-slate-600">{Math.round(seconds / 60)}</td>
-                    <td className="px-5 py-4 font-semibold text-slate-600">{lastUsed ? lastUsed.toLocaleDateString("ko-KR") : "-"}</td>
-                  </tr>
-                );
-              })}
+              {usage.hospitals.map((hospital) => (
+                <tr key={hospital.id} className="border-t border-line">
+                  <td className="px-5 py-4 font-bold text-ink">{hospital.name}</td>
+                  <td className="px-5 py-4 font-semibold text-slate-600">{hospital.planType}</td>
+                  <td className="px-5 py-4 font-semibold text-slate-600">{hospital.sessions}</td>
+                  <td className="px-5 py-4 font-semibold text-slate-600">{hospital.minutes}</td>
+                  <td className="px-5 py-4 font-semibold text-slate-600">
+                    {hospital.lastUsed ? hospital.lastUsed.toLocaleDateString("ko-KR") : "-"}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </section>

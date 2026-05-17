@@ -387,6 +387,8 @@ export function VoiceRoom({
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const audioObjectUrlRef = useRef<string | null>(null);
   const aiSpeechQueueRef = useRef(Promise.resolve());
+  const startSpeakingRef = useRef<() => Promise<void>>(async () => undefined);
+  const stopSpeakingRef = useRef<() => Promise<void>>(async () => undefined);
   const pendingUsageSecondsRef = useRef(0);
   const usageFlushTimerRef = useRef<number | null>(null);
   const inactivityTimerRef = useRef<number | null>(null);
@@ -524,6 +526,18 @@ export function VoiceRoom({
     });
   }, [role, room.id, room.patientLanguage, roomToken, stopPlayback]);
 
+  const playQueuedTranslatedSpeech = useCallback((message: TranslationMessage) => {
+    aiSpeechQueueRef.current = aiSpeechQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await playAiTranslatedSpeech(message);
+        } catch {
+          speakWithBrowserTts(message.text);
+        }
+      });
+  }, [playAiTranslatedSpeech, speakWithBrowserTts]);
+
   const flushUsage = useCallback(async () => {
     const durationSeconds = pendingUsageSecondsRef.current;
     if (!durationSeconds) return;
@@ -624,8 +638,8 @@ export function VoiceRoom({
       return;
     }
 
-    speakWithBrowserTts(latestMessage.text);
-  }, [audioPlaybackEnabled, isProcedureMode, latestMessage, playAiTranslatedSpeech, role, speakWithBrowserTts]);
+    playQueuedTranslatedSpeech(latestMessage);
+  }, [audioPlaybackEnabled, isProcedureMode, latestMessage, playQueuedTranslatedSpeech, speakWithBrowserTts]);
 
   useEffect(() => {
     if (!isProcedureMode) return;
@@ -676,8 +690,8 @@ export function VoiceRoom({
       event.preventDefault();
       if (busy && !isSpeaking) return;
       if (!isSpeaking && !micEnabled) return;
-      if (isSpeaking) void stopSpeaking();
-      else void startSpeaking();
+      if (isSpeaking) void stopSpeakingRef.current();
+      else void startSpeakingRef.current();
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -939,6 +953,11 @@ export function VoiceRoom({
       setBusy(false);
     }
   }
+
+  useEffect(() => {
+    startSpeakingRef.current = startSpeaking;
+    stopSpeakingRef.current = stopSpeaking;
+  });
 
   return (
     <div className="space-y-4">

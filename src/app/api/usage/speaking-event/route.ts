@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
-import { addDuration } from "@/lib/usage";
 
 const schema = z.object({
   roomId: z.string(),
@@ -19,7 +19,12 @@ export async function POST(request: Request) {
 
   const room = await prisma.translationRoom.findUnique({
     where: { id: parsed.data.roomId },
-    include: { usageSession: true }
+    select: {
+      id: true,
+      hostStaffId: true,
+      roomToken: true,
+      usageSession: { select: { id: true } }
+    }
   });
   if (!room || !room.usageSession) return NextResponse.json({ error: "Room not found" }, { status: 404 });
 
@@ -30,15 +35,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const data =
-    parsed.data.role === "staff"
-      ? { staffSpeakingSeconds: addDuration(room.usageSession.staffSpeakingSeconds, parsed.data.durationSeconds) }
-      : { patientSpeakingSeconds: addDuration(room.usageSession.patientSpeakingSeconds, parsed.data.durationSeconds) };
+  const durationSeconds = Math.max(0, Math.round(parsed.data.durationSeconds));
+  const speakingColumn =
+    parsed.data.role === "staff" ? Prisma.sql`"staffSpeakingSeconds"` : Prisma.sql`"patientSpeakingSeconds"`;
 
-  const usage = await prisma.usageSession.update({
-    where: { roomId: room.id },
-    data
-  });
+  const [usage] = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    UPDATE "UsageSession"
+    SET ${speakingColumn} = COALESCE(${speakingColumn}, 0) + ${durationSeconds}
+    WHERE "roomId" = ${room.id}
+    RETURNING *
+  `);
 
   return NextResponse.json({ usage });
 }

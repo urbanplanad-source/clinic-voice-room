@@ -10,12 +10,16 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
+import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.WindowManager
+import android.graphics.Bitmap
+import android.graphics.Color as AndroidColor
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
@@ -26,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -43,11 +48,21 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -73,7 +88,14 @@ import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
+    private companion object {
+        const val DEFAULT_BACKEND_URL = "https://clinic-voice-room-ufz4.vercel.app"
+    }
+
     private val executor = Executors.newSingleThreadExecutor()
+    private val http = OkHttpClient.Builder()
+        .cookieJar(InMemoryCookieJar())
+        .build()
     private var webRtcClient: OpenAiTranslationWebRtcClient? = null
     private var mediaSession: MediaSession? = null
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -87,9 +109,10 @@ class MainActivity : ComponentActivity() {
     private val patientRemoteDeviceId = mutableStateOf<Int?>(null)
     private val remoteRegistrationTarget = mutableStateOf<String?>(null)
     private val roomMode = mutableStateOf("consultation")
-    private var backendUrlValue = "https://clinic-voice-room-ufz4.vercel.app"
-    private var roomIdValue = ""
-    private var roomTokenValue = ""
+    private val backendUrlState = mutableStateOf(DEFAULT_BACKEND_URL)
+    private val roomIdState = mutableStateOf("")
+    private val roomTokenState = mutableStateOf("")
+    private var joinedRoomId: String? = null
     private var connectedDirection: String? = null
     @Volatile
     private var desiredMicEnabled = false
@@ -110,6 +133,7 @@ class MainActivity : ComponentActivity() {
         MediaButtonEventRouter.setHandler(::handleMediaKeyEvent)
         configureAudio()
         configureMediaSession()
+        applyLaunchIntent(intent)
 
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
@@ -126,15 +150,29 @@ class MainActivity : ComponentActivity() {
                         patientRemoteDeviceId = patientRemoteDeviceId.value,
                         remoteRegistrationTarget = remoteRegistrationTarget.value,
                         roomMode = roomMode.value,
+                        backendUrl = backendUrlState.value,
+                        roomId = roomIdState.value,
+                        roomToken = roomTokenState.value,
                         onLog = ::appendLog,
                         onSwitchDirection = ::switchTranslationDirection,
                         onModeChanged = { nextMode ->
                             roomMode.value = nextMode
                             appendLog("room mode=$nextMode")
                         },
-                        onBackendUrlChanged = { backendUrlValue = it },
-                        onRoomIdChanged = { roomIdValue = it },
-                        onRoomTokenChanged = { roomTokenValue = it },
+                        onBackendUrlChanged = { backendUrlState.value = it },
+                        onRoomIdChanged = { roomIdState.value = it },
+                        onRoomTokenChanged = { input ->
+                            if (!applyRoomInput(input)) roomTokenState.value = input
+                        },
+                        onCreateRoom = { backendUrl, email, password, patientLanguage, mode ->
+                            executor.execute {
+                                runCatching {
+                                    createRoomFromApp(backendUrl, email, password, patientLanguage, mode)
+                                }.onFailure {
+                                    appendLog("room create error: ${it.message}")
+                                }
+                            }
+                        },
                         onRegisterStaffRemote = {
                             remoteRegistrationTarget.value = "staff"
                             appendLog("register staff remote: press a button")
@@ -192,6 +230,12 @@ class MainActivity : ComponentActivity() {
         return super.dispatchKeyEvent(event)
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        applyLaunchIntent(intent)
+    }
+
     override fun onDestroy() {
         webRtcClient?.close()
         MediaButtonEventRouter.setHandler(null)
@@ -201,6 +245,72 @@ class MainActivity : ComponentActivity() {
         mediaSession = null
         executor.shutdownNow()
         super.onDestroy()
+    }
+
+    private data class RoomLaunch(
+        val backendUrl: String,
+        val roomToken: String,
+        val mode: String?
+    )
+
+    private fun applyLaunchIntent(intent: Intent?) {
+        val uri = intent?.data ?: return
+        val launch = parseRoomLaunch(uri) ?: return
+        applyRoomLaunch(launch, "deep link")
+    }
+
+    private fun applyRoomInput(input: String): Boolean {
+        val trimmed = input.trim()
+        if (!trimmed.contains("://")) return false
+        val uri = runCatching { Uri.parse(trimmed) }.getOrNull() ?: return false
+        val launch = parseRoomLaunch(uri) ?: return false
+        applyRoomLaunch(launch, "room link")
+        return true
+    }
+
+    private fun applyRoomLaunch(launch: RoomLaunch, source: String) {
+        backendUrlState.value = launch.backendUrl
+        roomTokenState.value = launch.roomToken
+        roomIdState.value = ""
+        joinedRoomId = null
+        if (launch.mode == "consultation" || launch.mode == "procedure") {
+            roomMode.value = launch.mode
+        }
+        appendLog("$source applied: mode=${roomMode.value} token=${launch.roomToken.take(8)}...")
+    }
+
+    private fun parseRoomLaunch(uri: Uri): RoomLaunch? {
+        val scheme = uri.scheme.orEmpty()
+        val mode = uri.getQueryParameter("mode")
+        val queryBackend = uri.getQueryParameter("backend")?.trim().orEmpty()
+
+        if (scheme == "clinicvoiceroom") {
+            val token = uri.getQueryParameter("token") ?: uri.pathSegments.lastOrNull()
+            if (token.isNullOrBlank()) return null
+            return RoomLaunch(
+                backendUrl = queryBackend.ifBlank { DEFAULT_BACKEND_URL },
+                roomToken = token,
+                mode = mode
+            )
+        }
+
+        if (scheme == "http" || scheme == "https") {
+            val segments = uri.pathSegments
+            val token = when {
+                segments.size >= 3 && segments[0] == "room" && segments[1] == "join" -> segments[2]
+                segments.size >= 2 && segments[0] == "room" -> segments[1]
+                else -> uri.getQueryParameter("token")
+            }
+            if (token.isNullOrBlank()) return null
+            val authority = uri.encodedAuthority ?: return null
+            return RoomLaunch(
+                backendUrl = queryBackend.ifBlank { "$scheme://$authority" },
+                roomToken = token,
+                mode = mode
+            )
+        }
+
+        return null
     }
 
     private fun configureAudio() {
@@ -393,7 +503,10 @@ class MainActivity : ComponentActivity() {
 
     private fun connectForDirection(direction: String, micEnabled: Boolean) {
         desiredMicEnabled = micEnabled
-        if (backendUrlValue.isBlank() || roomTokenValue.isBlank()) {
+        val backendUrl = backendUrlState.value
+        val roomId = roomIdState.value
+        val roomToken = roomTokenState.value
+        if (backendUrl.isBlank() || roomToken.isBlank()) {
             appendLog("direction connect skipped: missing backend url or room token")
             return
         }
@@ -408,7 +521,7 @@ class MainActivity : ComponentActivity() {
 
                 appendLog("direction session connecting: $direction")
                 val role = if (direction == "staff_to_patient") "staff" else "patient"
-                val token = requestToken(backendUrlValue, roomIdValue, roomTokenValue, role, direction)
+                val token = requestToken(backendUrl, roomId, roomToken, role, direction)
                 webRtcClient?.close()
                 webRtcClient = OpenAiTranslationWebRtcClient(applicationContext, ::appendLog, ::appendTranscriptDelta, ::finishTranscript)
                 webRtcClient?.connect(token)
@@ -461,6 +574,59 @@ class MainActivity : ComponentActivity() {
         appendLog("translation direction=$next")
     }
 
+    private fun createRoomFromApp(
+        backendUrl: String,
+        email: String,
+        password: String,
+        patientLanguage: String,
+        mode: String
+    ) {
+        if (backendUrl.isBlank()) error("missing backend url")
+        if (email.isBlank() || password.isBlank()) error("missing staff login")
+
+        val loginBody = JSONObject()
+            .put("email", email)
+            .put("password", password)
+            .toString()
+
+        val loginRequest = Request.Builder()
+            .url("${backendUrl.trimEnd('/')}/api/auth/login")
+            .post(loginBody.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        http.newCall(loginRequest).execute().use { response ->
+            appendLog("staff login response: ${response.code}")
+            if (!response.isSuccessful) error(response.body?.string().orEmpty().ifBlank { "staff login failed" })
+        }
+
+        val createBody = JSONObject()
+            .put("patientLanguage", patientLanguage)
+            .toString()
+
+        val createRequest = Request.Builder()
+            .url("${backendUrl.trimEnd('/')}/api/rooms")
+            .post(createBody.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        http.newCall(createRequest).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            appendLog("room create response: ${response.code}")
+            if (!response.isSuccessful) error(text.ifBlank { "room create failed" })
+
+            val room = JSONObject(text).getJSONObject("room")
+            val newRoomId = room.getString("id")
+            val newRoomToken = room.getString("roomToken")
+            runOnUiThread {
+                backendUrlState.value = backendUrl
+                roomIdState.value = newRoomId
+                roomTokenState.value = newRoomToken
+                roomMode.value = mode
+                joinedRoomId = null
+            }
+            appendLog("room created: mode=$mode language=$patientLanguage id=${newRoomId.take(10)} token=${newRoomToken.take(8)}...")
+        }
+    }
+
     private fun requestToken(
         backendUrl: String,
         roomId: String,
@@ -472,6 +638,7 @@ class MainActivity : ComponentActivity() {
         val effectiveRoomId = roomId.ifBlank {
             resolveRoomIdByToken(backendUrl, normalizedRoomToken)
         }
+        markRoomJoined(backendUrl, effectiveRoomId, normalizedRoomToken)
 
         val bodyJson = JSONObject()
             .put("roomId", effectiveRoomId)
@@ -487,7 +654,7 @@ class MainActivity : ComponentActivity() {
             .post(bodyJson.toRequestBody("application/json".toMediaType()))
             .build()
 
-        OkHttpClient().newCall(request).execute().use { response ->
+        http.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
             appendLog("token response: ${response.code}")
             if (!response.isSuccessful) error(text.ifBlank { "token request failed" })
@@ -510,12 +677,12 @@ class MainActivity : ComponentActivity() {
             .get()
             .build()
 
-        OkHttpClient().newCall(request).execute().use { response ->
+        http.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
             appendLog("room lookup response: ${response.code}")
             if (!response.isSuccessful) error(text.ifBlank { "room lookup failed" })
             val roomId = JSONObject(text).getJSONObject("room").getString("id")
-            roomIdValue = roomId
+            runOnUiThread { roomIdState.value = roomId }
             appendLog("room id resolved=$roomId")
             return roomId
         }
@@ -523,10 +690,30 @@ class MainActivity : ComponentActivity() {
 
     private fun extractRoomToken(input: String): String {
         val trimmed = input.trim()
-        if (!trimmed.startsWith("http")) return trimmed
-        val withoutQuery = trimmed.substringBefore("?")
-        val token = withoutQuery.substringAfterLast("/")
-        return token.ifBlank { trimmed }
+        if (!trimmed.contains("://")) return trimmed
+        val uri = runCatching { Uri.parse(trimmed) }.getOrNull() ?: return trimmed
+        return parseRoomLaunch(uri)?.roomToken ?: trimmed
+    }
+
+    private fun markRoomJoined(backendUrl: String, roomId: String, roomToken: String) {
+        if (joinedRoomId == roomId) return
+
+        runCatching {
+            val bodyJson = JSONObject()
+                .put("roomToken", roomToken)
+                .toString()
+            val request = Request.Builder()
+                .url("${backendUrl.trimEnd('/')}/api/rooms/$roomId/join-patient")
+                .post(bodyJson.toRequestBody("application/json".toMediaType()))
+                .build()
+
+            http.newCall(request).execute().use { response ->
+                appendLog("room join response: ${response.code}")
+                if (response.isSuccessful) joinedRoomId = roomId
+            }
+        }.onFailure {
+            appendLog("room join skipped: ${it.message}")
+        }
     }
 
     private fun appendLog(message: String) {
@@ -574,12 +761,16 @@ private fun SpikeScreen(
     patientRemoteDeviceId: Int?,
     remoteRegistrationTarget: String?,
     roomMode: String,
+    backendUrl: String,
+    roomId: String,
+    roomToken: String,
     onLog: (String) -> Unit,
     onSwitchDirection: () -> Unit,
     onModeChanged: (String) -> Unit,
     onBackendUrlChanged: (String) -> Unit,
     onRoomIdChanged: (String) -> Unit,
     onRoomTokenChanged: (String) -> Unit,
+    onCreateRoom: (String, String, String, String, String) -> Unit,
     onRegisterStaffRemote: () -> Unit,
     onRegisterPatientRemote: () -> Unit,
     onClearRemoteRegistration: () -> Unit,
@@ -587,200 +778,263 @@ private fun SpikeScreen(
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit
 ) {
-    var backendUrl by remember { mutableStateOf("https://clinic-voice-room-ufz4.vercel.app") }
-    var roomId by remember { mutableStateOf("") }
-    var roomToken by remember { mutableStateOf("") }
-    var role by remember { mutableStateOf("patient") }
-    var token by remember { mutableStateOf("") }
+    var role by remember { mutableStateOf("staff") }
+    var token by remember(roomToken) { mutableStateOf("") }
+    var staffEmail by remember { mutableStateOf("staff@clinic.test") }
+    var staffPassword by remember { mutableStateOf("password1234") }
+    var patientLanguage by remember { mutableStateOf("zh") }
     val hasRoom = roomToken.isNotBlank()
     val hasRemotes = staffRemoteDeviceId != null && patientRemoteDeviceId != null
-    val latestTranscript = transcriptMessages.lastOrNull()
+    val latestTranscript = transcriptMessages.firstOrNull()
+    val createdRoomLabel = if (hasRoom) "${languageLabel(patientLanguage)} ${if (roomMode == "procedure") "시술" else "상담"} 통역방" else "아직 생성된 방이 없습니다"
+    val joinUrl = if (hasRoom) "${backendUrl.trimEnd('/')}/room/join/$roomToken?mode=$roomMode" else ""
+    val clipboard = LocalClipboardManager.current
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF6F7FB))
-            .padding(18.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("BTSKIN CLINIC", color = Color(0xFF2563EB), fontWeight = FontWeight.Bold)
-            Text("Procedure Interpreter", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("One phone, two remotes, shared earphones", color = Color(0xFF64748B))
-        }
-
-        StatusCard(
-            mode = roomMode,
-            direction = direction,
-            hasRoom = hasRoom,
-            hasToken = token.isNotBlank(),
-            hasRemotes = hasRemotes,
-            staffRemoteDeviceId = staffRemoteDeviceId,
-            patientRemoteDeviceId = patientRemoteDeviceId
-        )
-
         if (remoteRegistrationTarget != null) {
-            AlertPanel("Press ${remoteRegistrationTargetLabel(remoteRegistrationTarget)} remote now")
-        }
-
-        SectionCard(title = "Mode") {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                ModeButton(
-                    label = "Consultation PTT",
-                    active = roomMode == "consultation",
-                    modifier = Modifier.weight(1f),
-                    onClick = { onModeChanged("consultation") }
-                )
-                ModeButton(
-                    label = "Procedure",
-                    active = roomMode == "procedure",
-                    modifier = Modifier.weight(1f),
-                    onClick = { onModeChanged("procedure") }
-                )
+            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                AlertPanel("${remoteRegistrationTargetLabel(remoteRegistrationTarget)} 리모컨 버튼을 눌러주세요")
             }
         }
 
-        SectionCard(title = "Remote Controls") {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                RemoteRegisterButton(
-                    label = "Staff",
-                    deviceId = staffRemoteDeviceId,
-                    modifier = Modifier.weight(1f),
-                    onClick = onRegisterStaffRemote
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (!hasRoom) {
+                HeaderCard(
+                    eyebrow = "BTSKIN CLINIC",
+                    title = "상담실장님",
+                    subtitle = null,
+                    status = null
                 )
-                RemoteRegisterButton(
-                    label = "Patient",
-                    deviceId = patientRemoteDeviceId,
-                    modifier = Modifier.weight(1f),
-                    onClick = onRegisterPatientRemote
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(
-                    onClick = onSwitchDirection,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
-                ) {
-                    Text("Switch")
+
+                SectionCard(title = "음성 통역 시작") {
+                    Text("환자 언어를 선택하고 상담 또는 시술 통역방을 만드세요.", color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        LanguageButton("中文\n중국어", "zh", patientLanguage, Modifier.weight(1f)) { patientLanguage = it }
+                        LanguageButton("日本語\n일본어", "ja", patientLanguage, Modifier.weight(1f)) { patientLanguage = it }
+                        LanguageButton("English\n영어", "en", patientLanguage, Modifier.weight(1f)) { patientLanguage = it }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        LanguageButton("Русский\n러시아어", "ru", patientLanguage, Modifier.weight(1f)) { patientLanguage = it }
+                        LanguageButton("Tiếng Việt\n베트남어", "vi", patientLanguage, Modifier.weight(1f)) { patientLanguage = it }
+                        LanguageButton("Bahasa\n인도네시아어", "id", patientLanguage, Modifier.weight(1f)) { patientLanguage = it }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        ModeButton(
+                            label = "상담 통역방",
+                            active = roomMode == "consultation",
+                            modifier = Modifier.weight(1f),
+                            onClick = { onModeChanged("consultation") }
+                        )
+                        ModeButton(
+                            label = "시술 통역방",
+                            active = roomMode == "procedure",
+                            modifier = Modifier.weight(1f),
+                            onClick = { onModeChanged("procedure") }
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            token = ""
+                            role = "staff"
+                            onCreateRoom(backendUrl, staffEmail, staffPassword, patientLanguage, roomMode)
+                        },
+                        modifier = Modifier.fillMaxWidth().height(58.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                    ) {
+                        Text(if (roomMode == "procedure") "시술 통역방" else "상담 통역방", fontWeight = FontWeight.Bold)
+                    }
                 }
-                Button(
-                    onClick = onClearRemoteRegistration,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE2E8F0), contentColor = Color(0xFF0F172A))
-                ) {
-                    Text("Clear")
-                }
-            }
-        }
-
-        SectionCard(title = "Room Connection") {
-            OutlinedTextField(
-                value = backendUrl,
-                onValueChange = {
-                    backendUrl = it
-                    onBackendUrlChanged(it)
-                },
-                label = { Text("Backend URL") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = roomId,
-                onValueChange = {
-                    roomId = it
-                    onRoomIdChanged(it)
-                },
-                label = { Text("Room ID (optional)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = roomToken,
-                onValueChange = {
-                    roomToken = it
-                    onRoomTokenChanged(it)
-                },
-                label = { Text("Room Token or Join Link") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                ModeButton(
-                    label = "Patient",
-                    active = role == "patient",
-                    modifier = Modifier.weight(1f),
-                    onClick = { role = "patient"; onLog("role=patient") }
+            } else if (token.isBlank()) {
+                HeaderCard(
+                    eyebrow = "BTSKIN CLINIC",
+                    title = "${languageLabel(patientLanguage)} 통역 대기실",
+                    subtitle = waitingInstruction(patientLanguage),
+                    status = null
                 )
-                ModeButton(
-                    label = "Staff",
-                    active = role == "staff",
-                    modifier = Modifier.weight(1f),
-                    onClick = { role = "staff"; onLog("role=staff") }
-                )
-            }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                QrWaitingCard(
+                    joinUrl = joinUrl,
+                    patientLanguage = patientLanguage,
+                    onCopy = { clipboard.setText(AnnotatedString(joinUrl)) }
+                )
+
+                Text(
+                    waitingMessage(patientLanguage),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFEFF6FF), RoundedCornerShape(8.dp))
+                        .padding(16.dp),
+                    color = Color(0xFF2563EB),
+                    fontWeight = FontWeight.Bold
+                )
+
                 Button(
                     onClick = {
                         onRequestToken(backendUrl, roomId, roomToken, role, direction) { fetched ->
                             token = fetched
+                            onConnect(fetched)
                         }
                     },
                     enabled = hasRoom,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB), disabledContainerColor = Color(0xFFCBD5E1))
                 ) {
-                    Text("Token")
+                    Text("통역 시작", fontWeight = FontWeight.Bold)
                 }
-                Button(
-                    onClick = { onConnect(token) },
-                    enabled = token.isNotBlank(),
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A))
-                ) {
-                    Text("Connect")
+            } else {
+                HeaderCard(
+                    eyebrow = "BTSKIN CLINIC",
+                    title = "${languageLabel(patientLanguage)} 통역",
+                    subtitle = "마이크 버튼을 누르고 말해주세요.",
+                    status = "준비됨"
+                )
+
+                SectionCard(title = "최근 통역") {
+                    Text(
+                        latestTranscript ?: "상대방의 통역 결과가 여기에 표시됩니다.",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFF8FAFC), RoundedCornerShape(8.dp))
+                            .padding(16.dp),
+                        style = if (latestTranscript == null) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleLarge,
+                        color = if (latestTranscript == null) Color(0xFF64748B) else Color(0xFF0F172A),
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (transcriptMessages.size > 1) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        transcriptMessages.drop(1).take(3).forEach {
+                            Text(it, color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
+
+                MicCard(
+                    title = "누르고 말씀하세요",
+                    helper = "한 번에 한 사람씩 말합니다"
+                )
+
+                if (roomMode == "procedure") {
+                    SectionCard(title = "시술 리모컨") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            RemoteRegisterButton(
+                                label = "Staff",
+                                deviceId = staffRemoteDeviceId,
+                                modifier = Modifier.weight(1f),
+                                onClick = onRegisterStaffRemote
+                            )
+                            RemoteRegisterButton(
+                                label = "Patient",
+                                deviceId = patientRemoteDeviceId,
+                                modifier = Modifier.weight(1f),
+                                onClick = onRegisterPatientRemote
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                            Button(
+                                onClick = onSwitchDirection,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155))
+                            ) {
+                                Text("방향 전환")
+                            }
+                            Button(
+                                onClick = onClearRemoteRegistration,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE2E8F0), contentColor = Color(0xFF0F172A))
+                            ) {
+                                Text("초기화")
+                            }
+                        }
+                    }
+                }
+
                 Button(
                     onClick = onDisconnect,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626))
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFFE11D48))
                 ) {
-                    Text("End")
+                    Text("통역 종료", fontWeight = FontWeight.Bold)
                 }
             }
-            Button(
-                onClick = {
-                    token = ""
-                    onLog("local token cleared")
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE2E8F0), contentColor = Color(0xFF0F172A)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Clear Local Token")
-            }
-        }
 
-        SectionCard(title = "Translation Text") {
-            Text(
-                latestTranscript ?: "Translated text will appear here.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (latestTranscript == null) Color(0xFF94A3B8) else Color(0xFF0F172A)
-            )
-            if (transcriptMessages.size > 1) {
-                Spacer(modifier = Modifier.height(6.dp))
-                transcriptMessages.takeLast(3).dropLast(1).forEach {
-                    Text(it, color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+            SectionCard(title = "운영 설정") {
+                OutlinedTextField(
+                    value = staffEmail,
+                    onValueChange = { staffEmail = it },
+                    label = { Text("직원 이메일") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = staffPassword,
+                    onValueChange = { staffPassword = it },
+                    label = { Text("비밀번호") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = backendUrl,
+                    onValueChange = { onBackendUrlChanged(it) },
+                    label = { Text("서버 주소") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = roomToken,
+                    onValueChange = {
+                        token = ""
+                        onRoomTokenChanged(it)
+                    },
+                    label = { Text("방 링크 또는 토큰") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = roomId,
+                    onValueChange = { onRoomIdChanged(it) },
+                    label = { Text("Room ID (자동 조회)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    ModeButton(
+                        label = "Staff",
+                        active = role == "staff",
+                        modifier = Modifier.weight(1f),
+                        onClick = { role = "staff"; onLog("role=staff") }
+                    )
+                    ModeButton(
+                        label = "Patient",
+                        active = role == "patient",
+                        modifier = Modifier.weight(1f),
+                        onClick = { role = "patient"; onLog("role=patient") }
+                    )
+                }
+                Button(
+                    onClick = {
+                        token = ""
+                        onLog("local token cleared")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE2E8F0), contentColor = Color(0xFF0F172A))
+                ) {
+                    Text("토큰 지우기")
                 }
             }
-        }
 
-        SectionCard(title = "System Log") {
-            if (logs.isEmpty()) {
-                Text("No logs yet.", color = Color(0xFF94A3B8))
-            } else {
-                logs.take(12).forEach {
-                    Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = Color(0xFF334155))
+            SectionCard(title = "시스템 로그") {
+                if (logs.isEmpty()) {
+                    Text("아직 로그가 없습니다.", color = Color(0xFF94A3B8))
+                } else {
+                    logs.take(12).forEach {
+                        Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = Color(0xFF334155))
+                    }
                 }
             }
         }
@@ -791,13 +1045,139 @@ private fun SpikeScreen(
 private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
             content()
+        }
+    }
+}
+
+@Composable
+private fun HeaderCard(eyebrow: String, title: String, subtitle: String?, status: String?) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(eyebrow, color = Color(0xFF2F7DF6), fontWeight = FontWeight.Bold)
+                Text(title, color = Color(0xFF0F172A), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+                if (subtitle != null) {
+                    Text(subtitle, color = Color(0xFF64748B), style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+            if (status != null) {
+                Text(
+                    text = "●  $status",
+                    modifier = Modifier
+                        .background(Color(0xFFEAFBF4), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = Color(0xFF047857),
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun QrWaitingCard(joinUrl: String, patientLanguage: String, onCopy: () -> Unit) {
+    val qrImage = remember(joinUrl) { createQrBitmap(joinUrl, 640).asImageBitmap() }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Text(
+                text = qrHeading(patientLanguage),
+                color = Color(0xFF0F172A),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = qrInstruction(patientLanguage),
+                color = Color(0xFF64748B),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
+            Image(
+                bitmap = qrImage,
+                contentDescription = "Patient join QR code",
+                modifier = Modifier
+                    .size(240.dp)
+                    .background(Color.White, RoundedCornerShape(8.dp))
+                    .padding(8.dp)
+            )
+            Text(
+                text = joinUrl,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF8FAFC), RoundedCornerShape(8.dp))
+                    .padding(14.dp),
+                color = Color(0xFF334155),
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+            Button(
+                onClick = onCopy,
+                modifier = Modifier.height(54.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2F7DF6))
+            ) {
+                Text("링크 복사", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MicCard(title: String, helper: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(
+                text = "마이크",
+                modifier = Modifier
+                    .size(160.dp)
+                    .background(Color(0xFF3182F6), RoundedCornerShape(100.dp))
+                    .padding(top = 66.dp),
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+            Text(title, color = Color(0xFF0F172A), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(helper, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -821,9 +1201,9 @@ private fun StatusCard(
             Text(roomModeLabel(mode), color = Color(0xFFC7D2FE), fontWeight = FontWeight.Bold)
             Text(directionLabel(direction), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                StatusPill("Room", hasRoom, Modifier.weight(1f))
-                StatusPill("Token", hasToken, Modifier.weight(1f))
-                StatusPill("Remotes", hasRemotes, Modifier.weight(1f))
+                StatusPill("방", hasRoom, Modifier.weight(1f))
+                StatusPill("토큰", hasToken, Modifier.weight(1f))
+                StatusPill("리모컨", hasRemotes, Modifier.weight(1f))
             }
             Text(
                 "Staff ${staffRemoteDeviceId ?: "-"}  |  Patient ${patientRemoteDeviceId ?: "-"}",
@@ -865,6 +1245,20 @@ private fun ModeButton(label: String, active: Boolean, modifier: Modifier = Modi
 }
 
 @Composable
+private fun LanguageButton(label: String, value: String, selected: String, modifier: Modifier = Modifier, onClick: (String) -> Unit) {
+    Button(
+        onClick = { onClick(value) },
+        modifier = modifier.height(92.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected == value) Color(0xFFEFF6FF) else Color.White,
+            contentColor = if (selected == value) Color(0xFF1D4ED8) else Color(0xFF0F172A)
+        )
+    ) {
+        Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
 private fun RemoteRegisterButton(label: String, deviceId: Int?, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Button(
         onClick = onClick,
@@ -874,7 +1268,7 @@ private fun RemoteRegisterButton(label: String, deviceId: Int?, modifier: Modifi
             contentColor = if (deviceId == null) Color(0xFF3730A3) else Color(0xFF166534)
         )
     ) {
-        Text(if (deviceId == null) "$label Register" else "$label #$deviceId", fontWeight = FontWeight.Bold)
+        Text(if (deviceId == null) "$label 등록" else "$label #$deviceId", fontWeight = FontWeight.Bold)
     }
 }
 
@@ -893,15 +1287,86 @@ private fun AlertPanel(text: String) {
 
 private fun directionLabel(direction: String): String {
     return when (direction) {
-        "staff_to_patient" -> "Staff Korean -> Patient language"
-        else -> "Patient language -> Staff Korean"
+        "staff_to_patient" -> "Staff 한국어 -> 환자 언어"
+        else -> "환자 언어 -> Staff 한국어"
     }
 }
 
 private fun roomModeLabel(mode: String): String {
     return when (mode) {
-        "procedure" -> "Procedure direction select"
-        else -> "Consultation PTT"
+        "procedure" -> "시술 방향 선택"
+        else -> "상담 PTT"
+    }
+}
+
+private fun createQrBitmap(content: String, size: Int): Bitmap {
+    val matrix = QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size)
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    for (x in 0 until size) {
+        for (y in 0 until size) {
+            bitmap.setPixel(x, y, if (matrix[x, y]) AndroidColor.BLACK else AndroidColor.WHITE)
+        }
+    }
+    return bitmap
+}
+
+private fun languageLabel(language: String): String {
+    return when (language) {
+        "zh" -> "중국어"
+        "ja" -> "일본어"
+        "en" -> "영어"
+        "ru" -> "러시아어"
+        "vi" -> "베트남어"
+        "id" -> "인도네시아어"
+        else -> language
+    }
+}
+
+private fun waitingInstruction(language: String): String {
+    return when (language) {
+        "zh" -> "请扫描二维码"
+        "ja" -> "QRコードをスキャンしてください"
+        "en" -> "Scan the QR code"
+        "ru" -> "Отсканируйте QR-код"
+        "vi" -> "Vui lòng quét mã QR"
+        "id" -> "Pindai kode QR"
+        else -> "QR 코드를 스캔해주세요"
+    }
+}
+
+private fun qrHeading(language: String): String {
+    return when (language) {
+        "zh" -> "请扫描二维码"
+        "ja" -> "QRコードをスキャンしてください"
+        "en" -> "Scan the QR code"
+        "ru" -> "Отсканируйте QR-код"
+        "vi" -> "Vui lòng quét mã QR"
+        "id" -> "Pindai kode QR"
+        else -> "QR 코드를 스캔해주세요"
+    }
+}
+
+private fun qrInstruction(language: String): String {
+    return when (language) {
+        "zh" -> "请使用手机相机扫描下方二维码，进入医院翻译室。"
+        "ja" -> "スマートフォンのカメラで下のQRコードを読み取り、通訳ルームに入室してください。"
+        "en" -> "Use your phone camera to scan the QR code below and enter the interpretation room."
+        "ru" -> "Откройте камеру телефона, отсканируйте QR-код и войдите в кабинет перевода."
+        "vi" -> "Dùng camera điện thoại quét mã QR bên dưới để vào phòng phiên dịch."
+        "id" -> "Gunakan kamera ponsel untuk memindai kode QR di bawah dan masuk ke ruang interpretasi."
+        else -> "스마트폰 카메라로 아래 QR 코드를 읽고 통역방에 입장해주세요."
+    }
+}
+
+private fun waitingMessage(language: String): String {
+    return when (language) {
+        "zh" -> "正在等待患者进入"
+        "ja" -> "患者さんの入室を待っています"
+        "en" -> "Waiting for the patient to join"
+        "ru" -> "Ожидаем вход пациента"
+        "vi" -> "Đang chờ bệnh nhân vào phòng"
+        "id" -> "Menunggu pasien masuk"
+        else -> "환자 입장을 기다리고 있습니다"
     }
 }
 
@@ -910,6 +1375,22 @@ private fun remoteRegistrationTargetLabel(target: String): String {
         "staff" -> "staff"
         "patient" -> "patient"
         else -> target
+    }
+}
+
+private class InMemoryCookieJar : CookieJar {
+    private val cookies = mutableMapOf<String, MutableList<Cookie>>()
+
+    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+        this.cookies[url.host] = cookies.toMutableList()
+    }
+
+    override fun loadForRequest(url: HttpUrl): List<Cookie> {
+        return cookies[url.host]?.filter { !it.hasExpired() }.orEmpty()
+    }
+
+    private fun Cookie.hasExpired(): Boolean {
+        return expiresAt < System.currentTimeMillis()
     }
 }
 

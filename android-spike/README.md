@@ -1,6 +1,6 @@
 # Clinic Voice Room Android Spike
 
-This is a throwaway Kotlin Android spike for verifying OpenAI Realtime Translation audio output on a real Android device.
+This is a Kotlin Android field-test spike for verifying OpenAI Realtime Translation audio output on a real Android device.
 
 ## Goal
 
@@ -17,20 +17,30 @@ Confirm whether `gpt-realtime-translate` over `POST /v1/realtime/translations/ca
 
 ## App Inputs
 
-- Backend URL: the current Next.js or Cloudflare Tunnel base URL.
-- Room ID: an existing translation room ID.
-- Room token: required for `role = patient`.
-- Role: begin with `patient` because `staff` currently depends on browser cookie auth.
+- Backend URL: defaults to the current Vercel deployment.
+- Staff login: used by the test app to create rooms from the hospital device.
+- Patient language: choose Chinese, Japanese, or English before creating a room.
+- Room link or token: paste the patient join link or scan the Android app QR from the web waiting room.
+- Room ID: resolved automatically from the room token.
+- Role: choose `patient` or `staff`; the app sends the room token for either role during field tests.
 
 ## Expected First Test
 
 1. Create a room in the web app.
-2. Copy the `roomId` from the staff room URL: `/staff/rooms/{roomId}`.
-3. Copy the `roomToken` from the patient join URL: `/room/join/{roomToken}`.
-4. Start this Android app as `patient`.
-5. Tap `Request Token`.
-6. Tap `Connect`.
-7. Speak in the patient language.
-8. Confirm whether Korean translated audio is heard on the phone.
+2. In procedure mode, scan the Android app QR code. In consultation mode, paste the patient join link into the app.
+3. Confirm that the backend URL and token are filled automatically.
+4. Register the staff and patient remotes if needed.
+5. Tap `연결`.
+6. Speak in the selected direction.
+7. Confirm whether translated audio is heard on the phone.
+
+## App-Created Room Test
+
+1. Open the app.
+2. In `방 만들기`, confirm the staff login and patient language.
+3. Tap `새 방 만들기`.
+4. Confirm that `Room ID` and `방 링크 또는 토큰` are filled automatically.
+5. Tap `연결`.
+6. Register remotes and test the selected direction.
 
 Do not put a permanent OpenAI API key in this Android project.

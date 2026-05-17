@@ -101,7 +101,7 @@ export function StaffHome({
           >
             <span>
               <span className="block text-lg">시술 통역방</span>
-              <span className="mt-1 block text-xs font-semibold text-slate-300">Android 앱 · 리모컨 테스트</span>
+              <span className="mt-1 block text-xs font-semibold text-slate-300">웹 · 풋 페달 테스트</span>
             </span>
             {loadingMode === "procedure" ? <Loader2 size={22} className="animate-spin" /> : <Stethoscope size={22} />}
           </button>

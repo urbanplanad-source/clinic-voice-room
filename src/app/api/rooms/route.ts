@@ -4,10 +4,21 @@ import { z } from "zod";
 import { getCurrentStaff } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { isPatientLanguage } from "@/lib/languages";
+import { getHospitalActiveRoomLimit } from "@/lib/room-limits";
+import { endStaleRooms } from "@/lib/stale-rooms";
 
 const schema = z.object({
   patientLanguage: z.string().refine(isPatientLanguage)
 });
+
+class ActiveRoomLimitError extends Error {
+  constructor(
+    readonly activeRoomCount: number,
+    readonly activeRoomLimit: number
+  ) {
+    super("Hospital active room limit reached.");
+  }
+}
 
 export async function POST(request: Request) {
   const staff = await getCurrentStaff();
@@ -20,32 +31,64 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unsupported patient language" }, { status: 400 });
   }
 
-  const roomToken = randomBytes(24).toString("base64url");
+  await endStaleRooms({ hospitalId: staff.hospitalId });
 
-  const room = await prisma.translationRoom.create({
-    data: {
-      hospitalId: staff.hospitalId,
-      hostStaffId: staff.id,
-      patientLanguage: parsed.data.patientLanguage,
-      roomToken,
-      status: "waiting_for_patient",
-      participants: {
-        create: {
-          role: "staff",
-          connectionState: "connected"
-        }
-      },
-      usageSession: {
-        create: {
+  const activeRoomLimit = getHospitalActiveRoomLimit();
+  let room;
+  try {
+    room = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${staff.hospitalId})::bigint)`;
+
+      const activeRoomCount = await tx.translationRoom.count({
+        where: {
           hospitalId: staff.hospitalId,
-          staffId: staff.id,
-          patientLanguage: parsed.data.patientLanguage,
-          roomStartedAt: new Date()
+          status: { not: "ended" }
         }
+      });
+
+      if (activeRoomCount >= activeRoomLimit) {
+        throw new ActiveRoomLimitError(activeRoomCount, activeRoomLimit);
       }
-    },
-    include: { hospital: true, hostStaff: true, usageSession: true }
-  });
+
+      const roomToken = randomBytes(24).toString("base64url");
+      return tx.translationRoom.create({
+        data: {
+          hospitalId: staff.hospitalId,
+          patientLanguage: parsed.data.patientLanguage,
+          hostStaffId: staff.id,
+          roomToken,
+          status: "waiting_for_patient",
+          participants: {
+            create: {
+              role: "staff",
+              connectionState: "connected"
+            }
+          },
+          usageSession: {
+            create: {
+              hospitalId: staff.hospitalId,
+              staffId: staff.id,
+              patientLanguage: parsed.data.patientLanguage,
+              roomStartedAt: new Date()
+            }
+          }
+        },
+        include: { hospital: true, hostStaff: true, usageSession: true }
+      });
+    });
+  } catch (caught) {
+    if (caught instanceof ActiveRoomLimitError) {
+      return NextResponse.json(
+        {
+          error: "Active room limit reached",
+          activeRoomCount: caught.activeRoomCount,
+          activeRoomLimit: caught.activeRoomLimit
+        },
+        { status: 429 }
+      );
+    }
+    throw caught;
+  }
 
   return NextResponse.json({ room });
 }
