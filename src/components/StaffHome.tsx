@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, BarChart3, Languages, LogOut, Mic, Stethoscope } from "lucide-react";
+import { ArrowRight, BarChart3, Languages, Loader2, LogOut, Mic, Stethoscope } from "lucide-react";
 import { languageLabels, patientLanguages, type PatientLanguage } from "@/lib/languages";
 
 export function StaffHome({
@@ -12,16 +12,16 @@ export function StaffHome({
 }) {
   const router = useRouter();
   const [patientLanguage, setPatientLanguage] = useState<PatientLanguage>("zh");
-  const [loading, setLoading] = useState(false);
+  const [loadingMode, setLoadingMode] = useState<"consultation" | "procedure" | null>(null);
 
   async function createRoom(mode: "consultation" | "procedure") {
-    setLoading(true);
+    setLoadingMode(mode);
     const response = await fetch("/api/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ patientLanguage })
     });
-    setLoading(false);
+    setLoadingMode(null);
     if (!response.ok) return;
     const data = await response.json();
     router.push(`/staff/rooms/${data.room.id}?mode=${mode}`);
@@ -35,14 +35,15 @@ export function StaffHome({
 
   return (
     <div className="space-y-5">
-      <header className="flex items-center justify-between gap-4">
+      <header className="flex items-center justify-between gap-4 rounded-lg bg-ink p-5 text-white shadow-soft">
         <div className="min-w-0">
-          <p className="truncate text-sm font-bold text-trust">{staff.hospital.name}</p>
-          <h1 className="mt-1 text-[30px] font-bold leading-tight text-ink">{staff.name}님</h1>
+          <p className="truncate text-sm font-bold text-blue-200">{staff.hospital.name}</p>
+          <h1 className="mt-1 text-[30px] font-bold leading-tight">{staff.name}님</h1>
+          <p className="mt-2 text-sm font-semibold text-slate-300">현장 테스트용 통역방을 바로 생성합니다.</p>
         </div>
         <button
           onClick={logout}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-white text-slate-500 shadow-sm transition hover:text-ink"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-white/10 text-white transition hover:bg-white/15"
           aria-label="로그아웃"
           title="로그아웃"
         >
@@ -81,22 +82,28 @@ export function StaffHome({
           })}
         </div>
 
-        <div className="mt-6 grid gap-2 sm:grid-cols-2">
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
           <button
             onClick={() => createRoom("consultation")}
-            disabled={loading}
-            className="flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-trust px-4 font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
+            disabled={loadingMode !== null}
+            className="flex min-h-[94px] w-full items-center justify-between gap-3 rounded-lg bg-trust px-4 py-4 text-left font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
           >
-            <Languages size={20} />
-            {loading ? "방 생성 중" : "상담 통역방"}
+            <span>
+              <span className="block text-lg">상담 통역방</span>
+              <span className="mt-1 block text-xs font-semibold text-blue-100">휴대폰 2대 · 텍스트 중심</span>
+            </span>
+            {loadingMode === "consultation" ? <Loader2 size={22} className="animate-spin" /> : <Languages size={22} />}
           </button>
           <button
             onClick={() => createRoom("procedure")}
-            disabled={loading}
-            className="flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-ink px-4 font-bold text-white transition hover:bg-slate-700 disabled:opacity-50"
+            disabled={loadingMode !== null}
+            className="flex min-h-[94px] w-full items-center justify-between gap-3 rounded-lg bg-ink px-4 py-4 text-left font-bold text-white transition hover:bg-slate-700 disabled:opacity-50"
           >
-            <Stethoscope size={20} />
-            {loading ? "방 생성 중" : "시술 통역방"}
+            <span>
+              <span className="block text-lg">시술 통역방</span>
+              <span className="mt-1 block text-xs font-semibold text-slate-300">Android 앱 · 리모컨 테스트</span>
+            </span>
+            {loadingMode === "procedure" ? <Loader2 size={22} className="animate-spin" /> : <Stethoscope size={22} />}
           </button>
         </div>
       </section>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Mic } from "lucide-react";
+import { ArrowRight, Mic, ShieldCheck } from "lucide-react";
 import { languageLabels, type PatientLanguage } from "@/lib/languages";
 import { broadcastRoomUpdate } from "@/lib/supabase-realtime";
 
@@ -86,14 +86,24 @@ export function PatientJoin({
   }
 
   return (
-    <section className="rounded-lg bg-white p-6 shadow-soft sm:p-7">
-      <p className="text-sm font-bold text-trust">{room.hospital.name}</p>
-      <h1 className="mt-3 text-[30px] font-bold leading-tight text-ink">{text.title}</h1>
-      <p className="mt-3 text-base leading-7 text-slate-600">
-        {roomMode === "procedure" ? "시술 중 통역 음성이 재생됩니다. 화면을 켜둔 상태로 침대 옆에 놓아주세요." : text.body}
-      </p>
+    <section className="overflow-hidden rounded-lg bg-white shadow-soft">
+      <div className="bg-ink p-6 text-white sm:p-7">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold text-blue-200">{room.hospital.name}</p>
+            <h1 className="mt-3 text-[30px] font-bold leading-tight">{text.title}</h1>
+          </div>
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-xs font-bold">
+            <ShieldCheck size={15} />
+            Guest
+          </span>
+        </div>
+        <p className="mt-3 text-base font-semibold leading-7 text-slate-300">
+          {roomMode === "procedure" ? "시술 중 통역 음성이 재생됩니다. 화면을 켜둔 상태로 침대 옆에 놓아주세요." : text.body}
+        </p>
+      </div>
 
-      <div className="mt-6 flex items-center justify-between rounded-lg bg-slate-50 px-4 py-4">
+      <div className="m-6 flex items-center justify-between rounded-lg bg-slate-50 px-4 py-4 sm:m-7">
         <div>
           <p className="text-xs font-bold text-slate-500">{text.languageLabel}</p>
           <p className="mt-1 text-lg font-bold text-ink">{languageLabels[room.patientLanguage].native}</p>
@@ -103,12 +113,12 @@ export function PatientJoin({
         </div>
       </div>
 
-      {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
+      {error ? <p className="mx-6 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 sm:mx-7">{error}</p> : null}
 
       <button
         onClick={enterRoom}
         disabled={loading}
-        className="mt-6 flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-trust px-4 text-lg font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
+        className="mx-6 mb-6 flex h-14 w-[calc(100%-3rem)] items-center justify-center gap-2 rounded-lg bg-trust px-4 text-lg font-bold text-white transition hover:bg-blue-600 disabled:opacity-50 sm:mx-7 sm:mb-7 sm:w-[calc(100%-3.5rem)]"
       >
         {loading ? "..." : text.button}
         <ArrowRight size={20} />

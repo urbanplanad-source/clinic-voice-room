@@ -32,6 +32,8 @@ Admin seed login:
 
 ## Docs
 See the `docs/` folder for product, architecture, data model, business model, UX, and implementation planning. The Android transition plan is in `docs/ANDROID_TRANSITION_ARCHITECTURE.md`, the first Android technical spike is in `docs/ANDROID_SPIKE_PLAN.md`, and the confirmed two-device architecture recommendation is in `docs/ANDROID_2_DEVICE_SPIKE_RESULT.md`.
+For field testing, use `docs/FIELD_TEST_GUIDE.md`.
+For clinic-specific translation terms, use `docs/CLINIC_GLOSSARY_GUIDE.md`.
 
 ## Android Spike
 The first Android prototype lives in `android-spike/`. Open that folder directly in Android Studio after installation.

@@ -26,6 +26,7 @@ export default async function StaffRoomPage({
   const roomMode = mode === "procedure" ? "procedure" : "consultation";
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   const joinUrl = `${baseUrl}/room/join/${room.roomToken}?mode=${roomMode}`;
+  const androidJoinUrl = `clinicvoiceroom://room/join?token=${encodeURIComponent(room.roomToken)}&mode=${roomMode}&backend=${encodeURIComponent(baseUrl)}`;
 
   return (
     <AppFrame narrow>
@@ -38,6 +39,7 @@ export default async function StaffRoomPage({
           hospital: { name: room.hospital.name }
         }}
         joinUrl={joinUrl}
+        androidJoinUrl={androidJoinUrl}
         roomMode={roomMode}
       />
     </AppFrame>

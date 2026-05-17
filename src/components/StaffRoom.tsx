@@ -17,7 +17,7 @@ type StaffRoomProps = {
     hospital: { name: string };
   };
   joinUrl: string;
-  androidJoinUrl: string;
+  androidJoinUrl?: string;
   roomMode?: "consultation" | "procedure";
 };
 
@@ -62,6 +62,9 @@ export function StaffRoom({ room, joinUrl, androidJoinUrl, roomMode = "consultat
   const copy = qrCopy[snapshot.patientLanguage];
   const isProcedureMode = roomMode === "procedure";
   const primaryQrUrl = joinUrl;
+  const resolvedAndroidJoinUrl =
+    androidJoinUrl ??
+    `clinicvoiceroom://room/join?token=${encodeURIComponent(snapshot.roomToken)}&mode=${roomMode}`;
   const primaryQrCopy = isProcedureMode
     ? {
         icon: Smartphone,
@@ -89,7 +92,7 @@ export function StaffRoom({ room, joinUrl, androidJoinUrl, roomMode = "consultat
     : {
         title: "Android 앱 자동입력 링크",
         body: "현장 테스트 앱에 서버 주소와 방 토큰을 자동으로 채웁니다.",
-        url: androidJoinUrl,
+        url: resolvedAndroidJoinUrl,
         target: "android" as const
       };
   const PrimaryIcon = primaryQrCopy.icon;
