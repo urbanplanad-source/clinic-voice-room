@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Headphones, Loader2, Mic, MessageSquareText, PhoneOff, Volume2, VolumeX } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
+import { normalizeClinicTranslation } from "@/lib/clinic-glossary";
 import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
 import {
   broadcastRoomUpdate,
@@ -15,8 +16,10 @@ import {
 
 const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
 const PROCEDURE_SEGMENT_MS = 11000;
-const PROCEDURE_TRANSLATION_QUIET_MS = 2600;
-const PROCEDURE_TRANSLATION_MAX_MS = 18000;
+const CONSULTATION_TRANSLATION_QUIET_MS = 900;
+const CONSULTATION_TRANSLATION_MAX_MS = 7000;
+const PROCEDURE_TRANSLATION_QUIET_MS = 700;
+const PROCEDURE_TRANSLATION_MAX_MS = 5500;
 
 type RoomMode = "consultation" | "procedure";
 
@@ -438,6 +441,11 @@ export function VoiceRoom({
       }, {
         onStatus: setRealtimeStatus,
         onTranscriptDelta: setTranslationDraft,
+        onFirstOutputDelta: () => {
+          if (isProcedureMode) {
+            void transition(role === "staff" ? "patient_listening" : "staff_listening");
+          }
+        },
         onError: setError
       });
     }
@@ -451,7 +459,7 @@ export function VoiceRoom({
       realtimePreconnectStartedRef.current = false;
       throw caught;
     }
-  }, [role, room.id, roomToken]);
+  }, [isProcedureMode, role, room.id, roomToken, transition]);
 
   const appendMessage = useCallback((message: RealtimeTranslationMessage) => {
     setMessages((current) => {
@@ -612,10 +620,7 @@ export function VoiceRoom({
 
     spokenMessageIdsRef.current.add(latestMessage.id);
     if (isProcedureMode) {
-      aiSpeechQueueRef.current = aiSpeechQueueRef.current
-        .catch(() => undefined)
-        .then(() => playAiTranslatedSpeech(latestMessage))
-        .catch(() => speakWithBrowserTts(latestMessage.text));
+      speakWithBrowserTts(latestMessage.text);
       return;
     }
 
@@ -656,6 +661,28 @@ export function VoiceRoom({
     window.addEventListener("popstate", handleBack);
     return () => window.removeEventListener("popstate", handleBack);
   }, [role, room.status]);
+
+  useEffect(() => {
+    if (!isProcedureMode || room.status === "ended") return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isPttKey =
+        event.code === "Space" ||
+        event.code === "Enter" ||
+        event.code === "NumpadEnter" ||
+        event.code === "MediaPlayPause";
+      if (!isPttKey || event.repeat) return;
+
+      event.preventDefault();
+      if (busy && !isSpeaking) return;
+      if (!isSpeaking && !micEnabled) return;
+      if (isSpeaking) void stopSpeaking();
+      else void startSpeaking();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [busy, isProcedureMode, isSpeaking, micEnabled, room.status]);
 
   useEffect(() => {
     if (room.status !== "ready" || realtimePreconnectStartedRef.current || realtimeClientRef.current || !streamRef.current) return;
@@ -888,13 +915,17 @@ export function VoiceRoom({
 
     try {
       void transition(translatingStatus);
-      const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate();
+      const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
+        quietMs: isProcedureMode ? PROCEDURE_TRANSLATION_QUIET_MS : CONSULTATION_TRANSLATION_QUIET_MS,
+        maxMs: isProcedureMode ? PROCEDURE_TRANSLATION_MAX_MS : CONSULTATION_TRANSLATION_MAX_MS
+      });
       if (!translatedText) throw new Error("No translated text was returned.");
+      const normalizedText = normalizeClinicTranslation(translatedText, role === "staff" ? room.patientLanguage : "ko");
 
       const message = {
         id: `${role}-${Date.now()}`,
         speaker: role,
-        text: translatedText
+        text: normalizedText
       } satisfies RealtimeTranslationMessage;
 
       void broadcastTranslationMessage(room.id, message);
@@ -1006,36 +1037,32 @@ export function VoiceRoom({
 
       {isProcedureMode ? (
         <section className="rounded-lg bg-white p-5 text-center shadow-soft">
-          <div className="mx-auto max-w-sm">
+          <div className="mx-auto mb-5 max-w-sm">
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust">2-device procedure</p>
             <h2 className="mt-2 text-2xl font-bold text-ink">{role === "staff" ? "Doctor device" : "Patient device"}</h2>
             <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-              {role === "staff"
-                ? "Speak into the doctor device microphone. The patient device receives the translation."
-                : "Speak near this patient device. The doctor device receives the Korean translation."}
+              {role === "staff" ? "Press, speak Korean, then press again." : "Press anytime to answer. The phone reads translated text aloud."}
             </p>
           </div>
           <button
             type="button"
             disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
             onClick={isSpeaking ? stopSpeaking : startSpeaking}
-            className={`tap-highlight-none mx-auto mt-5 grid h-44 w-44 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 ${
+            className={`tap-highlight-none mx-auto grid h-44 w-44 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 ${
               isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
             }`}
-            aria-label={isSpeaking ? "Stop speaking" : "Push to talk"}
+            aria-label={isSpeaking ? copy.primary.speaking : copy.primary.ready}
           >
             {busy && !isSpeaking ? <Loader2 size={44} className="animate-spin" /> : <Mic size={56} />}
           </button>
           <p className="mt-4 text-xl font-bold text-ink">
-            {room.status === "ended" ? "Session ended" : isSpeaking ? "Tap again when finished" : micEnabled ? "Push and speak" : "Waiting for the other side"}
+            {room.status === "ended" ? copy.primary.ended : isSpeaking ? copy.primary.speaking : micEnabled ? copy.primary.ready : copy.primary.waiting}
           </p>
-          <p className="mt-2 text-sm font-semibold text-slate-500">Each person uses the microphone on their own device.</p>
+          <p className="mt-2 text-sm font-semibold text-slate-500">Space / Enter / foot switch toggles the same button</p>
           {wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
           {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
-          {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
-        </section>
-      ) : isProcedureMode ? (
-        <section className="rounded-lg bg-white p-5 text-center shadow-soft">
+          <p className="mt-2 text-sm font-semibold text-slate-500">{isSpeaking ? copy.helper.speaking : copy.helper.idle}</p>
+          <div className="hidden" aria-hidden="true">
           {role === "staff" ? (
             <>
               <h2 className="text-xl font-bold text-ink">시술 모드</h2>
@@ -1069,6 +1096,7 @@ export function VoiceRoom({
           )}
           {!isProcedureMode && wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
           {!isProcedureMode && realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
+          </div>
           {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
         </section>
       ) : (
