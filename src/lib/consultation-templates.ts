@@ -9,6 +9,11 @@ export type StaffFollowUpSuggestionSet = {
   suggestions: string[];
 };
 
+export type PatientFollowUpSuggestionSet = {
+  label: string;
+  suggestions: string[];
+};
+
 export type ConsultationRiskFlag = {
   id: string;
   label: string;
@@ -192,6 +197,58 @@ export const stageByExampleCategory: Record<ConsultationExampleCategory, Consult
   procedure: "procedure",
   price: "price_schedule",
   safety: "medical"
+};
+
+export const initialPatientSuggestionSet: Record<PatientLanguage, PatientFollowUpSuggestionSet> = {
+  zh: {
+    label: "AI 推荐咨询",
+    suggestions: ["我没有预约。今天可以咨询吗？", "我想咨询适合我的治疗。", "我想看完整价目表。", "可以刷卡付款吗？"]
+  },
+  ja: {
+    label: "AIおすすめ質問",
+    suggestions: ["予約していません。今日カウンセリングできますか？", "自分に合う施術を相談したいです。", "全体の料金表を見たいです。", "カードで支払えますか？"]
+  },
+  en: {
+    label: "AI suggested questions",
+    suggestions: [
+      "I don't have an appointment. Can I have a consultation today?",
+      "I would like to ask which procedure is suitable for me.",
+      "I would like to see the full price list.",
+      "Can I pay by card?"
+    ]
+  },
+  ru: {
+    label: "AI рекомендует вопросы",
+    suggestions: ["У меня нет записи. Можно пройти консультацию сегодня?", "Я хочу узнать, какая процедура мне подходит.", "Я хочу посмотреть полный прайс-лист.", "Можно оплатить картой?"]
+  },
+  vi: {
+    label: "AI gợi ý câu hỏi",
+    suggestions: ["Tôi chưa đặt lịch. Hôm nay tôi có thể tư vấn được không?", "Tôi muốn hỏi liệu trình nào phù hợp với mình.", "Tôi muốn xem bảng giá đầy đủ.", "Tôi có thể thanh toán bằng thẻ không?"]
+  },
+  id: {
+    label: "Pertanyaan saran AI",
+    suggestions: ["Saya belum membuat janji. Apakah saya bisa konsultasi hari ini?", "Saya ingin bertanya perawatan apa yang cocok untuk saya.", "Saya ingin melihat daftar harga lengkap.", "Apakah bisa bayar dengan kartu?"]
+  },
+  fr: {
+    label: "Questions suggérées par l'IA",
+    suggestions: ["Je n'ai pas de rendez-vous. Puis-je avoir une consultation aujourd'hui ?", "Je voudrais savoir quel traitement me convient.", "Je voudrais voir la liste complète des prix.", "Puis-je payer par carte ?"]
+  },
+  es: {
+    label: "Preguntas sugeridas por IA",
+    suggestions: ["No tengo cita. ¿Puedo tener una consulta hoy?", "Quisiera saber qué tratamiento es adecuado para mí.", "Quisiera ver la lista completa de precios.", "¿Puedo pagar con tarjeta?"]
+  },
+  de: {
+    label: "KI-Fragevorschläge",
+    suggestions: ["Ich habe keinen Termin. Kann ich heute eine Beratung bekommen?", "Ich möchte wissen, welche Behandlung für mich geeignet ist.", "Ich möchte die vollständige Preisliste sehen.", "Kann ich mit Karte bezahlen?"]
+  },
+  it: {
+    label: "Domande suggerite dall'AI",
+    suggestions: ["Non ho un appuntamento. Posso fare una consulenza oggi?", "Vorrei sapere quale trattamento è adatto a me.", "Vorrei vedere il listino prezzi completo.", "Posso pagare con carta?"]
+  },
+  pt: {
+    label: "Perguntas sugeridas por IA",
+    suggestions: ["Não tenho agendamento. Posso fazer uma consulta hoje?", "Gostaria de saber qual procedimento é adequado para mim.", "Gostaria de ver a lista completa de preços.", "Posso pagar com cartão?"]
+  }
 };
 
 export const consultationExampleCategories: Record<
@@ -435,4 +492,91 @@ export function getConsultationRiskFlags(text: string | undefined) {
 
 export function stageLabel(stage: ConsultationStage) {
   return consultationStages.find((item) => item.id === stage)?.label ?? "상담";
+}
+
+export function getPatientFollowUpSuggestionSet(staffMessageText: string | undefined, patientLanguage: PatientLanguage) {
+  const normalizedText = normalizeForMatch(staffMessageText ?? "");
+  if (!normalizedText) return initialPatientSuggestionSet[patientLanguage];
+
+  const suggestions: Record<PatientLanguage, Record<ConsultationStage, PatientFollowUpSuggestionSet>> = {
+    zh: {
+      intake: { label: "下一步可以这样回答", suggestions: ["我今天只想先咨询。", "如果可以，我今天也想做治疗。", "我想预约其他日期。", "这是我第一次来这家医院。"] },
+      medical: { label: "安全信息确认", suggestions: ["我有正在服用的药。", "我没有药物过敏。", "我有过敏史。", "我想知道是否可以治疗。"] },
+      procedure: { label: "治疗咨询问题", suggestions: ["我想知道哪种治疗适合我。", "我担心疼痛。", "我想知道恢复期。", "我想要自然的效果。"] },
+      price_schedule: { label: "价格和预约问题", suggestions: ["请告诉我大概费用。", "可以刷卡付款吗？", "今天可以预约吗？", "治疗后我需要再次来院吗？"] },
+      summary: { label: "结束前确认", suggestions: ["请再简单总结一下。", "我想现在预约。", "我想再考虑一下。", "请告诉我注意事项。"] }
+    },
+    ja: {
+      intake: { label: "次にこう答えられます", suggestions: ["今日はまず相談だけしたいです。", "可能であれば今日施術も受けたいです。", "別の日に予約したいです。", "この病院は初めてです。"] },
+      medical: { label: "安全情報の確認", suggestions: ["服用中の薬があります。", "薬のアレルギーはありません。", "アレルギーがあります。", "施術を受けられるか確認したいです。"] },
+      procedure: { label: "施術についての質問", suggestions: ["自分に合う施術を知りたいです。", "痛みが心配です。", "回復期間を知りたいです。", "自然な効果を希望します。"] },
+      price_schedule: { label: "料金と予約の質問", suggestions: ["おおよその費用を教えてください。", "カードで支払えますか？", "今日予約できますか？", "施術後に再来院が必要ですか？"] },
+      summary: { label: "最後の確認", suggestions: ["もう一度簡単にまとめてください。", "今予約したいです。", "少し考えたいです。", "注意事項を教えてください。"] }
+    },
+    en: {
+      intake: { label: "You can answer next", suggestions: ["I would like consultation only today.", "If possible, I would like treatment today too.", "I would like to book another date.", "This is my first visit to this clinic."] },
+      medical: { label: "Safety details to share", suggestions: ["I am taking medication.", "I do not have medication allergies.", "I have allergies.", "I want to check if treatment is safe for me."] },
+      procedure: { label: "Treatment questions", suggestions: ["I want to know which treatment suits me.", "I am worried about pain.", "I want to know the recovery time.", "I want a natural-looking result."] },
+      price_schedule: { label: "Price and booking questions", suggestions: ["Please tell me the approximate cost.", "Can I pay by card?", "Can I book today?", "Do I need to visit again after treatment?"] },
+      summary: { label: "Before finishing", suggestions: ["Please summarize it again simply.", "I would like to book now.", "I would like to think about it.", "Please tell me the precautions."] }
+    },
+    ru: {
+      intake: { label: "Можно ответить так", suggestions: ["Сегодня я хочу только консультацию.", "Если возможно, я хочу процедуру сегодня.", "Я хочу записаться на другую дату.", "Я впервые в этой клинике."] },
+      medical: { label: "Данные для безопасности", suggestions: ["Я принимаю лекарства.", "У меня нет аллергии на лекарства.", "У меня есть аллергия.", "Я хочу проверить, безопасна ли процедура для меня."] },
+      procedure: { label: "Вопросы о процедуре", suggestions: ["Я хочу узнать, какая процедура мне подходит.", "Я беспокоюсь о боли.", "Я хочу узнать срок восстановления.", "Я хочу естественный результат."] },
+      price_schedule: { label: "Цена и запись", suggestions: ["Скажите примерную стоимость.", "Можно оплатить картой?", "Можно записаться сегодня?", "Нужно ли прийти снова после процедуры?"] },
+      summary: { label: "Перед завершением", suggestions: ["Пожалуйста, кратко подытожьте еще раз.", "Я хочу записаться сейчас.", "Я хочу подумать.", "Расскажите, пожалуйста, о мерах предосторожности."] }
+    },
+    vi: {
+      intake: { label: "Bạn có thể trả lời", suggestions: ["Hôm nay tôi chỉ muốn tư vấn trước.", "Nếu được, tôi cũng muốn làm liệu trình hôm nay.", "Tôi muốn đặt lịch vào ngày khác.", "Đây là lần đầu tôi đến phòng khám này."] },
+      medical: { label: "Thông tin an toàn", suggestions: ["Tôi đang dùng thuốc.", "Tôi không dị ứng thuốc.", "Tôi có dị ứng.", "Tôi muốn kiểm tra liệu trình có an toàn cho tôi không."] },
+      procedure: { label: "Câu hỏi về liệu trình", suggestions: ["Tôi muốn biết liệu trình nào phù hợp với tôi.", "Tôi lo về đau.", "Tôi muốn biết thời gian hồi phục.", "Tôi muốn kết quả tự nhiên."] },
+      price_schedule: { label: "Giá và đặt lịch", suggestions: ["Vui lòng cho tôi biết chi phí ước tính.", "Tôi có thể thanh toán bằng thẻ không?", "Hôm nay tôi có thể đặt lịch không?", "Sau liệu trình tôi có cần quay lại không?"] },
+      summary: { label: "Trước khi kết thúc", suggestions: ["Vui lòng tóm tắt lại đơn giản.", "Tôi muốn đặt lịch ngay.", "Tôi muốn suy nghĩ thêm.", "Vui lòng cho tôi biết những điều cần lưu ý."] }
+    },
+    id: {
+      intake: { label: "Anda bisa menjawab", suggestions: ["Hari ini saya ingin konsultasi saja dulu.", "Jika memungkinkan, saya juga ingin perawatan hari ini.", "Saya ingin membuat janji di tanggal lain.", "Ini kunjungan pertama saya ke klinik ini."] },
+      medical: { label: "Informasi keamanan", suggestions: ["Saya sedang minum obat.", "Saya tidak memiliki alergi obat.", "Saya memiliki alergi.", "Saya ingin memastikan apakah perawatan ini aman untuk saya."] },
+      procedure: { label: "Pertanyaan perawatan", suggestions: ["Saya ingin tahu perawatan apa yang cocok untuk saya.", "Saya khawatir tentang rasa sakit.", "Saya ingin tahu masa pemulihan.", "Saya ingin hasil yang natural."] },
+      price_schedule: { label: "Harga dan jadwal", suggestions: ["Tolong beri tahu perkiraan biayanya.", "Apakah bisa bayar dengan kartu?", "Apakah saya bisa membuat janji hari ini?", "Apakah saya perlu datang lagi setelah perawatan?"] },
+      summary: { label: "Sebelum selesai", suggestions: ["Tolong rangkum lagi dengan sederhana.", "Saya ingin membuat janji sekarang.", "Saya ingin memikirkannya dulu.", "Tolong beri tahu hal-hal yang perlu diperhatikan."] }
+    },
+    fr: {
+      intake: { label: "Vous pouvez répondre", suggestions: ["Je voudrais seulement une consultation aujourd'hui.", "Si possible, je voudrais aussi faire un traitement aujourd'hui.", "Je voudrais réserver une autre date.", "C'est ma première visite dans cette clinique."] },
+      medical: { label: "Informations de sécurité", suggestions: ["Je prends des médicaments.", "Je n'ai pas d'allergie médicamenteuse.", "J'ai des allergies.", "Je veux vérifier si le traitement est sûr pour moi."] },
+      procedure: { label: "Questions sur le traitement", suggestions: ["Je veux savoir quel traitement me convient.", "J'ai peur de la douleur.", "Je veux connaître le temps de récupération.", "Je veux un résultat naturel."] },
+      price_schedule: { label: "Prix et réservation", suggestions: ["Veuillez m'indiquer le coût approximatif.", "Puis-je payer par carte ?", "Puis-je réserver aujourd'hui ?", "Dois-je revenir après le traitement ?"] },
+      summary: { label: "Avant de terminer", suggestions: ["Veuillez résumer simplement encore une fois.", "Je voudrais réserver maintenant.", "Je voudrais y réfléchir.", "Veuillez m'indiquer les précautions."] }
+    },
+    es: {
+      intake: { label: "Puede responder", suggestions: ["Hoy solo quiero una consulta primero.", "Si es posible, también quisiera tratamiento hoy.", "Quisiera reservar otra fecha.", "Es mi primera visita a esta clínica."] },
+      medical: { label: "Información de seguridad", suggestions: ["Estoy tomando medicamentos.", "No tengo alergias a medicamentos.", "Tengo alergias.", "Quiero confirmar si el tratamiento es seguro para mí."] },
+      procedure: { label: "Preguntas sobre tratamiento", suggestions: ["Quiero saber qué tratamiento me conviene.", "Me preocupa el dolor.", "Quiero saber el tiempo de recuperación.", "Quiero un resultado natural."] },
+      price_schedule: { label: "Precio y reserva", suggestions: ["Por favor dígame el costo aproximado.", "¿Puedo pagar con tarjeta?", "¿Puedo reservar hoy?", "¿Necesito volver después del tratamiento?"] },
+      summary: { label: "Antes de terminar", suggestions: ["Por favor resúmalo de forma simple otra vez.", "Quisiera reservar ahora.", "Quisiera pensarlo.", "Por favor dígame las precauciones."] }
+    },
+    de: {
+      intake: { label: "Sie können antworten", suggestions: ["Ich möchte heute zuerst nur eine Beratung.", "Wenn möglich, möchte ich heute auch eine Behandlung.", "Ich möchte einen anderen Termin buchen.", "Dies ist mein erster Besuch in dieser Klinik."] },
+      medical: { label: "Sicherheitsinformationen", suggestions: ["Ich nehme Medikamente.", "Ich habe keine Medikamentenallergie.", "Ich habe Allergien.", "Ich möchte prüfen, ob die Behandlung für mich sicher ist."] },
+      procedure: { label: "Fragen zur Behandlung", suggestions: ["Ich möchte wissen, welche Behandlung zu mir passt.", "Ich mache mir Sorgen wegen Schmerzen.", "Ich möchte die Erholungszeit wissen.", "Ich möchte ein natürliches Ergebnis."] },
+      price_schedule: { label: "Preis und Termin", suggestions: ["Bitte nennen Sie mir die ungefähren Kosten.", "Kann ich mit Karte bezahlen?", "Kann ich heute einen Termin buchen?", "Muss ich nach der Behandlung wiederkommen?"] },
+      summary: { label: "Vor dem Abschluss", suggestions: ["Bitte fassen Sie es noch einmal einfach zusammen.", "Ich möchte jetzt buchen.", "Ich möchte darüber nachdenken.", "Bitte nennen Sie mir die Vorsichtsmaßnahmen."] }
+    },
+    it: {
+      intake: { label: "Puoi rispondere", suggestions: ["Oggi vorrei solo una consulenza.", "Se possibile, vorrei fare anche il trattamento oggi.", "Vorrei prenotare un'altra data.", "È la mia prima visita in questa clinica."] },
+      medical: { label: "Informazioni di sicurezza", suggestions: ["Sto assumendo farmaci.", "Non ho allergie ai farmaci.", "Ho allergie.", "Vorrei verificare se il trattamento è sicuro per me."] },
+      procedure: { label: "Domande sul trattamento", suggestions: ["Vorrei sapere quale trattamento è adatto a me.", "Sono preoccupato/a per il dolore.", "Vorrei sapere i tempi di recupero.", "Vorrei un risultato naturale."] },
+      price_schedule: { label: "Prezzo e prenotazione", suggestions: ["Mi dica il costo approssimativo.", "Posso pagare con carta?", "Posso prenotare oggi?", "Devo tornare dopo il trattamento?"] },
+      summary: { label: "Prima di finire", suggestions: ["Può riassumere di nuovo in modo semplice?", "Vorrei prenotare ora.", "Vorrei pensarci.", "Mi dica le precauzioni da seguire."] }
+    },
+    pt: {
+      intake: { label: "Você pode responder", suggestions: ["Hoje eu gostaria apenas de uma consulta primeiro.", "Se possível, também gostaria de fazer o procedimento hoje.", "Gostaria de agendar outra data.", "Esta é minha primeira visita a esta clínica."] },
+      medical: { label: "Informações de segurança", suggestions: ["Estou tomando medicamentos.", "Não tenho alergia a medicamentos.", "Tenho alergias.", "Quero confirmar se o procedimento é seguro para mim."] },
+      procedure: { label: "Perguntas sobre procedimento", suggestions: ["Quero saber qual procedimento é adequado para mim.", "Estou preocupado(a) com a dor.", "Quero saber o tempo de recuperação.", "Quero um resultado natural."] },
+      price_schedule: { label: "Preço e agendamento", suggestions: ["Por favor, informe o custo aproximado.", "Posso pagar com cartão?", "Posso agendar hoje?", "Preciso voltar depois do procedimento?"] },
+      summary: { label: "Antes de terminar", suggestions: ["Por favor, resuma de forma simples novamente.", "Gostaria de agendar agora.", "Gostaria de pensar um pouco.", "Por favor, informe os cuidados necessários."] }
+    }
+  };
+
+  return suggestions[patientLanguage][inferConsultationStage(staffMessageText, "intake")];
 }

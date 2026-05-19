@@ -13,12 +13,11 @@ import {
 } from "@/lib/supabase-realtime";
 import {
   consultationDeliveryStatusCopy,
-  consultationExampleCategories,
   consultationTextCopy,
+  getPatientFollowUpSuggestionSet,
   getStaffFollowUpSuggestionSet,
   inferConsultationStage,
   stageLabel,
-  type ConsultationExampleCategory
 } from "@/lib/consultation-templates";
 
 const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
@@ -51,7 +50,6 @@ export function ConsultationChatRoom({
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
   const [textInput, setTextInput] = useState("");
   const [textSubmitting, setTextSubmitting] = useState(false);
-  const [activeExampleCategory, setActiveExampleCategory] = useState<ConsultationExampleCategory>("visit");
   const [error, setError] = useState("");
   const [ending, setEnding] = useState(false);
   const chatScrollRef = useRef<HTMLElement | null>(null);
@@ -62,13 +60,14 @@ export function ConsultationChatRoom({
 
   const copy = consultationTextCopy[room.patientLanguage];
   const deliveryStatusCopy = role === "staff" ? { sending: "전송 중", failed: "전송 실패" } : consultationDeliveryStatusCopy[room.patientLanguage];
-  const patientExamples = consultationExampleCategories[room.patientLanguage];
   const chatMessages = [...messages].reverse();
   const latestPatientMessage = messages.find((message) => message.speaker === "patient");
   const latestPatientText = latestPatientMessage?.text;
   const previousPatientMessage = messages.filter((message) => message.speaker === "patient")[1];
+  const latestStaffMessage = messages.find((message) => message.speaker === "staff");
   const inferredStage = inferConsultationStage(latestPatientText, inferConsultationStage(previousPatientMessage?.text, "intake"));
   const staffSuggestionSet = getStaffFollowUpSuggestionSet(latestPatientText, inferredStage);
+  const patientSuggestionSet = getPatientFollowUpSuggestionSet(latestStaffMessage?.text, room.patientLanguage);
   const canSubmitText = Boolean(textInput.trim()) && !textSubmitting && room.status !== "ended";
   const canSendExampleText = !textSubmitting && room.status !== "ended";
 
@@ -276,7 +275,7 @@ export function ConsultationChatRoom({
     void submitTextMessage();
   }
 
-  function sendExample(example: string) {
+  function sendSuggestedPatientText(example: string) {
     void submitTextMessage(example);
   }
 
@@ -352,30 +351,22 @@ export function ConsultationChatRoom({
 
       <footer className="shrink-0 border-t border-line bg-white px-3 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-2 md:px-4 md:pb-4">
         {role === "patient" ? (
-          <div className="mb-2 rounded-lg bg-blue-50 p-2">
-            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-              {(Object.keys(patientExamples) as ConsultationExampleCategory[]).map((category) => {
-                const active = category === activeExampleCategory;
-                return (
-                  <button
-                    key={category}
-                    type="button"
-                    onClick={() => setActiveExampleCategory(category)}
-                    className={`min-h-8 shrink-0 rounded-lg px-2.5 text-[11px] font-bold transition md:text-xs ${
-                      active ? "bg-trust text-white" : "bg-white text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    {patientExamples[category].label}
-                  </button>
-                );
-              })}
+          <div className="mb-2 rounded-2xl bg-blue-50 p-2.5">
+            <div className="mb-2 flex items-center gap-2 px-1">
+              <span className="grid h-7 w-7 place-items-center rounded-full bg-white text-trust shadow-sm">
+                <Sparkles size={15} />
+              </span>
+              <div>
+                <p className="text-xs font-bold text-trust">{patientSuggestionSet.label}</p>
+                <p className="text-[11px] font-semibold text-slate-500">{latestStaffMessage ? copy.placeholder : copy.empty}</p>
+              </div>
             </div>
-            <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-0.5">
-              {patientExamples[activeExampleCategory].examples.map((example) => (
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+              {patientSuggestionSet.suggestions.map((example) => (
                 <button
                   key={example}
                   type="button"
-                  onClick={() => sendExample(example)}
+                  onClick={() => sendSuggestedPatientText(example)}
                   disabled={!canSendExampleText}
                   className="min-w-[190px] rounded-lg bg-white px-2.5 py-1.5 text-left text-xs font-bold leading-4 text-ink shadow-sm transition hover:bg-slate-50 disabled:opacity-50 md:min-w-[230px]"
                 >
