@@ -20,6 +20,7 @@ const CONSULTATION_TRANSLATION_QUIET_MS = 900;
 const CONSULTATION_TRANSLATION_MAX_MS = 7000;
 const PROCEDURE_TRANSLATION_QUIET_MS = 700;
 const PROCEDURE_TRANSLATION_MAX_MS = 5500;
+const TTS_DEBUG_VERSION = "ai-tts-only-2026-05-19.2";
 
 type RoomMode = "consultation" | "procedure";
 
@@ -533,6 +534,7 @@ export function VoiceRoom({
   const [procedureBusy, setProcedureBusy] = useState(false);
   const [wakeLockStatus, setWakeLockStatus] = useState("");
   const [hardwareInputStatus, setHardwareInputStatus] = useState("키보드 입력 대기");
+  const [ttsStatus, setTtsStatus] = useState(`TTS ${TTS_DEBUG_VERSION}`);
   const streamRef = useRef<MediaStream | null>(null);
   const roomRootRef = useRef<HTMLDivElement | null>(null);
   const hardwareCaptureRef = useRef<HTMLInputElement | null>(null);
@@ -553,6 +555,21 @@ export function VoiceRoom({
   const usageFlushTimerRef = useRef<number | null>(null);
   const inactivityTimerRef = useRef<number | null>(null);
   const cleanupRef = useRef<() => void>(() => undefined);
+
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+
+    const speechSynthesis = window.speechSynthesis;
+    const originalSpeak = speechSynthesis.speak.bind(speechSynthesis);
+    speechSynthesis.speak = () => {
+      setTtsStatus(`Browser TTS blocked / ${TTS_DEBUG_VERSION}`);
+      setError("Browser TTS was blocked. This page uses AI TTS only.");
+    };
+
+    return () => {
+      speechSynthesis.speak = originalSpeak;
+    };
+  }, []);
 
   const copy = copyFor(role, room.patientLanguage);
   const isProcedureMode = roomMode === "procedure";
@@ -654,8 +671,23 @@ export function VoiceRoom({
     });
 
     if (!response.ok) throw new Error("AI translated speech could not be created.");
+    if (!response.headers.get("Content-Type")?.includes("audio/")) {
+      throw new Error("AI translated speech response was not audio.");
+    }
+
+    const ttsProvider = response.headers.get("X-CVR-TTS-Provider");
+    const ttsLanguage = response.headers.get("X-CVR-TTS-Language");
+    const ttsVoice = response.headers.get("X-CVR-TTS-Voice");
+    const ttsModel = response.headers.get("X-CVR-TTS-Model");
+    const ttsVersion = response.headers.get("X-CVR-TTS-Version") ?? TTS_DEBUG_VERSION;
 
     const audioBlob = await response.blob();
+    if (!audioBlob.size) throw new Error("AI translated speech response was empty.");
+    if (ttsProvider) {
+      const status = `AI TTS ${ttsLanguage ?? ""}${ttsVoice ? ` / ${ttsVoice}` : ""} / ${audioBlob.size} bytes`;
+      setRealtimeStatus(status.trim());
+      setTtsStatus(`${ttsProvider} / ${ttsModel ?? "unknown-model"} / ${ttsLanguage ?? "unknown-lang"} / ${ttsVoice ?? "unknown-voice"} / ${audioBlob.size} bytes / ${ttsVersion}`);
+    }
     stopPlayback();
     const url = URL.createObjectURL(audioBlob);
     audioObjectUrlRef.current = url;
@@ -1313,6 +1345,7 @@ export function VoiceRoom({
           </p>
           <p className="mt-2 text-sm font-semibold text-slate-500">↑ key toggles this button. Space / Enter are also supported.</p>
           <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">{hardwareInputStatus}</p>
+          <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-trust">{ttsStatus}</p>
           {wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
           {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
           <p className="mt-2 text-sm font-semibold text-slate-500">{isSpeaking ? copy.helper.speaking : copy.helper.idle}</p>
