@@ -1,6 +1,11 @@
 import type { PatientLanguage } from "./languages";
 
 type GlossaryTargetLanguage = PatientLanguage | "ko";
+type CriticalShortPhrase = {
+  spoken: string[];
+  translations: Record<GlossaryTargetLanguage, string>;
+  note: string;
+};
 
 type ClinicGlossaryEntry = {
   spoken: string[];
@@ -105,7 +110,9 @@ const rawClinicGlossary = `
 진동느껴질수있어요|진동이 느껴질 수 있어요,진동이 느껴질 수 있어요,可能会感觉到震动。,振動を感じることがあります。,You may feel some vibration.,Вы можете почувствовать вибрацию.,Có thể cảm thấy rung nhẹ.,Mungkin terasa ada getaran.,sensation,감각 안내
 압박감있을수있어요|압박감이 있을 수 있어요,압박감이 있을 수 있어요,可能会有压迫感。,圧迫感を感じることがあります。,You may feel some pressure.,Может ощущаться давление.,Có thể có cảm giác bị ấn.,Mungkin terasa seperti ditekan.,sensation,감각 안내
 참기힘들면말씀해주세요|아프면 말씀해주세요,아프면 말씀해주세요,如果疼请告诉我。,痛かったら教えてください。,Please let me know if it hurts.,Если больно скажите мне.,Nếu đau hãy nói với tôi.,Kalau sakit beri tahu saya.,safety_phrase,통증 확인
+아프지않으세요|아프지 않으세요|아프세요|아픈가요|아프지 않나요,아프지 않으세요?,疼吗？,痛くないですか？,Does it hurt?,Больно?,Có đau không?,Apakah sakit?,check_phrase,통증 확인
 괜찮으세요|괜찮으세요?,괜찮으세요?,还好吗？,大丈夫ですか？,Are you okay?,Вы в порядке?,Bạn ổn chứ?,Apakah Anda baik-baik saja?,check_phrase,상태 확인
+통증은어떠세요|통증은 어떠세요|통증 어떠세요|통증이 어떠세요|아픈 건 어떠세요,통증은 어떠세요?,疼痛怎么样？,痛みはどうですか？,How is the pain?,Как боль?,Cơn đau thế nào?,Bagaimana rasa sakitnya?,check_phrase,통증 확인
 통증몇점이에요|통증 몇 점이에요?,통증은 어느 정도인가요?,疼痛程度是多少？,痛みはどのくらいですか？,How strong is the pain?,Насколько сильная боль?,Mức độ đau thế nào?,Seberapa kuat rasa sakitnya?,check_phrase,통증 확인
 젤바를게요|젤 바르겠습니다,젤 바를게요,现在涂凝胶。,ジェルを塗ります。,I'll apply the gel now.,Сейчас нанесу гель.,Tôi sẽ thoa gel.,Saya akan mengoleskan gel.,procedure_phrase,초음파/RF 시술
 소독할게요|소독하겠습니다,소독할게요,现在消毒。,消毒します。,I'll disinfect the area now.,Сейчас обработаю антисептиком.,Tôi sẽ sát khuẩn vùng này.,Saya akan membersihkan dengan antiseptic.,procedure_phrase,소독
@@ -177,12 +184,160 @@ function parseClinicGlossary(): ClinicGlossaryEntry[] {
 
 export const clinicGlossary = parseClinicGlossary();
 
+const criticalShortPhrases: CriticalShortPhrase[] = [
+  {
+    spoken: ["아프지않으세요", "아프지 않으세요", "아프세요", "아픈가요", "아프지 않나요", "안 아프세요"],
+    translations: {
+      ko: "아프지 않으세요?",
+      zh: "疼吗？",
+      ja: "痛くないですか？",
+      en: "Does it hurt?",
+      ru: "Больно?",
+      vi: "Có đau không?",
+      id: "Apakah sakit?",
+      fr: "Est-ce que cela fait mal ?",
+      es: "¿Le duele?",
+      de: "Tut es weh?",
+      it: "Fa male?",
+      pt: "Dói?"
+    },
+    note: "통증 여부 확인"
+  },
+  {
+    spoken: ["통증은어떠세요", "통증은 어떠세요", "통증 어떠세요", "통증이 어떠세요", "아픈 건 어떠세요", "아픈건 어떠세요"],
+    translations: {
+      ko: "통증은 어떠세요?",
+      zh: "疼痛怎么样？",
+      ja: "痛みはどうですか？",
+      en: "How is the pain?",
+      ru: "Как боль?",
+      vi: "Cơn đau thế nào?",
+      id: "Bagaimana rasa sakitnya?",
+      fr: "Comment est la douleur ?",
+      es: "¿Cómo está el dolor?",
+      de: "Wie sind die Schmerzen?",
+      it: "Com'è il dolore?",
+      pt: "Como está a dor?"
+    },
+    note: "통증 정도 확인"
+  },
+  {
+    spoken: ["괜찮으세요", "괜찮으세요?", "괜찮나요", "괜찮아요"],
+    translations: {
+      ko: "괜찮으세요?",
+      zh: "还好吗？",
+      ja: "大丈夫ですか？",
+      en: "Are you okay?",
+      ru: "Вы в порядке?",
+      vi: "Bạn ổn chứ?",
+      id: "Apakah Anda baik-baik saja?",
+      fr: "Est-ce que ça va ?",
+      es: "¿Está bien?",
+      de: "Geht es Ihnen gut?",
+      it: "Va tutto bene?",
+      pt: "Está tudo bem?"
+    },
+    note: "상태 확인"
+  },
+  {
+    spoken: ["참기힘들면말씀해주세요", "참기 힘들면 말씀해주세요", "아프면 말씀해주세요", "힘들면 말씀해주세요"],
+    translations: {
+      ko: "아프면 말씀해주세요.",
+      zh: "如果疼请告诉我。",
+      ja: "痛かったら教えてください。",
+      en: "Please let me know if it hurts.",
+      ru: "Если больно скажите мне.",
+      vi: "Nếu đau hãy nói với tôi.",
+      id: "Kalau sakit beri tahu saya.",
+      fr: "Dites-moi si vous avez mal.",
+      es: "Dígame si le duele.",
+      de: "Sagen Sie mir bitte wenn es weh tut.",
+      it: "Mi dica se fa male.",
+      pt: "Avise-me se doer."
+    },
+    note: "통증 알림 요청"
+  },
+  {
+    spoken: ["움직이지마세요", "움직이지 마세요", "움직이면 안돼요", "움직이면 안 돼요"],
+    translations: {
+      ko: "움직이지 마세요.",
+      zh: "请不要动。",
+      ja: "動かないでください。",
+      en: "Please don't move.",
+      ru: "Пожалуйста не двигайтесь.",
+      vi: "Vui lòng đừng cử động.",
+      id: "Tolong jangan bergerak.",
+      fr: "Ne bougez pas s'il vous plaît.",
+      es: "Por favor no se mueva.",
+      de: "Bitte bewegen Sie sich nicht.",
+      it: "Per favore non si muova.",
+      pt: "Por favor não se mexa."
+    },
+    note: "시술 중 안전"
+  }
+];
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function replaceAllCaseInsensitive(text: string, from: string, to: string) {
   return text.replace(new RegExp(escapeRegExp(from), "gi"), to);
+}
+
+const targetMisrecognitionCorrections: Partial<Record<GlossaryTargetLanguage, Array<[RegExp, string]>>> = {
+  zh: [
+    [/^(?:你不困吗|不困吗|困吗|你困吗)[?？。.\s]*$/i, "疼吗？"]
+  ],
+  ja: [
+    [/^(?:眠くないですか|眠いですか|眠くありませんか)[?？。.\s]*$/i, "痛くないですか？"]
+  ],
+  en: [
+    [/^(?:are\s+you\s+not\s+sleepy|you\s+not\s+sleepy|aren't\s+you\s+sleepy)[?？。.\s]*$/i, "Does it hurt?"],
+    [/^(?:how\s+(?:are\s+)?you\s+setup|how\s+is\s+your\s+setup|how\s+are\s+you\s+set\s+up)[?？。.\s]*$/i, "How is the pain?"]
+  ],
+  ru: [
+    [/^(?:вы\s+не\s+сонн(?:ый|ая|ые)|вы\s+хотите\s+спать|не\s+хотите\s+спать)[?？。.\s]*$/i, "Больно?"]
+  ],
+  vi: [
+    [/^(?:bạn\s+có\s+buồn\s+ngủ\s+không|bạn\s+không\s+buồn\s+ngủ\s+à|buồn\s+ngủ\s+không)[?？。.\s]*$/i, "Có đau không?"]
+  ],
+  id: [
+    [/^(?:apakah\s+anda\s+mengantuk|anda\s+tidak\s+mengantuk|mengantuk)[?？。.\s]*$/i, "Apakah sakit?"]
+  ],
+  fr: [
+    [/^(?:vous\s+n'avez\s+pas\s+sommeil|avez-vous\s+sommeil|vous\s+avez\s+sommeil)[?？。.\s]*$/i, "Est-ce que cela fait mal ?"]
+  ],
+  es: [
+    [/^(?:no\s+tiene\s+sueño|tiene\s+sueño|le\s+da\s+sueño)[?¿？。.\s]*$/i, "¿Le duele?"]
+  ],
+  de: [
+    [/^(?:sind\s+sie\s+nicht\s+müde|sind\s+sie\s+müde|haben\s+sie\s+schlaf)[?？。.\s]*$/i, "Tut es weh?"]
+  ],
+  it: [
+    [/^(?:non\s+ha\s+sonno|ha\s+sonno|le\s+viene\s+sonno)[?？。.\s]*$/i, "Fa male?"]
+  ],
+  pt: [
+    [/^(?:não\s+está\s+com\s+sono|está\s+com\s+sono|tem\s+sono)[?？。.\s]*$/i, "Dói?"]
+  ]
+};
+
+function applyTargetSpecificCorrections(text: string, targetLanguage: GlossaryTargetLanguage) {
+  const corrections = targetMisrecognitionCorrections[targetLanguage];
+  if (!corrections) return text;
+
+  return corrections.reduce(
+    (current, [pattern, replacement]) => current.replace(pattern, replacement),
+    text
+  );
+}
+
+function cleanRepeatedPunctuation(text: string) {
+  return text
+    .replace(/\?{2,}/g, "?")
+    .replace(/？{2,}/g, "？")
+    .replace(/。{2,}/g, "。")
+    .replace(/\s+([?.!,。？！])/g, "$1");
 }
 
 function targetFor(entry: ClinicGlossaryEntry, targetLanguage: GlossaryTargetLanguage) {
@@ -193,8 +348,25 @@ function targetFor(entry: ClinicGlossaryEntry, targetLanguage: GlossaryTargetLan
   return entry[targetLanguage];
 }
 
+function targetForCritical(entry: CriticalShortPhrase, targetLanguage: GlossaryTargetLanguage) {
+  return entry.translations[targetLanguage];
+}
+
 export function normalizeClinicTranslation(text: string, targetLanguage: GlossaryTargetLanguage) {
   let normalized = text;
+
+  for (const entry of criticalShortPhrases) {
+    const target = targetForCritical(entry, targetLanguage);
+    const sources = new Set([
+      ...entry.spoken,
+      ...Object.values(entry.translations)
+    ]);
+
+    for (const source of sources) {
+      if (!source || source === target) continue;
+      normalized = replaceAllCaseInsensitive(normalized, source, target);
+    }
+  }
 
   for (const entry of clinicGlossary) {
     const target = targetFor(entry, targetLanguage);
@@ -215,7 +387,7 @@ export function normalizeClinicTranslation(text: string, targetLanguage: Glossar
     }
   }
 
-  return normalized;
+  return cleanRepeatedPunctuation(applyTargetSpecificCorrections(normalized, targetLanguage));
 }
 
 export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage) {
@@ -223,8 +395,29 @@ export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage
     "Clinic glossary rules:",
     "- Preserve brand and procedure names exactly.",
     "- Use the clinic-approved speak form for counts, units, procedure names, and safety phrases.",
+    "- Short Korean procedure phrases are often spoken quickly. In a procedure room, prefer the pain and safety meaning over casual meanings like sleepiness or device setup.",
+    "- Critical short phrase mappings:",
+    ...criticalShortPhrases.map((entry) => `  - ${entry.spoken.join(" / ")} => ${targetForCritical(entry, patientLanguage)} (${entry.note})`),
     "- For French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names.",
     "- Do not expand brand names into generic explanations unless the staff explains them.",
     ...clinicGlossary.map((entry) => `- ${entry.standardKo}: ${targetFor(entry, patientLanguage)}`)
   ].join("\n");
+}
+
+export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLanguage) {
+  const koreanHints = criticalShortPhrases.flatMap((entry) => entry.spoken).join(", ");
+  if (inputLanguage === "ko") {
+    return [
+      "Korean dermatology and plastic surgery procedure room.",
+      "Common short phrases may be spoken quickly or through a mask.",
+      `Prefer these Korean phrases when acoustically plausible: ${koreanHints}.`,
+      "Do not reinterpret pain-check phrases as sleepiness, setup, or casual conversation."
+    ].join(" ");
+  }
+
+  return [
+    "Dermatology and plastic surgery interpretation room.",
+    "The speaker may answer briefly about pain, discomfort, movement, or whether they are okay.",
+    "Keep medical procedure context when transcribing short phrases."
+  ].join(" ");
 }

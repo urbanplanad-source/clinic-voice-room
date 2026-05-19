@@ -19,7 +19,7 @@ export default async function AdminUsagePage() {
         </header>
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Metric label="병원" value={usage.totalHospitals} />
+          <Metric label="표시 병원" value={usage.totalHospitals} />
           <Metric label="파트너 무료" value={usage.planCounts.partner_free} />
           <Metric label="이번 달 방" value={usage.monthlyRoomCount} />
           <Metric label="이번 달 분" value={usage.monthlyActiveMinutes} />

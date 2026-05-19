@@ -11,18 +11,23 @@ export async function getAdminUsageSummary() {
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
 
-  const [hospitals, planGroups, monthlyTotals, languageGroups, usageByHospital] = await Promise.all([
+  const [hospitals, monthlyTotals, languageGroups, usageByHospital] = await Promise.all([
     prisma.hospital.findMany({
       select: {
         id: true,
         name: true,
-        planType: true
+        planType: true,
+        staffUsers: {
+          select: { id: true, isActive: true }
+        },
+        _count: {
+          select: {
+            rooms: true,
+            usageSessions: true
+          }
+        }
       },
       orderBy: { name: "asc" }
-    }),
-    prisma.hospital.groupBy({
-      by: ["planType"],
-      _count: { id: true }
     }),
     prisma.usageSession.aggregate({
       where: { roomStartedAt: { gte: monthStart } },
@@ -44,13 +49,16 @@ export async function getAdminUsageSummary() {
   ]);
 
   const usageByHospitalId = new Map(usageByHospital.map((usage) => [usage.hospitalId, usage]));
+  const visibleHospitals = hospitals.filter(
+    (hospital) => hospital.staffUsers.some((staffUser) => staffUser.isActive)
+  );
   const planCounts = Object.fromEntries(planTypes.map((planType) => [planType, 0])) as Record<PlanType, number>;
-  for (const group of planGroups) {
-    planCounts[group.planType] = group._count.id;
+  for (const hospital of visibleHospitals) {
+    planCounts[hospital.planType] += 1;
   }
 
   return {
-    totalHospitals: hospitals.length,
+    totalHospitals: visibleHospitals.length,
     planCounts,
     monthlyRoomCount: monthlyTotals._count.id,
     monthlyActiveMinutes: Math.round((monthlyTotals._sum.totalRoomSeconds ?? 0) / 60),
@@ -59,7 +67,7 @@ export async function getAdminUsageSummary() {
       roomCount: group._count.id,
       minutes: Math.round((group._sum.totalRoomSeconds ?? 0) / 60)
     })),
-    hospitals: hospitals.map((hospital) => {
+    hospitals: visibleHospitals.map((hospital) => {
       const usage = usageByHospitalId.get(hospital.id);
       return {
         id: hospital.id,
