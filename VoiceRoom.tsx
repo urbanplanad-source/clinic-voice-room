@@ -49,6 +49,20 @@ const speechLanguageByPatientLanguage: Record<string, string> = {
   pt: "pt-PT"
 };
 
+function pickBrowserVoice(lang: string) {
+  if (!("speechSynthesis" in window)) return null;
+
+  const voices = window.speechSynthesis.getVoices();
+  const normalizedLang = lang.toLowerCase();
+  const baseLang = normalizedLang.split("-")[0];
+
+  return (
+    voices.find((voice) => voice.lang.toLowerCase() === normalizedLang) ??
+    voices.find((voice) => voice.lang.toLowerCase().startsWith(`${baseLang}-`)) ??
+    null
+  );
+}
+
 type RoomSnapshot = {
   id: string;
   status: RoomStatus;
@@ -550,6 +564,7 @@ export function VoiceRoom({
   const [hardwareInputStatus, setHardwareInputStatus] = useState("키보드 입력 대기");
   const streamRef = useRef<MediaStream | null>(null);
   const roomRootRef = useRef<HTMLDivElement | null>(null);
+  const hardwareCaptureRef = useRef<HTMLInputElement | null>(null);
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
   const realtimePreconnectStartedRef = useRef(false);
   const spokenMessageIdsRef = useRef(new Set<string>());
@@ -647,8 +662,10 @@ export function VoiceRoom({
   const speakWithBrowserTts = useCallback((text: string) => {
     if (!("speechSynthesis" in window)) return;
 
+    const lang = role === "staff" ? speechLanguageByPatientLanguage.ko : speechLanguageByPatientLanguage[room.patientLanguage] ?? "en-US";
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = role === "staff" ? speechLanguageByPatientLanguage.ko : speechLanguageByPatientLanguage[room.patientLanguage] ?? "en-US";
+    utterance.lang = lang;
+    utterance.voice = pickBrowserVoice(lang);
     utterance.rate = 0.95;
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
@@ -807,13 +824,8 @@ export function VoiceRoom({
     if (!audioPlaybackEnabled || !latestMessage || spokenMessageIdsRef.current.has(latestMessage.id)) return;
 
     spokenMessageIdsRef.current.add(latestMessage.id);
-    if (isProcedureMode) {
-      speakWithBrowserTts(latestMessage.text);
-      return;
-    }
-
     playQueuedTranslatedSpeech(latestMessage);
-  }, [audioPlaybackEnabled, isProcedureMode, latestMessage, playQueuedTranslatedSpeech, speakWithBrowserTts]);
+  }, [audioPlaybackEnabled, latestMessage, playQueuedTranslatedSpeech]);
 
   useEffect(() => {
     if (!isProcedureMode) return;
@@ -854,6 +866,16 @@ export function VoiceRoom({
     if (!isProcedureMode || room.status === "ended") return;
 
     roomRootRef.current?.focus();
+    hardwareCaptureRef.current?.focus({ preventScroll: true });
+
+    const isArrowUpKey = (event: KeyboardEvent) =>
+      event.code === "ArrowUp" ||
+      event.key === "ArrowUp" ||
+      event.key === "Up" ||
+      event.code === "PageUp" ||
+      event.key === "PageUp" ||
+      event.keyCode === 33 ||
+      event.keyCode === 38;
 
     const isPttKey = (event: KeyboardEvent) =>
       event.code === "Space" ||
@@ -864,6 +886,9 @@ export function VoiceRoom({
       event.code === "NumpadEnter" ||
       event.code === "MediaPlayPause" ||
       event.key === "MediaPlayPause" ||
+      event.code === "PageUp" ||
+      event.key === "PageUp" ||
+      event.key === "Up" ||
       event.code === "ArrowDown" ||
       event.code === "ArrowUp" ||
       event.key === "ArrowDown" ||
@@ -890,7 +915,7 @@ export function VoiceRoom({
       if (now - lastHardwareToggleAtRef.current < 350) return;
       lastHardwareToggleAtRef.current = now;
 
-      setHardwareInputStatus(`스페이스/엔터 입력 적용됨 (${source})`);
+      setHardwareInputStatus(`${isArrowUpKey(event) ? "↑" : "키보드"} 입력 적용됨 (${source})`);
       if (busy && !isSpeaking) return;
       if (!isSpeaking && !micEnabled) return;
       if (isSpeaking) void stopSpeakingRef.current();
@@ -1052,10 +1077,11 @@ export function VoiceRoom({
         });
 
         if (translatedText) {
+          const normalizedText = normalizeClinicTranslation(translatedText, room.patientLanguage);
           const message = {
             id: `staff-procedure-${Date.now()}`,
             speaker: "staff",
-            text: translatedText
+            text: normalizedText
           } satisfies RealtimeTranslationMessage;
           void broadcastTranslationMessage(room.id, message);
         }
@@ -1194,9 +1220,22 @@ export function VoiceRoom({
       className="space-y-4 outline-none"
       tabIndex={-1}
       onPointerDown={() => {
-        if (isProcedureMode) roomRootRef.current?.focus();
+        if (!isProcedureMode) return;
+        roomRootRef.current?.focus();
+        hardwareCaptureRef.current?.focus({ preventScroll: true });
       }}
     >
+      {isProcedureMode ? (
+        <input
+          ref={hardwareCaptureRef}
+          aria-hidden="true"
+          autoComplete="off"
+          inputMode="none"
+          readOnly
+          tabIndex={-1}
+          className="fixed left-0 top-0 h-px w-px opacity-0"
+        />
+      ) : null}
       {backWarning ? (
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
           <p className="text-sm font-bold text-amber-800">{copy.backWarning.title}</p>
@@ -1313,7 +1352,7 @@ export function VoiceRoom({
           <p className="mt-4 text-xl font-bold text-ink">
             {room.status === "ended" ? copy.primary.ended : isSpeaking ? copy.primary.speaking : micEnabled ? copy.primary.ready : copy.primary.waiting}
           </p>
-          <p className="mt-2 text-sm font-semibold text-slate-500">Space / Enter / ↑ / ↓ / foot switch toggles the same button</p>
+          <p className="mt-2 text-sm font-semibold text-slate-500">↑ key toggles this button. Space / Enter are also supported.</p>
           <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">{hardwareInputStatus}</p>
           {wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
           {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
