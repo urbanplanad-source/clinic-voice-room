@@ -39,18 +39,18 @@ const speechLanguageByPatientLanguage: Record<PatientLanguage | "ko", string> = 
   pt: "pt-PT"
 };
 
-const consultationTextCopy: Record<PatientLanguage, { placeholder: string; submit: string; voice: string; title: string }> = {
-  zh: { title: "请输入文字", placeholder: "请在这里输入您想说的话。", submit: "发送翻译", voice: "也可以用语音说话" },
-  ja: { title: "テキストで入力してください", placeholder: "伝えたい内容をここに入力してください。", submit: "翻訳を送信", voice: "音声でも話せます" },
-  en: { title: "Type your message", placeholder: "Type what you want to say here.", submit: "Send translation", voice: "You can also use voice" },
-  ru: { title: "Введите сообщение", placeholder: "Введите здесь то, что хотите сказать.", submit: "Отправить перевод", voice: "Можно также говорить голосом" },
-  vi: { title: "Nhập tin nhắn", placeholder: "Nhập điều bạn muốn nói ở đây.", submit: "Gửi bản dịch", voice: "Bạn cũng có thể nói bằng giọng nói" },
-  id: { title: "Ketik pesan Anda", placeholder: "Ketik apa yang ingin Anda sampaikan di sini.", submit: "Kirim terjemahan", voice: "Anda juga bisa menggunakan suara" },
-  fr: { title: "Saisissez votre message", placeholder: "Écrivez ici ce que vous voulez dire.", submit: "Envoyer la traduction", voice: "Vous pouvez aussi parler" },
-  es: { title: "Escriba su mensaje", placeholder: "Escriba aquí lo que quiere decir.", submit: "Enviar traducción", voice: "También puede usar la voz" },
-  de: { title: "Nachricht eingeben", placeholder: "Geben Sie hier ein, was Sie sagen möchten.", submit: "Übersetzung senden", voice: "Sie können auch sprechen" },
-  it: { title: "Scrivi il messaggio", placeholder: "Scrivi qui ciò che vuoi dire.", submit: "Invia traduzione", voice: "Puoi anche parlare" },
-  pt: { title: "Digite sua mensagem", placeholder: "Digite aqui o que você quer dizer.", submit: "Enviar tradução", voice: "Você também pode falar" }
+const consultationTextCopy: Record<PatientLanguage, { placeholder: string; submit: string; title: string }> = {
+  zh: { title: "请输入文字", placeholder: "请在这里输入您想说的话。", submit: "发送翻译" },
+  ja: { title: "テキストで入力してください", placeholder: "伝えたい内容をここに入力してください。", submit: "翻訳を送信" },
+  en: { title: "Type your message", placeholder: "Type what you want to say here.", submit: "Send translation" },
+  ru: { title: "Введите сообщение", placeholder: "Введите здесь то, что хотите сказать.", submit: "Отправить перевод" },
+  vi: { title: "Nhập tin nhắn", placeholder: "Nhập điều bạn muốn nói ở đây.", submit: "Gửi bản dịch" },
+  id: { title: "Ketik pesan Anda", placeholder: "Ketik apa yang ingin Anda sampaikan di sini.", submit: "Kirim terjemahan" },
+  fr: { title: "Saisissez votre message", placeholder: "Écrivez ici ce que vous voulez dire.", submit: "Envoyer la traduction" },
+  es: { title: "Escriba su mensaje", placeholder: "Escriba aquí lo que quiere decir.", submit: "Enviar traducción" },
+  de: { title: "Nachricht eingeben", placeholder: "Geben Sie hier ein, was Sie sagen möchten.", submit: "Übersetzung senden" },
+  it: { title: "Scrivi il messaggio", placeholder: "Scrivi qui ciò che vuoi dire.", submit: "Invia traduzione" },
+  pt: { title: "Digite sua mensagem", placeholder: "Digite aqui o que você quer dizer.", submit: "Enviar tradução" }
 };
 
 const consultationDeliveryStatusCopy: Record<PatientLanguage, { sending: string; failed: string }> = {
@@ -769,6 +769,9 @@ export function VoiceRoom({
   const consultationStatusDescription = role === "staff" ? "상담 내용을 텍스트로 입력해 번역을 보내세요." : patientTextCopy.placeholder;
   const chatMessages = [...messages].reverse();
   const staffFollowUpSuggestionSet = getStaffFollowUpSuggestionSet(latestMessage);
+  const canSubmitText = Boolean(textInput.trim()) && !textSubmitting && (isProcedureMode ? room.status === "ready" : room.status !== "ended");
+  const canSendExampleText = !textSubmitting && (isProcedureMode ? room.status === "ready" : room.status !== "ended");
+  const visibleError = !isProcedureMode && error === copy.errors.busy ? "" : error;
 
   useEffect(() => {
     roomRef.current = room;
@@ -1187,7 +1190,8 @@ export function VoiceRoom({
 
   async function submitTextMessage(textOverride?: string) {
     const sourceText = (textOverride ?? textInput).trim();
-    if (!sourceText || room.status !== "ready" || textSubmitting) return;
+    if (!sourceText || textSubmitting || room.status === "ended") return;
+    if (isProcedureMode && room.status !== "ready") return;
 
     markActivity();
     setError("");
@@ -1205,8 +1209,10 @@ export function VoiceRoom({
     } satisfies TranslationMessage;
 
     try {
-      const turnAcquired = await transition(translatingStatus);
-      if (!turnAcquired) throw new Error(copy.errors.busy);
+      if (isProcedureMode) {
+        const turnAcquired = await transition(translatingStatus);
+        if (!turnAcquired) throw new Error(copy.errors.busy);
+      }
       appendMessage(localMessage);
 
       const response = await fetch("/api/translate-text", {
@@ -1241,9 +1247,11 @@ export function VoiceRoom({
       updateMessageDeliveryStatus(localMessage.id, "failed");
       setError(caught instanceof Error ? caught.message : "Text translation failed.");
     } finally {
-      setRoom(readyRoom);
-      void broadcastRoomUpdate(readyRoom);
-      await transition("ready");
+      if (isProcedureMode) {
+        setRoom(readyRoom);
+        void broadcastRoomUpdate(readyRoom);
+        await transition("ready");
+      }
       setTextSubmitting(false);
     }
   }
@@ -1480,8 +1488,8 @@ export function VoiceRoom({
 
   if (!isProcedureMode) {
     return (
-      <div className="flex min-h-[calc(100vh-56px)] flex-col overflow-hidden rounded-lg bg-white shadow-soft md:min-h-[760px]">
-        <header className="shrink-0 border-b border-line bg-white px-4 py-4 md:px-6">
+      <div className="flex h-[calc(100dvh-56px)] min-h-[620px] flex-col overflow-hidden rounded-lg bg-white shadow-soft md:min-h-[760px]">
+        <header className="shrink-0 border-b border-line bg-white px-4 py-3 md:px-6 md:py-4">
           {backWarning ? (
             <section className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
               <p className="text-sm font-bold text-amber-800">{copy.backWarning.title}</p>
@@ -1499,18 +1507,18 @@ export function VoiceRoom({
               <p className="truncate text-xs font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
               <h1 className="mt-1 text-lg font-bold text-ink">{title}</h1>
             </div>
-            <span className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold ${statusTone.tone}`}>
-              <span className={`h-2 w-2 rounded-full ${statusTone.dot}`} />
-              {copy.statusLabels[room.status]}
+            <span className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-trust">
+              <span className="h-2 w-2 rounded-full bg-trust" />
+              {room.status === "ended" ? copy.statusLabels.ended : "채팅"}
             </span>
           </div>
-          <div className="mt-3 flex items-start gap-3 rounded-lg bg-slate-50 px-3 py-3">
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-green-100 text-sm font-bold text-mint">
+          <div className="mt-2 flex items-start gap-3 rounded-lg bg-slate-50 px-3 py-2.5">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-green-100 text-xs font-bold text-mint">
               AI
             </div>
             <div>
               <p className="text-sm font-bold text-ink">{role === "staff" ? "텍스트 상담방이 시작되었습니다." : "AI translation consultation has started."}</p>
-              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">{consultationStatusDescription}</p>
+              <p className="mt-0.5 text-xs font-semibold leading-5 text-slate-500">{consultationStatusDescription}</p>
             </div>
           </div>
         </header>
@@ -1559,10 +1567,10 @@ export function VoiceRoom({
           )}
         </section>
 
-        <footer className="shrink-0 border-t border-line bg-white p-3 md:p-4">
+        <footer className="shrink-0 border-t border-line bg-white px-3 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-2 md:px-4 md:pb-4">
           {role === "patient" ? (
-            <div className="mb-3 rounded-lg bg-blue-50 p-3">
-              <div className="grid grid-cols-3 gap-2">
+            <div className="mb-2 rounded-lg bg-blue-50 p-2">
+              <div className="grid grid-cols-3 gap-1.5">
                 {(Object.keys(patientExamples) as ConsultationExampleCategory[]).map((category) => {
                   const active = category === activeExampleCategory;
                   return (
@@ -1570,7 +1578,7 @@ export function VoiceRoom({
                       key={category}
                       type="button"
                       onClick={() => setActiveExampleCategory(category)}
-                      className={`min-h-10 rounded-lg px-2 text-xs font-bold transition md:text-sm ${
+                      className={`min-h-8 rounded-lg px-2 text-[11px] font-bold transition md:text-xs ${
                         active ? "bg-trust text-white" : "bg-white text-slate-600 hover:bg-slate-50"
                       }`}
                     >
@@ -1579,14 +1587,14 @@ export function VoiceRoom({
                   );
                 })}
               </div>
-              <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+              <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-0.5">
                 {patientExamples[activeExampleCategory].examples.map((example) => (
                   <button
                     key={example}
                     type="button"
                     onClick={() => void submitTextMessage(example)}
-                    disabled={room.status !== "ready" || textSubmitting}
-                    className="min-w-[220px] rounded-lg bg-white px-3 py-2 text-left text-sm font-bold leading-5 text-ink shadow-sm transition hover:bg-slate-50 disabled:opacity-50 md:min-w-[260px]"
+                    disabled={!canSendExampleText}
+                    className="min-w-[190px] rounded-lg bg-white px-2.5 py-1.5 text-left text-xs font-bold leading-4 text-ink shadow-sm transition hover:bg-slate-50 disabled:opacity-50 md:min-w-[230px]"
                   >
                     {example}
                   </button>
@@ -1630,26 +1638,12 @@ export function VoiceRoom({
               placeholder={role === "staff" ? "상담 내용을 입력하세요." : patientTextCopy.placeholder}
               disabled={room.status === "ended" || textSubmitting}
               rows={1}
-              className="max-h-32 min-h-11 flex-1 resize-none bg-transparent px-3 py-2 text-base font-semibold leading-7 text-ink outline-none disabled:opacity-60"
+              className="max-h-28 min-h-11 flex-1 resize-none bg-transparent px-3 py-2 text-base font-semibold leading-7 text-ink outline-none disabled:opacity-60"
             />
-            {role === "patient" ? (
-              <button
-                type="button"
-                onClick={isSpeaking ? stopSpeaking : startSpeaking}
-                disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
-                className={`grid h-11 w-11 shrink-0 place-items-center rounded-full transition disabled:opacity-50 ${
-                  isSpeaking ? "bg-coral text-white" : "bg-white text-trust"
-                }`}
-                aria-label={isSpeaking ? copy.primary.speaking : patientTextCopy.voice}
-                title={isSpeaking ? copy.primary.speaking : patientTextCopy.voice}
-              >
-                {busy && !isSpeaking ? <Loader2 size={18} className="animate-spin" /> : <Mic size={19} />}
-              </button>
-            ) : null}
             <button
               type="button"
               onClick={() => void submitTextMessage()}
-              disabled={!textInput.trim() || room.status !== "ready" || textSubmitting}
+              disabled={!canSubmitText}
               className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-trust text-white transition hover:bg-blue-600 disabled:opacity-50"
               aria-label={role === "staff" ? "번역 보내기" : patientTextCopy.submit}
               title={role === "staff" ? "번역 보내기" : patientTextCopy.submit}
@@ -1657,8 +1651,7 @@ export function VoiceRoom({
               {textSubmitting ? <Loader2 size={18} className="animate-spin" /> : <Send size={19} />}
             </button>
           </div>
-          {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
-          {error ? <p className="mt-2 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
+          {visibleError ? <p className="mt-2 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{visibleError}</p> : null}
           {role === "staff" ? (
             <button
               onClick={endRoom}
@@ -1924,7 +1917,7 @@ export function VoiceRoom({
         </section>
       ) : role === "patient" ? (
         <section className="rounded-lg bg-white p-5 text-center shadow-soft">
-          <p className="mb-4 text-sm font-bold text-slate-500">{patientTextCopy.voice}</p>
+          <p className="mb-4 text-sm font-bold text-slate-500">{patientTextCopy.title}</p>
           <button
             type="button"
             disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
