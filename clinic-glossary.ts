@@ -1,5 +1,4 @@
-import type { PatientLanguage } from "./languages";
-
+type PatientLanguage = "zh" | "ja" | "en" | "ru" | "vi" | "id" | "fr" | "es" | "de" | "it" | "pt";
 type GlossaryTargetLanguage = PatientLanguage | "ko";
 type CriticalShortPhrase = {
   spoken: string[];
