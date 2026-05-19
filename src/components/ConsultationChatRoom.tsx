@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { AlertTriangle, ClipboardList, Loader2, PhoneOff, Send } from "lucide-react";
+import { Loader2, PhoneOff, Send, Sparkles } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { type RoomStatus } from "@/lib/room-state";
 import {
@@ -14,15 +14,11 @@ import {
 import {
   consultationDeliveryStatusCopy,
   consultationExampleCategories,
-  consultationStages,
   consultationTextCopy,
-  getConsultationRiskFlags,
   getStaffFollowUpSuggestionSet,
-  pickClinicConsultationTemplateProfile,
-  stageByExampleCategory,
+  inferConsultationStage,
   stageLabel,
-  type ConsultationExampleCategory,
-  type ConsultationStage
+  type ConsultationExampleCategory
 } from "@/lib/consultation-templates";
 
 const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
@@ -56,7 +52,6 @@ export function ConsultationChatRoom({
   const [textInput, setTextInput] = useState("");
   const [textSubmitting, setTextSubmitting] = useState(false);
   const [activeExampleCategory, setActiveExampleCategory] = useState<ConsultationExampleCategory>("visit");
-  const [activeStage, setActiveStage] = useState<ConsultationStage>("intake");
   const [error, setError] = useState("");
   const [ending, setEnding] = useState(false);
   const chatScrollRef = useRef<HTMLElement | null>(null);
@@ -71,9 +66,9 @@ export function ConsultationChatRoom({
   const chatMessages = [...messages].reverse();
   const latestPatientMessage = messages.find((message) => message.speaker === "patient");
   const latestPatientText = latestPatientMessage?.text;
-  const templateProfile = pickClinicConsultationTemplateProfile(room.hospital?.name);
-  const riskFlags = getConsultationRiskFlags(latestPatientText);
-  const staffSuggestionSet = getStaffFollowUpSuggestionSet(latestPatientText, activeStage);
+  const previousPatientMessage = messages.filter((message) => message.speaker === "patient")[1];
+  const inferredStage = inferConsultationStage(latestPatientText, inferConsultationStage(previousPatientMessage?.text, "intake"));
+  const staffSuggestionSet = getStaffFollowUpSuggestionSet(latestPatientText, inferredStage);
   const canSubmitText = Boolean(textInput.trim()) && !textSubmitting && room.status !== "ended";
   const canSendExampleText = !textSubmitting && room.status !== "ended";
 
@@ -81,20 +76,6 @@ export function ConsultationChatRoom({
     const language = languageLabels[room.patientLanguage];
     return role === "staff" ? `${language.ko} 번역상담` : `${language.native} Consultation`;
   }, [role, room.patientLanguage]);
-
-  const summaryRows = useMemo(() => {
-    const patientMessages = messages.filter((message) => message.speaker === "patient");
-    const staffMessages = messages.filter((message) => message.speaker === "staff");
-    const recentPatientText = patientMessages[0]?.text ?? "아직 고객 메시지가 없습니다.";
-    return [
-      { label: "현재 단계", value: stageLabel(activeStage) },
-      { label: "템플릿", value: templateProfile.label },
-      { label: "고객 언어", value: languageLabels[room.patientLanguage].ko },
-      { label: "최근 고객 메시지", value: recentPatientText },
-      { label: "확인 필요", value: riskFlags.length ? riskFlags.map((flag) => flag.label).join(", ") : "특이사항 없음" },
-      { label: "상담 흐름", value: `고객 ${patientMessages.length}건 / 상담사 ${staffMessages.length}건` }
-    ];
-  }, [activeStage, messages, riskFlags, room.patientLanguage, templateProfile.label]);
 
   const appendMessage = useCallback((message: TranslationMessage) => {
     setMessages((current) => {
@@ -295,8 +276,7 @@ export function ConsultationChatRoom({
     void submitTextMessage();
   }
 
-  function sendExample(category: ConsultationExampleCategory, example: string) {
-    setActiveStage(stageByExampleCategory[category]);
+  function sendExample(example: string) {
     void submitTextMessage(example);
   }
 
@@ -323,25 +303,9 @@ export function ConsultationChatRoom({
         </div>
 
         {role === "staff" ? (
-          <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5">
-            {consultationStages.map((stage) => {
-              const active = stage.id === activeStage;
-              return (
-                <button
-                  key={stage.id}
-                  type="button"
-                  onClick={() => setActiveStage(stage.id)}
-                  className={`min-h-8 shrink-0 rounded-lg px-3 text-xs font-bold transition ${
-                    active ? "bg-trust text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100"
-                  }`}
-                >
-                  {stage.shortLabel}
-                </button>
-              );
-            })}
-            <span className="inline-flex min-h-8 shrink-0 items-center rounded-lg bg-green-50 px-3 text-xs font-bold text-mint">
-              {templateProfile.label}
-            </span>
+          <div className="mt-2 inline-flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-xs font-bold text-mint">
+            <Sparkles size={14} />
+            AI가 고객 메시지에 맞춰 다음 질문 흐름을 추천합니다.
           </div>
         ) : null}
       </header>
@@ -411,7 +375,7 @@ export function ConsultationChatRoom({
                 <button
                   key={example}
                   type="button"
-                  onClick={() => sendExample(activeExampleCategory, example)}
+                  onClick={() => sendExample(example)}
                   disabled={!canSendExampleText}
                   className="min-w-[190px] rounded-lg bg-white px-2.5 py-1.5 text-left text-xs font-bold leading-4 text-ink shadow-sm transition hover:bg-slate-50 disabled:opacity-50 md:min-w-[230px]"
                 >
@@ -421,67 +385,34 @@ export function ConsultationChatRoom({
             </div>
           </div>
         ) : latestPatientMessage ? (
-          <div className="mb-2 space-y-2">
-            <div className="rounded-lg bg-slate-50 p-2">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-bold text-slate-500">다음 질문 예시</p>
-                <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-bold text-trust shadow-sm">{staffSuggestionSet.label}</span>
+          <div className="mb-2 rounded-2xl bg-slate-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-blue-100 text-trust">
+                  <Sparkles size={16} />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-ink">AI 추천 질문</p>
+                  <p className="mt-0.5 text-xs font-bold text-slate-500">
+                    {staffSuggestionSet.label} · {stageLabel(inferredStage)}
+                  </p>
+                </div>
               </div>
-              <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-0.5">
-                {staffSuggestionSet.suggestions.map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    onClick={() => setTextInput(suggestion)}
-                    className="min-w-[210px] rounded-lg bg-white px-2.5 py-1.5 text-left text-xs font-bold leading-4 text-ink shadow-sm transition hover:bg-slate-50"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-slate-500 shadow-sm">
+                고객 답변에 따라 자동 변경
+              </span>
             </div>
-
-            <div className="grid gap-2 md:grid-cols-[1fr_1.2fr]">
-              <div className="rounded-lg bg-amber-50 p-2">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-amber-700">
-                  <AlertTriangle size={14} />
-                  확인 칩
-                </div>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {riskFlags.length ? (
-                    riskFlags.map((flag) => (
-                      <span
-                        key={flag.id}
-                        className={`rounded-full px-2 py-1 text-[11px] font-bold ${
-                          flag.tone === "rose"
-                            ? "bg-rose-100 text-rose-700"
-                            : flag.tone === "blue"
-                              ? "bg-blue-100 text-blue-700"
-                              : "bg-amber-100 text-amber-700"
-                        }`}
-                      >
-                        {flag.label}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="rounded-full bg-white px-2 py-1 text-[11px] font-bold text-slate-500">특이사항 없음</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-lg bg-slate-50 p-2">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
-                  <ClipboardList size={14} />
-                  상담 요약 초안
-                </div>
-                <div className="mt-1.5 grid gap-1">
-                  {summaryRows.slice(0, 5).map((row) => (
-                    <p key={row.label} className="truncate text-[11px] font-semibold text-slate-600">
-                      <span className="font-bold text-slate-800">{row.label}</span> · {row.value}
-                    </p>
-                  ))}
-                </div>
-              </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
+              {staffSuggestionSet.suggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  type="button"
+                  onClick={() => setTextInput(suggestion)}
+                  className="min-h-12 rounded-xl bg-white px-3 py-2 text-left text-sm font-bold leading-5 text-ink shadow-sm transition hover:bg-blue-50 hover:text-trust"
+                >
+                  {suggestion}
+                </button>
+              ))}
             </div>
           </div>
         ) : null}

@@ -409,6 +409,21 @@ export function getStaffFollowUpSuggestionSet(messageText: string | undefined, s
   return ranked[0]?.score ? ranked[0].set : defaultStageSuggestions[stage];
 }
 
+export function inferConsultationStage(messageText: string | undefined, fallback: ConsultationStage = "intake") {
+  const normalizedText = normalizeForMatch(messageText ?? "");
+  if (!normalizedText) return fallback;
+
+  const ranked = keywordSuggestionSets
+    .map((set) => ({
+      stages: set.stages ?? [],
+      score: set.keywords.reduce((total, keyword) => total + (normalizedText.includes(normalizeForMatch(keyword)) ? 1 : 0), 0)
+    }))
+    .filter((item) => item.score > 0 && item.stages.length)
+    .sort((left, right) => right.score - left.score);
+
+  return ranked[0]?.stages[0] ?? fallback;
+}
+
 export function getConsultationRiskFlags(text: string | undefined) {
   const normalizedText = normalizeForMatch(text ?? "");
   if (!normalizedText) return [];
