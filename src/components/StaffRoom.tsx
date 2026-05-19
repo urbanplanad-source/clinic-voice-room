@@ -51,6 +51,31 @@ const qrCopy: Record<PatientLanguage, { heading: string; instruction: string; wa
     heading: "Pindai kode QR",
     instruction: "Gunakan kamera ponsel untuk memindai kode QR di bawah dan masuk ke ruang interpretasi.",
     waiting: "Menunggu pasien masuk"
+  },
+  fr: {
+    heading: "Scannez le code QR",
+    instruction: "Utilisez l'appareil photo du téléphone pour scanner le code QR et entrer dans la salle d'interprétation.",
+    waiting: "En attente de l'arrivée du patient"
+  },
+  es: {
+    heading: "Escanee el código QR",
+    instruction: "Use la cámara del teléfono para escanear el código QR y entrar en la sala de interpretación.",
+    waiting: "Esperando a que entre el paciente"
+  },
+  de: {
+    heading: "QR-Code scannen",
+    instruction: "Scannen Sie den QR-Code mit der Handykamera und betreten Sie den Dolmetschraum.",
+    waiting: "Warten auf den Patienten"
+  },
+  it: {
+    heading: "Scansiona il codice QR",
+    instruction: "Usa la fotocamera del telefono per scansionare il codice QR ed entrare nella stanza di interpretariato.",
+    waiting: "In attesa dell'ingresso del paziente"
+  },
+  pt: {
+    heading: "Escaneie o código QR",
+    instruction: "Use a câmera do celular para escanear o código QR e entrar na sala de interpretação.",
+    waiting: "Aguardando a entrada do paciente"
   }
 };
 

@@ -1,0 +1,5 @@
+ALTER TYPE "PatientLanguage" ADD VALUE IF NOT EXISTS 'fr';
+ALTER TYPE "PatientLanguage" ADD VALUE IF NOT EXISTS 'es';
+ALTER TYPE "PatientLanguage" ADD VALUE IF NOT EXISTS 'de';
+ALTER TYPE "PatientLanguage" ADD VALUE IF NOT EXISTS 'it';
+ALTER TYPE "PatientLanguage" ADD VALUE IF NOT EXISTS 'pt';

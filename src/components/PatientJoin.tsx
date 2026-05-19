@@ -63,6 +63,51 @@ const copy: Record<
     button: "Masuk",
     denied: "Mikrofon tidak tersedia. Izinkan akses mikrofon di pengaturan browser.",
     languageLabel: "Interpretasi Bahasa Indonesia"
+  },
+  fr: {
+    title: "Salle d'interprétation de la clinique",
+    body: "Veuillez autoriser l'accès au microphone. Aucune installation d'application ni création de compte n'est nécessaire.",
+    procedureBody: "L'audio traduit peut être diffusé pendant l'intervention. Gardez cet écran allumé et placez le téléphone à proximité.",
+    consent: "Pour fournir l'interprétation, votre voix peut être traitée par un service d'IA externe. Nous ne conservons pas l'audio brut ni la transcription complète de la conversation.",
+    button: "Entrer",
+    denied: "Le microphone n'est pas disponible. Veuillez autoriser l'accès au microphone dans les paramètres du navigateur.",
+    languageLabel: "Interprétation en français"
+  },
+  es: {
+    title: "Sala de interpretación de la clínica",
+    body: "Permita el acceso al micrófono. No necesita instalar una aplicación ni crear una cuenta.",
+    procedureBody: "El audio traducido puede reproducirse durante el procedimiento. Mantenga esta pantalla encendida y coloque el teléfono cerca.",
+    consent: "Para ofrecer la interpretación, su voz puede ser procesada por un servicio externo de IA. No guardamos el audio original ni la transcripción completa de la conversación.",
+    button: "Entrar",
+    denied: "El micrófono no está disponible. Permita el acceso al micrófono en la configuración del navegador.",
+    languageLabel: "Interpretación en español"
+  },
+  de: {
+    title: "Dolmetschraum der Klinik",
+    body: "Bitte erlauben Sie den Zugriff auf das Mikrofon. Eine App-Installation oder Kontoerstellung ist nicht erforderlich.",
+    procedureBody: "Während der Behandlung kann übersetztes Audio abgespielt werden. Lassen Sie den Bildschirm eingeschaltet und legen Sie das Telefon in Ihre Nähe.",
+    consent: "Für die Verdolmetschung kann Ihre Stimme von einem externen KI-Dienst verarbeitet werden. Wir speichern weder Roh-Audio noch vollständige Gesprächsprotokolle.",
+    button: "Raum betreten",
+    denied: "Das Mikrofon ist nicht verfügbar. Bitte erlauben Sie den Mikrofonzugriff in den Browsereinstellungen.",
+    languageLabel: "Deutsch-Dolmetschen"
+  },
+  it: {
+    title: "Sala di interpretariato della clinica",
+    body: "Consenti l'accesso al microfono. Non è necessario installare un'app o creare un account.",
+    procedureBody: "Durante la procedura potrebbe essere riprodotto l'audio tradotto. Tieni lo schermo acceso e il telefono vicino.",
+    consent: "Per fornire l'interpretariato, la tua voce può essere elaborata da un servizio IA esterno. Non conserviamo l'audio originale né la trascrizione completa della conversazione.",
+    button: "Entra",
+    denied: "Il microfono non è disponibile. Consenti l'accesso al microfono nelle impostazioni del browser.",
+    languageLabel: "Interpretariato in italiano"
+  },
+  pt: {
+    title: "Sala de interpretação da clínica",
+    body: "Permita o acesso ao microfone. Não é necessário instalar aplicativo nem criar conta.",
+    procedureBody: "O áudio traduzido pode ser reproduzido durante o procedimento. Mantenha esta tela ligada e coloque o telefone por perto.",
+    consent: "Para fornecer a interpretação, sua voz pode ser processada por um serviço externo de IA. Não armazenamos o áudio bruto nem a transcrição completa da conversa.",
+    button: "Entrar",
+    denied: "O microfone não está disponível. Permita o acesso ao microfone nas configurações do navegador.",
+    languageLabel: "Interpretação em português"
   }
 };
 

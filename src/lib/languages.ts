@@ -1,4 +1,4 @@
-export const patientLanguages = ["zh", "ja", "en", "ru", "vi", "id"] as const;
+export const patientLanguages = ["zh", "ja", "en", "ru", "vi", "id", "fr", "es", "de", "it", "pt"] as const;
 
 export type PatientLanguage = (typeof patientLanguages)[number];
 export type ParticipantRole = "staff" | "patient";
@@ -9,7 +9,12 @@ export const languageLabels: Record<PatientLanguage, { ko: string; native: strin
   en: { ko: "영어", native: "English", english: "English" },
   ru: { ko: "러시아어", native: "Русский", english: "Russian" },
   vi: { ko: "베트남어", native: "Tiếng Việt", english: "Vietnamese" },
-  id: { ko: "인도네시아어", native: "Bahasa Indonesia", english: "Indonesian" }
+  id: { ko: "인도네시아어", native: "Bahasa Indonesia", english: "Indonesian" },
+  fr: { ko: "프랑스어", native: "Français", english: "French" },
+  es: { ko: "스페인어", native: "Español", english: "Spanish" },
+  de: { ko: "독일어", native: "Deutsch", english: "German" },
+  it: { ko: "이탈리아어", native: "Italiano", english: "Italian" },
+  pt: { ko: "포르투갈어", native: "Português", english: "Portuguese" }
 };
 
 export const languageInstructions: Record<PatientLanguage, string> = {
@@ -18,7 +23,12 @@ export const languageInstructions: Record<PatientLanguage, string> = {
   en: "Translate spoken Korean into natural English, and English into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
   ru: "Translate spoken Korean into natural Russian, and Russian into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
   vi: "Translate spoken Korean into natural Vietnamese, and Vietnamese into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
-  id: "Translate spoken Korean into natural Indonesian, and Indonesian into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation."
+  id: "Translate spoken Korean into natural Indonesian, and Indonesian into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
+  fr: "Translate spoken Korean into natural French, and French into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
+  es: "Translate spoken Korean into natural Spanish, and Spanish into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
+  de: "Translate spoken Korean into natural German, and German into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
+  it: "Translate spoken Korean into natural Italian, and Italian into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
+  pt: "Translate spoken Korean into natural Portuguese, and Portuguese into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation."
 };
 
 export function isPatientLanguage(value: unknown): value is PatientLanguage {

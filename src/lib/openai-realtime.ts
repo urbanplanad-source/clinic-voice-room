@@ -10,7 +10,12 @@ const realtimeTranslationOutputLanguages: Record<PatientLanguage | "ko", string>
   en: "en",
   ru: "ru",
   vi: "vi",
-  id: "id"
+  id: "id",
+  fr: "fr",
+  es: "es",
+  de: "de",
+  it: "it",
+  pt: "pt"
 };
 
 export async function createRealtimeSessionToken(params: {

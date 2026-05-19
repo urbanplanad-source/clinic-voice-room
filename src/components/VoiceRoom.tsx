@@ -41,7 +41,12 @@ const speechLanguageByPatientLanguage: Record<PatientLanguage | "ko", string> = 
   en: "en-US",
   ru: "ru-RU",
   vi: "vi-VN",
-  id: "id-ID"
+  id: "id-ID",
+  fr: "fr-FR",
+  es: "es-ES",
+  de: "de-DE",
+  it: "it-IT",
+  pt: "pt-PT"
 };
 
 type RoomSnapshot = {
@@ -334,6 +339,171 @@ const patientCopies: Record<PatientLanguage, VoiceRoomCopy> = {
     end: "Akhiri interpretasi",
     backWarning: { title: "Tetap di layar ini selama interpretasi.", body: "Jika suara tidak berfungsi lagi, minta staf membuat ruang baru." },
     connecting: { title: "Menghubungkan interpretasi", body: "Menghubungkan untuk pertama kali. Mohon tunggu sebentar.", hint: "Silakan berbicara saat tombol berubah merah." }
+  },
+  fr: {
+    statusLabels: {
+      waiting_for_patient: "En attente",
+      ready: "Prêt",
+      staff_speaking: "Le personnel parle",
+      translating_to_patient: "Traduction",
+      patient_listening: "Texte affiché",
+      patient_speaking: "Vous parlez",
+      translating_to_staff: "Traduction",
+      staff_listening: "Texte affiché",
+      ended: "Terminé",
+      error: "Erreur"
+    },
+    statusDescriptions: {
+      waiting_for_patient: "En attente de l'ouverture de la salle.",
+      ready: "Touchez le microphone et parlez.",
+      staff_speaking: "Le personnel parle.",
+      translating_to_patient: "Traduction pour vous.",
+      patient_listening: "Le texte traduit est affiché.",
+      patient_speaking: "Nous vous écoutons.",
+      translating_to_staff: "Traduction pour le personnel.",
+      staff_listening: "Le texte traduit est affiché.",
+      ended: "La session d'interprétation est terminée.",
+      error: "Une erreur de connexion s'est produite."
+    },
+    primary: { ended: "Session terminée", speaking: "Touchez à nouveau pour terminer", ready: "Touchez et parlez", waiting: "Veuillez patienter" },
+    helper: { speaking: "Touchez à nouveau quand vous avez terminé", idle: "Veuillez parler une personne à la fois" },
+    errors: { mic: "Le microphone n'est pas disponible.", busy: "L'autre personne parle. Veuillez réessayer dans un instant." },
+    transcript: { title: "Interprétation récente", empty: "La traduction de l'autre personne apparaîtra ici.", staff: "Traduction du personnel", patient: "Traduction du patient" },
+    end: "Terminer l'interprétation",
+    backWarning: { title: "Veuillez rester sur cet écran pendant l'interprétation.", body: "Si la voix ne fonctionne plus, demandez au personnel de créer une nouvelle salle." },
+    connecting: { title: "Connexion à l'interprétation", body: "Première connexion en cours. Veuillez patienter.", hint: "Parlez lorsque le bouton devient rouge." }
+  },
+  es: {
+    statusLabels: {
+      waiting_for_patient: "En espera",
+      ready: "Listo",
+      staff_speaking: "El personal está hablando",
+      translating_to_patient: "Traduciendo",
+      patient_listening: "Texto mostrado",
+      patient_speaking: "Usted está hablando",
+      translating_to_staff: "Traduciendo",
+      staff_listening: "Texto mostrado",
+      ended: "Finalizado",
+      error: "Error"
+    },
+    statusDescriptions: {
+      waiting_for_patient: "Esperando a que se abra la sala.",
+      ready: "Toque el micrófono y hable.",
+      staff_speaking: "El personal está hablando.",
+      translating_to_patient: "Traduciendo para usted.",
+      patient_listening: "El texto traducido se ha mostrado.",
+      patient_speaking: "Le estamos escuchando.",
+      translating_to_staff: "Traduciendo para el personal.",
+      staff_listening: "El texto traducido se ha mostrado.",
+      ended: "La sesión de interpretación ha terminado.",
+      error: "Se produjo un error de conexión."
+    },
+    primary: { ended: "Sesión finalizada", speaking: "Toque de nuevo para terminar", ready: "Toque y hable", waiting: "Espere un momento" },
+    helper: { speaking: "Toque de nuevo cuando termine", idle: "Hablen de uno en uno" },
+    errors: { mic: "El micrófono no está disponible.", busy: "La otra persona está hablando. Inténtelo de nuevo en un momento." },
+    transcript: { title: "Interpretación reciente", empty: "La traducción de la otra persona aparecerá aquí.", staff: "Traducción del personal", patient: "Traducción del paciente" },
+    end: "Finalizar interpretación",
+    backWarning: { title: "Permanezca en esta pantalla durante la interpretación.", body: "Si la voz deja de funcionar, pida al personal que cree una sala nueva." },
+    connecting: { title: "Conectando interpretación", body: "Conectando por primera vez. Espere un momento.", hint: "Hable cuando el botón se vuelva rojo." }
+  },
+  de: {
+    statusLabels: {
+      waiting_for_patient: "Warten",
+      ready: "Bereit",
+      staff_speaking: "Personal spricht",
+      translating_to_patient: "Übersetzung",
+      patient_listening: "Text angezeigt",
+      patient_speaking: "Sie sprechen",
+      translating_to_staff: "Übersetzung",
+      staff_listening: "Text angezeigt",
+      ended: "Beendet",
+      error: "Fehler"
+    },
+    statusDescriptions: {
+      waiting_for_patient: "Warten, bis der Raum geöffnet wird.",
+      ready: "Tippen Sie auf das Mikrofon und sprechen Sie.",
+      staff_speaking: "Das Personal spricht.",
+      translating_to_patient: "Übersetzung für Sie.",
+      patient_listening: "Der übersetzte Text wird angezeigt.",
+      patient_speaking: "Wir hören Ihnen zu.",
+      translating_to_staff: "Übersetzung für das Personal.",
+      staff_listening: "Der übersetzte Text wird angezeigt.",
+      ended: "Die Dolmetschsitzung ist beendet.",
+      error: "Ein Verbindungsfehler ist aufgetreten."
+    },
+    primary: { ended: "Sitzung beendet", speaking: "Zum Beenden erneut tippen", ready: "Tippen und sprechen", waiting: "Bitte warten" },
+    helper: { speaking: "Tippen Sie erneut, wenn Sie fertig sind", idle: "Bitte sprechen Sie nacheinander" },
+    errors: { mic: "Das Mikrofon ist nicht verfügbar.", busy: "Die andere Person spricht. Bitte versuchen Sie es gleich erneut." },
+    transcript: { title: "Letzte Verdolmetschung", empty: "Die Übersetzung der anderen Person erscheint hier.", staff: "Übersetzung des Personals", patient: "Übersetzung des Patienten" },
+    end: "Dolmetschen beenden",
+    backWarning: { title: "Bitte bleiben Sie während des Dolmetschens auf diesem Bildschirm.", body: "Wenn die Sprache nicht mehr funktioniert, bitten Sie das Personal, einen neuen Raum zu erstellen." },
+    connecting: { title: "Dolmetschen wird verbunden", body: "Erste Verbindung wird hergestellt. Bitte warten Sie.", hint: "Sprechen Sie, wenn die Taste rot wird." }
+  },
+  it: {
+    statusLabels: {
+      waiting_for_patient: "In attesa",
+      ready: "Pronto",
+      staff_speaking: "Il personale sta parlando",
+      translating_to_patient: "Traduzione",
+      patient_listening: "Testo mostrato",
+      patient_speaking: "Stai parlando",
+      translating_to_staff: "Traduzione",
+      staff_listening: "Testo mostrato",
+      ended: "Terminato",
+      error: "Errore"
+    },
+    statusDescriptions: {
+      waiting_for_patient: "In attesa dell'apertura della stanza.",
+      ready: "Tocca il microfono e parla.",
+      staff_speaking: "Il personale sta parlando.",
+      translating_to_patient: "Traduzione per te.",
+      patient_listening: "Il testo tradotto è stato mostrato.",
+      patient_speaking: "Ti stiamo ascoltando.",
+      translating_to_staff: "Traduzione per il personale.",
+      staff_listening: "Il testo tradotto è stato mostrato.",
+      ended: "La sessione di interpretariato è terminata.",
+      error: "Si è verificato un errore di connessione."
+    },
+    primary: { ended: "Sessione terminata", speaking: "Tocca di nuovo per finire", ready: "Tocca e parla", waiting: "Attendi" },
+    helper: { speaking: "Tocca di nuovo quando hai finito", idle: "Parlate uno alla volta" },
+    errors: { mic: "Il microfono non è disponibile.", busy: "L'altra persona sta parlando. Riprova tra poco." },
+    transcript: { title: "Interpretariato recente", empty: "La traduzione dell'altra persona apparirà qui.", staff: "Traduzione del personale", patient: "Traduzione del paziente" },
+    end: "Termina interpretariato",
+    backWarning: { title: "Rimani su questa schermata durante l'interpretariato.", body: "Se la voce non funziona più, chiedi al personale di creare una nuova stanza." },
+    connecting: { title: "Connessione interpretariato", body: "Prima connessione in corso. Attendi un momento.", hint: "Parla quando il pulsante diventa rosso." }
+  },
+  pt: {
+    statusLabels: {
+      waiting_for_patient: "Aguardando",
+      ready: "Pronto",
+      staff_speaking: "A equipe está falando",
+      translating_to_patient: "Traduzindo",
+      patient_listening: "Texto exibido",
+      patient_speaking: "Você está falando",
+      translating_to_staff: "Traduzindo",
+      staff_listening: "Texto exibido",
+      ended: "Encerrado",
+      error: "Erro"
+    },
+    statusDescriptions: {
+      waiting_for_patient: "Aguardando a sala abrir.",
+      ready: "Toque no microfone e fale.",
+      staff_speaking: "A equipe está falando.",
+      translating_to_patient: "Traduzindo para você.",
+      patient_listening: "O texto traduzido foi exibido.",
+      patient_speaking: "Estamos ouvindo você.",
+      translating_to_staff: "Traduzindo para a equipe.",
+      staff_listening: "O texto traduzido foi exibido.",
+      ended: "A sessão de interpretação foi encerrada.",
+      error: "Ocorreu um erro de conexão."
+    },
+    primary: { ended: "Sessão encerrada", speaking: "Toque novamente para terminar", ready: "Toque e fale", waiting: "Aguarde" },
+    helper: { speaking: "Toque novamente quando terminar", idle: "Fale uma pessoa por vez" },
+    errors: { mic: "O microfone não está disponível.", busy: "A outra pessoa está falando. Tente novamente em instantes." },
+    transcript: { title: "Interpretação recente", empty: "A tradução da outra pessoa aparecerá aqui.", staff: "Tradução da equipe", patient: "Tradução do paciente" },
+    end: "Encerrar interpretação",
+    backWarning: { title: "Permaneça nesta tela durante a interpretação.", body: "Se a voz parar de funcionar, peça à equipe para criar uma nova sala." },
+    connecting: { title: "Conectando interpretação", body: "Conectando pela primeira vez. Aguarde um momento.", hint: "Fale quando o botão ficar vermelho." }
   }
 };
 

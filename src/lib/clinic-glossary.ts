@@ -187,6 +187,9 @@ function replaceAllCaseInsensitive(text: string, from: string, to: string) {
 
 function targetFor(entry: ClinicGlossaryEntry, targetLanguage: GlossaryTargetLanguage) {
   if (targetLanguage === "ko") return entry.standardKo;
+  if (targetLanguage === "fr" || targetLanguage === "es" || targetLanguage === "de" || targetLanguage === "it" || targetLanguage === "pt") {
+    return entry.en;
+  }
   return entry[targetLanguage];
 }
 
@@ -220,6 +223,7 @@ export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage
     "Clinic glossary rules:",
     "- Preserve brand and procedure names exactly.",
     "- Use the clinic-approved speak form for counts, units, procedure names, and safety phrases.",
+    "- For French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names.",
     "- Do not expand brand names into generic explanations unless the staff explains them.",
     ...clinicGlossary.map((entry) => `- ${entry.standardKo}: ${targetFor(entry, patientLanguage)}`)
   ].join("\n");

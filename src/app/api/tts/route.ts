@@ -19,7 +19,12 @@ const languageVoiceHints: Record<string, string> = {
   en: "Speak in natural English with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
   ru: "Speak in natural Russian with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
   vi: "Speak in natural Vietnamese with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
-  id: "Speak in natural Indonesian with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure."
+  id: "Speak in natural Indonesian with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
+  fr: "Speak in natural French with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
+  es: "Speak in natural Spanish with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
+  de: "Speak in natural German with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
+  it: "Speak in natural Italian with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
+  pt: "Speak in natural Portuguese with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure."
 };
 
 export async function POST(request: Request) {
