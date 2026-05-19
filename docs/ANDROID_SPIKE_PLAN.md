@@ -217,7 +217,7 @@ Minimum pass:
 
 Strong pass:
 
-- first translated audio is heard before a separate `/api/tts` request would usually complete
+- first translated audio is heard before device TTS fallback would usually complete
 - Japanese produces audible translated speech, not only text
 - reconnect works after disconnect
 - 10 minutes of repeated utterances does not degrade

@@ -35,27 +35,27 @@ sequenceDiagram
     participant O as OpenAI Realtime Translation
     participant S as Supabase / Room state
     participant P as Patient browser
-    participant T as OpenAI TTS
+    participant T as Device TTS
 
     D->>O: Korean microphone audio
     O-->>D: translated text delta / done
     D->>S: broadcast translated text
     S-->>P: translated text
-    P->>T: /api/tts text request
-    T-->>P: mp3 audio
+    P->>T: browser speechSynthesis
+    T-->>P: installed voice output
     P->>P: play translated speech
 ```
 
 This is reliable enough for an MVP, but it creates avoidable delay:
 
 - translation must complete enough text before playback
-- the receiving device makes a second model request
-- mp3 generation and download happen after translation
+- playback quality depends on the receiving device's installed TTS voice
+- missing language voice data can produce poor accents
 - browser autoplay and audio output policies add more variance
 
 ## Target Audio Principle
 
-Use OpenAI Realtime translated audio as the primary output. Use text plus TTS only as a fallback path.
+Use OpenAI Realtime translated audio as the primary output. Use text plus device TTS only as a fallback path.
 
 OpenAI's current Realtime WebRTC documentation says model audio output is delivered to the connected client as a remote media stream, and OpenAI recommends WebRTC rather than WebSocket for client devices on uncertain networks. The generic Realtime API also supports native audio input and output without chaining speech-to-text, text generation, and TTS.
 
@@ -286,7 +286,7 @@ For procedure mode, use two logical translation directions:
 - doctor-to-patient: automatic listening, short phrase segmentation
 - patient-to-doctor: explicit button capture
 
-Use OpenAI TTS as fallback only:
+Use device TTS as fallback only:
 
 - if realtime translated audio is unavailable
 - if the remote audio track fails
@@ -303,7 +303,7 @@ Recommended strategy:
 2. In realtime mode, log mismatches and display corrected fallback text when possible.
 3. For critical terms, build a phrase-shortcut layer in the Android app for predefined treatment phrases.
 4. Test whether the current Realtime API `prompt` object or a supported session-update event can influence translation sessions. Treat this as unproven until tested against the translation-specific endpoint.
-5. Keep TTS fallback for glossary-critical phrases where exact brand/procedure naming matters.
+5. Keep text-first phrase shortcuts for glossary-critical phrases where exact brand/procedure naming matters.
 
 ## Backend Shape
 
@@ -340,7 +340,7 @@ This can begin as a Node worker if it integrates cleanly with the chosen SFU. If
 - QR-first patient personal phone assumption
 - browser as the main procedure-room client
 - translated text as the primary transport
-- mandatory `/api/tts` for every translation
+- server-side translated-speech generation
 - complex browser autoplay workarounds
 - browser room-state polling for active audio UX
 

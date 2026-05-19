@@ -20,7 +20,9 @@ const CONSULTATION_TRANSLATION_QUIET_MS = 900;
 const CONSULTATION_TRANSLATION_MAX_MS = 7000;
 const PROCEDURE_TRANSLATION_QUIET_MS = 700;
 const PROCEDURE_TRANSLATION_MAX_MS = 5500;
-const TTS_DEBUG_VERSION = "browser-tts-procedure-2026-05-19.1";
+const TTS_DEBUG_VERSION = "device-tts-only-2026-05-19.1";
+const GOOGLE_TTS_MARKET_URL = "market://details?id=com.google.android.tts";
+const GOOGLE_TTS_WEB_URL = "https://play.google.com/store/apps/details?id=com.google.android.tts";
 
 const speechLanguageByPatientLanguage: Record<PatientLanguage | "ko", string> = {
   ko: "ko-KR",
@@ -550,6 +552,7 @@ export function VoiceRoom({
   const [wakeLockStatus, setWakeLockStatus] = useState("");
   const [hardwareInputStatus, setHardwareInputStatus] = useState("키보드 입력 대기");
   const [ttsStatus, setTtsStatus] = useState(`TTS ${TTS_DEBUG_VERSION}`);
+  const [ttsSetupHint, setTtsSetupHint] = useState("");
   const streamRef = useRef<MediaStream | null>(null);
   const roomRootRef = useRef<HTMLDivElement | null>(null);
   const hardwareCaptureRef = useRef<HTMLInputElement | null>(null);
@@ -561,9 +564,7 @@ export function VoiceRoom({
   const lastHardwareToggleAtRef = useRef(0);
   const roomRef = useRef(initialRoom);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
-  const audioElementRef = useRef<HTMLAudioElement | null>(null);
-  const audioObjectUrlRef = useRef<string | null>(null);
-  const aiSpeechQueueRef = useRef(Promise.resolve());
+  const speechQueueRef = useRef(Promise.resolve());
   const startSpeakingRef = useRef<() => Promise<void>>(async () => undefined);
   const stopSpeakingRef = useRef<() => Promise<void>>(async () => undefined);
   const pendingUsageSecondsRef = useRef(0);
@@ -579,6 +580,8 @@ export function VoiceRoom({
   const latestMessage = messages[0];
   const olderMessages = messages.slice(1);
   const isConnectingRealtime = busy && !isSpeaking && realtimeStatus.includes("준비");
+  const currentSpeechLanguage = role === "staff" ? speechLanguageByPatientLanguage.ko : speechLanguageByPatientLanguage[room.patientLanguage];
+  const currentSpeechLanguageLabel = role === "staff" ? "한국어" : languageLabels[room.patientLanguage].native;
 
   useEffect(() => {
     roomRef.current = room;
@@ -649,12 +652,6 @@ export function VoiceRoom({
 
   const stopPlayback = useCallback(() => {
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-    audioElementRef.current?.pause();
-    audioElementRef.current = null;
-    if (audioObjectUrlRef.current) {
-      URL.revokeObjectURL(audioObjectUrlRef.current);
-      audioObjectUrlRef.current = null;
-    }
   }, []);
 
   const findBrowserVoice = useCallback((lang: string) => {
@@ -676,7 +673,7 @@ export function VoiceRoom({
       return;
     }
 
-    const lang = role === "staff" ? speechLanguageByPatientLanguage.ko : speechLanguageByPatientLanguage[room.patientLanguage];
+    const lang = currentSpeechLanguage;
     const voice = findBrowserVoice(lang);
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = lang;
@@ -695,75 +692,15 @@ export function VoiceRoom({
         ? `Device TTS / ${lang} / ${voice.name} / ${TTS_DEBUG_VERSION}`
         : `Device TTS / ${lang} / no matching voice listed / ${TTS_DEBUG_VERSION}`
     );
-  }, [findBrowserVoice, role, room.patientLanguage]);
-
-  const playAiTranslatedSpeech = useCallback(async (message: TranslationMessage) => {
-    const response = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        roomId: room.id,
-        role,
-        roomToken,
-        patientLanguage: room.patientLanguage,
-        text: message.text
-      })
-    });
-
-    if (!response.ok) throw new Error("AI translated speech could not be created.");
-    if (!response.headers.get("Content-Type")?.includes("audio/")) {
-      throw new Error("AI translated speech response was not audio.");
-    }
-
-    const ttsProvider = response.headers.get("X-CVR-TTS-Provider");
-    const ttsLanguage = response.headers.get("X-CVR-TTS-Language");
-    const ttsVoice = response.headers.get("X-CVR-TTS-Voice");
-    const ttsModel = response.headers.get("X-CVR-TTS-Model");
-    const ttsVersion = response.headers.get("X-CVR-TTS-Version") ?? TTS_DEBUG_VERSION;
-
-    const audioBlob = await response.blob();
-    if (!audioBlob.size) throw new Error("AI translated speech response was empty.");
-    if (ttsProvider) {
-      const status = `AI TTS ${ttsLanguage ?? ""}${ttsVoice ? ` / ${ttsVoice}` : ""} / ${audioBlob.size} bytes`;
-      setRealtimeStatus(status.trim());
-      setTtsStatus(`${ttsProvider} / ${ttsModel ?? "unknown-model"} / ${ttsLanguage ?? "unknown-lang"} / ${ttsVoice ?? "unknown-voice"} / ${audioBlob.size} bytes / ${ttsVersion}`);
-    }
-    stopPlayback();
-    const url = URL.createObjectURL(audioBlob);
-    audioObjectUrlRef.current = url;
-    const audio = new Audio(url);
-    audioElementRef.current = audio;
-    audio.volume = 1;
-    await audio.play();
-    await new Promise<void>((resolve) => {
-      const finish = () => {
-        audio.onended = null;
-        audio.onerror = null;
-        audio.onpause = null;
-        resolve();
-      };
-      audio.onended = finish;
-      audio.onerror = finish;
-      audio.onpause = finish;
-    });
-  }, [role, room.id, room.patientLanguage, roomToken, stopPlayback]);
+  }, [currentSpeechLanguage, findBrowserVoice, room.patientLanguage]);
 
   const playQueuedTranslatedSpeech = useCallback((message: TranslationMessage) => {
-    aiSpeechQueueRef.current = aiSpeechQueueRef.current
+    speechQueueRef.current = speechQueueRef.current
       .catch(() => undefined)
       .then(async () => {
-        if (isProcedureMode) {
-          playBrowserTranslatedSpeech(message.text);
-          return;
-        }
-
-        try {
-          await playAiTranslatedSpeech(message);
-        } catch (caught) {
-          setError(caught instanceof Error ? caught.message : "AI translated speech could not be played.");
-        }
+        playBrowserTranslatedSpeech(message.text);
       });
-  }, [isProcedureMode, playAiTranslatedSpeech, playBrowserTranslatedSpeech]);
+  }, [playBrowserTranslatedSpeech]);
 
   const flushUsage = useCallback(async () => {
     const durationSeconds = pendingUsageSecondsRef.current;
@@ -1077,8 +1014,22 @@ export function VoiceRoom({
   }
 
   function openDeviceTtsSettings() {
-    setTtsStatus(`Open Android TTS settings / ${speechLanguageByPatientLanguage[room.patientLanguage]} / ${TTS_DEBUG_VERSION}`);
-    window.location.href = "intent:#Intent;action=android.settings.TTS_SETTINGS;end";
+    setTtsStatus(`Android TTS settings requested / ${currentSpeechLanguage} / ${TTS_DEBUG_VERSION}`);
+    setTtsSetupHint(
+      `브라우저가 설정 앱 열기를 막을 수 있습니다. 안 열리면 Android 설정 > 일반 관리 > 글자 읽어주기 또는 텍스트 음성 변환 > ${currentSpeechLanguageLabel} 음성을 설치해주세요.`
+    );
+    window.location.href = "intent:#Intent;action=android.settings.TTS_SETTINGS;package=com.android.settings;end";
+  }
+
+  function openGoogleTtsInstall() {
+    setTtsStatus(`Open Google Speech Services / ${currentSpeechLanguage} / ${TTS_DEBUG_VERSION}`);
+    setTtsSetupHint(
+      `스토어가 열리면 Speech Services by Google을 설치 또는 업데이트한 뒤, Android TTS 설정에서 ${currentSpeechLanguageLabel} 음성 데이터를 선택해주세요.`
+    );
+    window.location.href = GOOGLE_TTS_MARKET_URL;
+    window.setTimeout(() => {
+      if (document.visibilityState === "visible") window.location.href = GOOGLE_TTS_WEB_URL;
+    }, 700);
   }
 
   async function runProcedureLoop(stream: MediaStream, realtimeClient: OpenAIRealtimeClient) {
@@ -1396,13 +1347,23 @@ export function VoiceRoom({
           <p className="mt-2 text-sm font-semibold text-slate-500">↑ key toggles this button. Space / Enter are also supported.</p>
           <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">{hardwareInputStatus}</p>
           <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-trust">{ttsStatus}</p>
-          <button
-            type="button"
-            onClick={openDeviceTtsSettings}
-            className="mt-3 h-11 rounded-lg bg-slate-100 px-4 text-sm font-bold text-ink transition hover:bg-slate-200"
-          >
-            {languageLabels[room.patientLanguage].native} TTS 설정 열기
-          </button>
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={openGoogleTtsInstall}
+              className="h-11 rounded-lg bg-trust px-4 text-sm font-bold text-white transition hover:bg-blue-700"
+            >
+              TTS 앱 설치/업데이트
+            </button>
+            <button
+              type="button"
+              onClick={openDeviceTtsSettings}
+              className="h-11 rounded-lg bg-slate-100 px-4 text-sm font-bold text-ink transition hover:bg-slate-200"
+            >
+              {currentSpeechLanguageLabel} TTS 설정 열기
+            </button>
+          </div>
+          {ttsSetupHint ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-3 text-left text-xs font-bold leading-5 text-amber-800">{ttsSetupHint}</p> : null}
           {wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
           {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
           <p className="mt-2 text-sm font-semibold text-slate-500">{isSpeaking ? copy.helper.speaking : copy.helper.idle}</p>

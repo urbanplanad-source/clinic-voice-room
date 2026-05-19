@@ -21,7 +21,7 @@ The original web architecture remains useful as a control plane and proof-of-flo
 ## Current MVP Implementation Note
 The app currently uses lightweight browser polling for room state updates so it can run without a separate realtime infrastructure during first setup. The room state service and API boundaries are intentionally isolated so Supabase Realtime or a WebSocket transport can replace polling without changing the product flow.
 
-OpenAI Realtime credential issuance keeps the permanent API key server-side. The current translation path uses `POST /v1/realtime/translations/client_secrets` and `POST /v1/realtime/translations/calls` for browser WebRTC translation, then falls back to separate TTS playback on the receiving device. Full production audio relay between two Android devices is now the main integration hardening step.
+OpenAI Realtime credential issuance keeps the permanent API key server-side. The current translation path uses `POST /v1/realtime/translations/client_secrets` and `POST /v1/realtime/translations/calls` for browser WebRTC translation, then uses device/browser TTS on the receiving device when speech playback is enabled. Full production audio relay between two Android devices is now the main integration hardening step.
 
 See [ANDROID_TRANSITION_ARCHITECTURE.md](ANDROID_TRANSITION_ARCHITECTURE.md) for the Android-first target architecture.
 
