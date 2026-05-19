@@ -2,17 +2,17 @@
 
 Clinic Voice Room is a hospital-focused realtime voice interpretation system.
 
-The current repository contains the web MVP for staff login, room creation, guest join, realtime translation experiments, TTS playback, and usage tracking. The near-term field test target is the web version. Native app work remains a later option.
+The current repository contains the web MVP for staff login, room creation, guest join, text-first consultation translation, realtime procedure translation experiments, device TTS playback, and usage tracking. The near-term field test target is the web version. Native app work remains a later option.
 
 ## Core Use Flow
-1. Hospital staff logs in to the web app and starts an interpretation room.
-2. The patient joins from a temporary QR web link with no account or installation.
-3. Staff selects the patient language.
-4. Consultation mode uses one-speaker-at-a-time push-to-talk.
-5. Procedure mode uses two web devices: the doctor's phone and the patient-side phone.
-6. A USB foot pedal or keyboard key can toggle the doctor's push-to-talk button in web procedure mode.
-7. The other side sees translated text and can hear translated audio through the assigned phone speaker or earphone.
-8. Staff/admin web screens remain available for usage review.
+1. Hospital staff logs in and chooses either a consultation room or procedure room.
+2. The Galaxy Pad can stay open on the patient-facing language selection screen.
+3. The patient chooses their language and confirms.
+4. The app creates the room and shows the QR join screen.
+5. Consultation mode is text-first: staff uses text only, while patients see text input first and can optionally use voice.
+6. Procedure mode uses two web devices: the doctor's phone and the patient-side phone.
+7. A USB foot pedal or keyboard key can toggle the doctor's push-to-talk button in web procedure mode.
+8. The other side sees translated text and can hear translated audio through the assigned phone speaker or earphone in procedure mode.
 
 ## Local Setup
 ```bash

@@ -43,7 +43,7 @@ The web version is suitable for field testing in both consultation and procedure
 - Keep the active speaker within 20-40 cm of the microphone.
 - Use one speaker at a time. Push-to-talk should define the direction instead of mixing both voices into one stream.
 - Join the room and allow microphone permission before the real conversation starts. The app can preconnect the Realtime session after the microphone stream is ready.
-- In consultation mode, rely on live text first and translated audio second.
+- In consultation mode, use text as the primary workflow. Staff should type only. Patients should type first and use the voice button only as a fallback.
 - In procedure mode, use two devices: doctor device for doctor speech, patient device for patient speech.
 - The one-device procedure setup is only a fallback for one-way doctor-to-patient guidance.
 

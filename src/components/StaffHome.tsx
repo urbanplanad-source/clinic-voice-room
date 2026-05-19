@@ -2,8 +2,23 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, BarChart3, Languages, Loader2, LogOut, Mic, Stethoscope, Users } from "lucide-react";
+import { ArrowLeft, Languages, Loader2, LogOut, MessageSquareText, Stethoscope } from "lucide-react";
 import { languageLabels, patientLanguages, type PatientLanguage } from "@/lib/languages";
+
+type RoomMode = "consultation" | "procedure";
+
+const modeCopy: Record<RoomMode, { title: string; body: string; button: string }> = {
+  consultation: {
+    title: "AI translation consultation",
+    body: "We will help with AI translation. Please choose your language.",
+    button: "Confirm language"
+  },
+  procedure: {
+    title: "AI translation during your procedure",
+    body: "We will help you understand procedure guidance. Please choose your language.",
+    button: "Confirm language"
+  }
+};
 
 export function StaffHome({
   staff
@@ -12,10 +27,11 @@ export function StaffHome({
 }) {
   const router = useRouter();
   const [patientLanguage, setPatientLanguage] = useState<PatientLanguage>("zh");
-  const [loadingMode, setLoadingMode] = useState<"consultation" | "procedure" | null>(null);
+  const [selectedMode, setSelectedMode] = useState<RoomMode | null>(null);
+  const [loadingMode, setLoadingMode] = useState<RoomMode | null>(null);
   const [error, setError] = useState("");
 
-  async function createRoom(mode: "consultation" | "procedure") {
+  async function createRoom(mode: RoomMode) {
     setLoadingMode(mode);
     setError("");
     const response = await fetch("/api/rooms", {
@@ -49,12 +65,14 @@ export function StaffHome({
   }
 
   return (
-    <div className="space-y-5">
-      <header className="flex items-center justify-between gap-4 rounded-lg bg-ink p-5 text-white shadow-soft">
+    <div className="space-y-5 md:space-y-6">
+      <header className="flex items-center justify-between gap-4 rounded-lg bg-ink p-5 text-white shadow-soft md:p-7">
         <div className="min-w-0">
           <p className="truncate text-sm font-bold text-blue-200">{staff.hospital.name}</p>
-          <h1 className="mt-1 text-[30px] font-bold leading-tight">{staff.name}님</h1>
-          <p className="mt-2 text-sm font-semibold text-slate-300">현장 테스트용 통역방을 바로 생성합니다.</p>
+          <h1 className="mt-1 text-[30px] font-bold leading-tight md:text-[36px]">{selectedMode ? modeCopy[selectedMode].title : "Select translation mode"}</h1>
+          <p className="mt-2 text-sm font-semibold leading-6 text-slate-300 md:text-base">
+            {selectedMode ? modeCopy[selectedMode].body : "Choose the room type first. The patient will choose their language on the next screen."}
+          </p>
         </div>
         <button
           onClick={logout}
@@ -66,18 +84,65 @@ export function StaffHome({
         </button>
       </header>
 
-      <section className="rounded-lg bg-white p-5 shadow-soft sm:p-6">
-        <div className="flex items-start gap-4">
-          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-blue-50 text-trust">
-            <Mic size={24} />
-          </div>
-          <div>
-            <h2 className="text-[22px] font-bold leading-tight">음성 통역 시작</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500">환자 언어를 선택하고 상담 또는 시술 통역방을 만드세요.</p>
-          </div>
-        </div>
+      {!selectedMode ? (
+        <section className="grid gap-4 md:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedMode("consultation");
+              setError("");
+            }}
+            className="flex min-h-[220px] flex-col justify-between rounded-lg bg-white p-6 text-left shadow-soft transition hover:bg-blue-50 md:min-h-[280px] md:p-8"
+          >
+            <span className="grid h-14 w-14 place-items-center rounded-lg bg-blue-50 text-trust">
+              <MessageSquareText size={28} />
+            </span>
+            <span>
+              <span className="block text-[28px] font-bold leading-tight text-ink md:text-[34px]">상담방 만들기</span>
+              <span className="mt-3 block text-base font-semibold leading-7 text-slate-500">텍스트 중심 AI 번역 상담</span>
+            </span>
+          </button>
 
-        <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup" aria-label="환자 언어">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedMode("procedure");
+              setError("");
+            }}
+            className="flex min-h-[220px] flex-col justify-between rounded-lg bg-white p-6 text-left shadow-soft transition hover:bg-slate-50 md:min-h-[280px] md:p-8"
+          >
+            <span className="grid h-14 w-14 place-items-center rounded-lg bg-slate-100 text-ink">
+              <Stethoscope size={28} />
+            </span>
+            <span>
+              <span className="block text-[28px] font-bold leading-tight text-ink md:text-[34px]">시술방 만들기</span>
+              <span className="mt-3 block text-base font-semibold leading-7 text-slate-500">시술 중 안내 번역</span>
+            </span>
+          </button>
+        </section>
+      ) : (
+        <section className="rounded-lg bg-white p-5 shadow-soft sm:p-6 md:p-8">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold uppercase tracking-[0.08em] text-trust">{selectedMode === "consultation" ? "Consultation" : "Procedure"}</p>
+              <h2 className="mt-2 text-[30px] font-bold leading-tight text-ink md:text-[42px]">{modeCopy[selectedMode].title}</h2>
+              <p className="mt-3 max-w-xl text-base font-semibold leading-7 text-slate-500 md:text-lg md:leading-8">{modeCopy[selectedMode].body}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedMode(null);
+                setError("");
+              }}
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-slate-100 text-ink transition hover:bg-slate-200"
+              aria-label="처음으로"
+              title="처음으로"
+            >
+              <ArrowLeft size={20} />
+            </button>
+          </div>
+
+          <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4" role="radiogroup" aria-label="Choose your language">
           {patientLanguages.map((language) => {
             const active = language === patientLanguage;
             return (
@@ -85,70 +150,30 @@ export function StaffHome({
                 key={language}
                 type="button"
                 onClick={() => setPatientLanguage(language)}
-                className={`min-h-[86px] rounded-lg border px-2 py-4 text-center transition ${
+                className={`min-h-[96px] rounded-lg border px-3 py-4 text-center transition md:min-h-[118px] ${
                   active ? "border-trust bg-blue-50 text-trust" : "border-line bg-white text-slate-600 hover:bg-slate-50"
                 }`}
                 aria-pressed={active}
               >
-                <span className="block text-base font-bold leading-6">{languageLabels[language].native}</span>
-                <span className="mt-1 block text-xs font-semibold">{languageLabels[language].ko}</span>
+                <span className="block text-lg font-bold leading-6 md:text-xl">{languageLabels[language].native}</span>
+                <span className="mt-2 block text-xs font-semibold md:text-sm">{languageLabels[language].english}</span>
               </button>
             );
           })}
-        </div>
+          </div>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
           <button
-            onClick={() => createRoom("consultation")}
+            onClick={() => createRoom(selectedMode)}
             disabled={loadingMode !== null}
-            className="flex min-h-[94px] w-full items-center justify-between gap-3 rounded-lg bg-trust px-4 py-4 text-left font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
+            className="mt-7 flex h-16 w-full items-center justify-center gap-2 rounded-lg bg-trust px-5 text-xl font-bold text-white transition hover:bg-blue-600 disabled:opacity-50 md:h-20 md:text-2xl"
           >
-            <span>
-              <span className="block text-lg">상담 통역방</span>
-              <span className="mt-1 block text-xs font-semibold text-blue-100">휴대폰 2대 · 텍스트 중심</span>
-            </span>
-            {loadingMode === "consultation" ? <Loader2 size={22} className="animate-spin" /> : <Languages size={22} />}
+            {loadingMode === selectedMode ? <Loader2 size={24} className="animate-spin" /> : <Languages size={24} />}
+            {modeCopy[selectedMode].button}
           </button>
-          <button
-            onClick={() => createRoom("procedure")}
-            disabled={loadingMode !== null}
-            className="flex min-h-[94px] w-full items-center justify-between gap-3 rounded-lg bg-ink px-4 py-4 text-left font-bold text-white transition hover:bg-slate-700 disabled:opacity-50"
-          >
-            <span>
-              <span className="block text-lg">시술 통역방</span>
-              <span className="mt-1 block text-xs font-semibold text-slate-300">웹 · 풋 페달 테스트</span>
-            </span>
-            {loadingMode === "procedure" ? <Loader2 size={22} className="animate-spin" /> : <Stethoscope size={22} />}
-          </button>
-        </div>
 
-        {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold leading-6 text-rose-700">{error}</p> : null}
-      </section>
-
-      {staff.role === "internal_admin" ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <button
-            onClick={() => router.push("/admin/staff")}
-            className="flex w-full items-center justify-between rounded-lg bg-white px-5 py-4 font-bold text-ink shadow-sm transition hover:bg-slate-50"
-          >
-            <span className="inline-flex items-center gap-2">
-              <Users size={19} className="text-trust" />
-              직원 계정 관리
-            </span>
-            <ArrowRight size={18} className="text-slate-400" />
-          </button>
-          <button
-            onClick={() => router.push("/admin/usage")}
-            className="flex w-full items-center justify-between rounded-lg bg-white px-5 py-4 font-bold text-ink shadow-sm transition hover:bg-slate-50"
-          >
-            <span className="inline-flex items-center gap-2">
-              <BarChart3 size={19} className="text-trust" />
-              관리자 사용량 보기
-            </span>
-            <ArrowRight size={18} className="text-slate-400" />
-          </button>
-        </div>
-      ) : null}
+          {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold leading-6 text-rose-700">{error}</p> : null}
+        </section>
+      )}
     </div>
   );
 }

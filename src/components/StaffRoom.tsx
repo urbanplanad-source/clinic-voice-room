@@ -206,12 +206,12 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
         >
           <QRCodeCanvas
             value={primaryQrUrl}
-            size={288}
+            size={320}
             level="H"
             bgColor="#ffffff"
             fgColor="#000000"
             marginSize={4}
-            className="block h-[288px] w-[288px] max-w-full"
+            className="block h-[320px] w-[320px] max-w-full"
             style={{
               background: "#ffffff",
               colorScheme: "light",

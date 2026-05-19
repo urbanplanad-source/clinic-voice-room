@@ -21,7 +21,9 @@ The original web architecture remains useful as a control plane and proof-of-flo
 ## Current MVP Implementation Note
 The app currently uses lightweight browser polling for room state updates so it can run without a separate realtime infrastructure during first setup. The room state service and API boundaries are intentionally isolated so Supabase Realtime or a WebSocket transport can replace polling without changing the product flow.
 
-OpenAI Realtime credential issuance keeps the permanent API key server-side. The current translation path uses `POST /v1/realtime/translations/client_secrets` and `POST /v1/realtime/translations/calls` for browser WebRTC translation, then uses device/browser TTS on the receiving device when speech playback is enabled. Full production audio relay between two Android devices is now the main integration hardening step.
+Consultation mode is text-first and uses `POST /api/translate-text`, backed by the OpenAI Responses API with `gpt-5.5` by default for accuracy-oriented medical consultation translation. Staff consultation input is text-only. Patient consultation input shows text first and leaves voice as a fallback.
+
+OpenAI Realtime credential issuance keeps the permanent API key server-side. The current procedure translation path uses `POST /v1/realtime/translations/client_secrets` and `POST /v1/realtime/translations/calls` for browser WebRTC translation, then uses device/browser TTS on the receiving device when speech playback is enabled. Full production audio relay between two Android devices is now the main integration hardening step.
 
 See [ANDROID_TRANSITION_ARCHITECTURE.md](ANDROID_TRANSITION_ARCHITECTURE.md) for the Android-first target architecture.
 
@@ -38,6 +40,7 @@ Only one speaker may be active at a time. Microphones are disabled when the othe
 - `POST /api/rooms/:roomId/join-patient`
 - `POST /api/rooms/:roomId/state`
 - `POST /api/rooms/:roomId/end`
+- `POST /api/translate-text`
 - `POST /api/realtime/session-token`
 - `POST /api/usage/speaking-event`
 - `GET /api/admin/usage`

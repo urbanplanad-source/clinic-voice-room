@@ -91,9 +91,9 @@ const rawClinicGlossary = `
 잔주름|잔주름,잔주름,细纹,小じわ,fine lines,мелкие морщины,nếp nhăn nhỏ,garis halus,condition,피부 상태
 탄력|피부탄력,피부 탄력,皮肤弹性,肌のハリ,skin elasticity,упругость кожи,độ đàn hồi da,elastisitas kulit,condition,피부 상태
 시작할게요|들어갑니다,시작할게요,现在开始。,始めます。,We're starting now.,Начинаем.,Bắt đầu nhé.,Kita mulai sekarang.,procedure_phrase,시술 시작
-움직이지마세요|움직이지 마세요|움직이면 안돼요,움직이지 마세요,请不要动。,動かないでください。,Please don't move.,Пожалуйста не двигайтесь.,Vui lòng đừng cử động.,Tolong jangan bergerak.,safety_phrase,시술 중 안전
-눈감고계세요|눈 감고 계세요,눈 감고 계세요,请闭上眼睛。,目を閉じたままにしてください。,Please keep your eyes closed.,Пожалуйста держите глаза закрытыми.,Vui lòng nhắm mắt lại.,Tolong tetap tutup mata.,safety_phrase,눈 주변 시술
-눈뜨지마세요|눈 뜨지 마세요,눈 뜨지 마세요,请不要睁眼。,目を開けないでください。,Please don't open your eyes.,Пожалуйста не открывайте глаза.,Vui lòng đừng mở mắt.,Tolong jangan buka mata.,safety_phrase,눈 주변 시술
+움직이지마세요|움직이지 마세요|움직이면 안돼요|움직이시면 안돼요|움직이시면 안 돼요,움직이지 마세요,请不要动。,動かないでください。,Please don't move.,Пожалуйста не двигайтесь.,Vui lòng đừng cử động.,Tolong jangan bergerak.,safety_phrase,시술 중 안전
+눈감고계세요|눈 감고 계세요|눈 감아보세요|눈 감아 보세요,눈 감고 계세요,请闭上眼睛。,目を閉じたままにしてください。,Please keep your eyes closed.,Пожалуйста держите глаза закрытыми.,Vui lòng nhắm mắt lại.,Tolong tetap tutup mata.,safety_phrase,눈성형/눈 주변 시술
+눈뜨지마세요|눈 뜨지마세요|눈 뜨지 마세요|눈 뜨시면 안돼요|눈 뜨시면 안 돼요|눈 뜨면 안돼요|눈 뜨면 안 돼요,눈 뜨지 마세요,请不要睁眼。,目を開けないでください。,Please don't open your eyes.,Пожалуйста не открывайте глаза.,Vui lòng đừng mở mắt.,Tolong jangan buka mata.,safety_phrase,눈성형/눈 주변 시술
 말하지마세요|말하지 마세요,말하지 마세요,请先不要说话。,今は話さないでください。,Please don't talk for now.,Пожалуйста пока не разговаривайте.,Vui lòng tạm thời đừng nói chuyện.,Tolong jangan bicara dulu.,safety_phrase,시술 중 안내
 힘빼세요|힘 빼주세요,힘 빼주세요,请放松。,力を抜いてください。,Please relax.,Пожалуйста расслабьтесь.,Vui lòng thả lỏng.,Tolong rileks.,procedure_phrase,긴장 완화
 숨편하게쉬세요|숨 편하게 쉬세요,숨 편하게 쉬세요,请自然呼吸。,楽に呼吸してください。,Please breathe normally.,Дышите спокойно.,Hãy thở bình thường.,Silakan bernapas seperti biasa.,procedure_phrase,긴장 완화
@@ -107,7 +107,7 @@ const rawClinicGlossary = `
 차가울수있어요|차가워요,차가울 수 있어요,会有点凉。,少し冷たく感じます。,It may feel cold.,Может быть немного холодно.,Có thể hơi lạnh.,Mungkin terasa dingin.,sensation,감각 안내
 따끔할수있어요|따끔해요,따끔할 수 있어요,可能会有点刺痛。,少しチクッとします。,It may sting a little.,Может немного покалывать.,Có thể hơi châm chích.,Mungkin terasa sedikit perih.,sensation,감각 안내
 뜨거울수있어요|뜨거워요,뜨거울 수 있어요,可能会有点热。,少し熱く感じることがあります。,It may feel a little hot.,Может быть немного горячо.,Có thể hơi nóng.,Mungkin terasa agak panas.,sensation,감각 안내
-아플수있어요|살짝 아플 수 있어요,살짝 아플 수 있어요,可能会有一点疼。,少し痛みを感じることがあります。,It may hurt a little.,Может быть немного больно.,Có thể hơi đau một chút.,Mungkin terasa sedikit sakit.,sensation,통증 안내
+아플수있어요|살짝 아플 수 있어요|조금 아플 수 있어요|약간 아플 수 있어요,조금 아플 수 있어요,可能会有一点疼。,少し痛みを感じることがあります。,It may hurt a little.,Может быть немного больно.,Có thể hơi đau một chút.,Mungkin terasa sedikit sakit.,sensation,통증 안내
 진동느껴질수있어요|진동이 느껴질 수 있어요,진동이 느껴질 수 있어요,可能会感觉到震动。,振動を感じることがあります。,You may feel some vibration.,Вы можете почувствовать вибрацию.,Có thể cảm thấy rung nhẹ.,Mungkin terasa ada getaran.,sensation,감각 안내
 압박감있을수있어요|압박감이 있을 수 있어요,압박감이 있을 수 있어요,可能会有压迫感。,圧迫感を感じることがあります。,You may feel some pressure.,Может ощущаться давление.,Có thể có cảm giác bị ấn.,Mungkin terasa seperti ditekan.,sensation,감각 안내
 참기힘들면말씀해주세요|아프면 말씀해주세요,아프면 말씀해주세요,如果疼请告诉我。,痛かったら教えてください。,Please let me know if it hurts.,Если больно скажите мне.,Nếu đau hãy nói với tôi.,Kalau sakit beri tahu saya.,safety_phrase,통증 확인
@@ -259,7 +259,7 @@ const criticalShortPhrases: CriticalShortPhrase[] = [
     note: "통증 알림 요청"
   },
   {
-    spoken: ["움직이지마세요", "움직이지 마세요", "움직이면 안돼요", "움직이면 안 돼요"],
+    spoken: ["움직이지마세요", "움직이지 마세요", "움직이면 안돼요", "움직이면 안 돼요", "움직이시면 안돼요", "움직이시면 안 돼요"],
     translations: {
       ko: "움직이지 마세요.",
       zh: "请不要动。",
@@ -275,6 +275,60 @@ const criticalShortPhrases: CriticalShortPhrase[] = [
       pt: "Por favor não se mexa."
     },
     note: "시술 중 안전"
+  },
+  {
+    spoken: ["눈감고계세요", "눈 감고 계세요", "눈 감아보세요", "눈 감아 보세요", "눈 감아주세요", "눈 감아 주세요"],
+    translations: {
+      ko: "눈 감고 계세요.",
+      zh: "请闭上眼睛。",
+      ja: "目を閉じたままにしてください。",
+      en: "Please keep your eyes closed.",
+      ru: "Пожалуйста держите глаза закрытыми.",
+      vi: "Vui lòng nhắm mắt lại.",
+      id: "Tolong tetap tutup mata.",
+      fr: "Gardez les yeux fermés s'il vous plaît.",
+      es: "Mantenga los ojos cerrados por favor.",
+      de: "Bitte halten Sie die Augen geschlossen.",
+      it: "Tenga gli occhi chiusi per favore.",
+      pt: "Mantenha os olhos fechados por favor."
+    },
+    note: "눈성형/눈 주변 시술"
+  },
+  {
+    spoken: ["눈뜨지마세요", "눈 뜨지마세요", "눈 뜨지 마세요", "눈 뜨시면 안돼요", "눈 뜨시면 안 돼요", "눈 뜨면 안돼요", "눈 뜨면 안 돼요"],
+    translations: {
+      ko: "눈 뜨지 마세요.",
+      zh: "请不要睁眼。",
+      ja: "目を開けないでください。",
+      en: "Please don't open your eyes.",
+      ru: "Пожалуйста не открывайте глаза.",
+      vi: "Vui lòng đừng mở mắt.",
+      id: "Tolong jangan buka mata.",
+      fr: "N'ouvrez pas les yeux s'il vous plaît.",
+      es: "No abra los ojos por favor.",
+      de: "Bitte öffnen Sie die Augen nicht.",
+      it: "Non apra gli occhi per favore.",
+      pt: "Não abra os olhos por favor."
+    },
+    note: "눈성형/눈 주변 시술"
+  },
+  {
+    spoken: ["아플수있어요", "살짝 아플 수 있어요", "조금 아플 수 있어요", "약간 아플 수 있어요", "좀 아플 수 있어요"],
+    translations: {
+      ko: "조금 아플 수 있어요.",
+      zh: "可能会有一点疼。",
+      ja: "少し痛みを感じることがあります。",
+      en: "It may hurt a little.",
+      ru: "Может быть немного больно.",
+      vi: "Có thể hơi đau một chút.",
+      id: "Mungkin terasa sedikit sakit.",
+      fr: "Cela peut faire un peu mal.",
+      es: "Puede doler un poco.",
+      de: "Es kann ein wenig weh tun.",
+      it: "Potrebbe fare un po' male.",
+      pt: "Pode doer um pouco."
+    },
+    note: "눈성형/통증 사전 안내"
   }
 ];
 
