@@ -1,5 +1,5 @@
-const DEFAULT_ACTIVE_ROOM_LIMIT = 3;
-const DEFAULT_STALE_ROOM_MINUTES = 4 * 60;
+const DEFAULT_ACTIVE_ROOM_LIMIT = 10;
+const DEFAULT_STALE_ROOM_MINUTES = 5;
 
 function positiveIntegerFromEnv(name: string, fallback: number) {
   const value = Number.parseInt(process.env[name] ?? "", 10);

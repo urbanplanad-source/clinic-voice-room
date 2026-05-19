@@ -13,16 +13,31 @@ export function StaffHome({
   const router = useRouter();
   const [patientLanguage, setPatientLanguage] = useState<PatientLanguage>("zh");
   const [loadingMode, setLoadingMode] = useState<"consultation" | "procedure" | null>(null);
+  const [error, setError] = useState("");
 
   async function createRoom(mode: "consultation" | "procedure") {
     setLoadingMode(mode);
+    setError("");
     const response = await fetch("/api/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ patientLanguage })
     });
     setLoadingMode(null);
-    if (!response.ok) return;
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      if (response.status === 429 && data?.activeRoomLimit) {
+        setError(`현재 열린 통역방이 ${data.activeRoomCount}개입니다. 병원 동시 사용 한도 ${data.activeRoomLimit}개에 도달했습니다. 사용하지 않는 방을 종료하거나 관리자에게 한도 상향을 요청해주세요.`);
+        return;
+      }
+      if (response.status === 401) {
+        setError("로그인이 만료되었습니다. 다시 로그인해주세요.");
+        router.replace("/login");
+        return;
+      }
+      setError(data?.error ?? "통역방을 만들지 못했습니다. 잠시 후 다시 시도해주세요.");
+      return;
+    }
     const data = await response.json();
     router.push(`/staff/rooms/${data.room.id}?mode=${mode}`);
   }
@@ -106,6 +121,8 @@ export function StaffHome({
             {loadingMode === "procedure" ? <Loader2 size={22} className="animate-spin" /> : <Stethoscope size={22} />}
           </button>
         </div>
+
+        {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold leading-6 text-rose-700">{error}</p> : null}
       </section>
 
       {staff.role === "internal_admin" ? (
