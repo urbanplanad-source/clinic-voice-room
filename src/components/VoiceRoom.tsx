@@ -20,21 +20,9 @@ const CONSULTATION_TRANSLATION_QUIET_MS = 900;
 const CONSULTATION_TRANSLATION_MAX_MS = 7000;
 const PROCEDURE_TRANSLATION_QUIET_MS = 700;
 const PROCEDURE_TRANSLATION_MAX_MS = 5500;
+const TTS_DEBUG_VERSION = "browser-tts-procedure-2026-05-19.1";
 
-type RoomMode = "consultation" | "procedure";
-
-type WakeLockSentinelLike = {
-  release: () => Promise<void>;
-  addEventListener: (type: "release", listener: () => void) => void;
-};
-
-type NavigatorWithWakeLock = Navigator & {
-  wakeLock?: {
-    request: (type: "screen") => Promise<WakeLockSentinelLike>;
-  };
-};
-
-const speechLanguageByPatientLanguage: Record<string, string> = {
+const speechLanguageByPatientLanguage: Record<PatientLanguage | "ko", string> = {
   ko: "ko-KR",
   zh: "zh-CN",
   ja: "ja-JP",
@@ -47,6 +35,19 @@ const speechLanguageByPatientLanguage: Record<string, string> = {
   de: "de-DE",
   it: "it-IT",
   pt: "pt-PT"
+};
+
+type RoomMode = "consultation" | "procedure";
+
+type WakeLockSentinelLike = {
+  release: () => Promise<void>;
+  addEventListener: (type: "release", listener: () => void) => void;
+};
+
+type NavigatorWithWakeLock = Navigator & {
+  wakeLock?: {
+    request: (type: "screen") => Promise<WakeLockSentinelLike>;
+  };
 };
 
 type RoomSnapshot = {
@@ -548,6 +549,7 @@ export function VoiceRoom({
   const [procedureBusy, setProcedureBusy] = useState(false);
   const [wakeLockStatus, setWakeLockStatus] = useState("");
   const [hardwareInputStatus, setHardwareInputStatus] = useState("키보드 입력 대기");
+  const [ttsStatus, setTtsStatus] = useState(`TTS ${TTS_DEBUG_VERSION}`);
   const streamRef = useRef<MediaStream | null>(null);
   const roomRootRef = useRef<HTMLDivElement | null>(null);
   const hardwareCaptureRef = useRef<HTMLInputElement | null>(null);
@@ -645,16 +647,6 @@ export function VoiceRoom({
     });
   }, []);
 
-  const speakWithBrowserTts = useCallback((text: string) => {
-    if (!("speechSynthesis" in window)) return;
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = role === "staff" ? speechLanguageByPatientLanguage.ko : speechLanguageByPatientLanguage[room.patientLanguage] ?? "en-US";
-    utterance.rate = 0.95;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-  }, [role, room.patientLanguage]);
-
   const stopPlayback = useCallback(() => {
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     audioElementRef.current?.pause();
@@ -664,6 +656,46 @@ export function VoiceRoom({
       audioObjectUrlRef.current = null;
     }
   }, []);
+
+  const findBrowserVoice = useCallback((lang: string) => {
+    if (!("speechSynthesis" in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    const normalizedLang = lang.toLowerCase();
+    const baseLang = normalizedLang.split("-")[0];
+    return (
+      voices.find((voice) => voice.lang.toLowerCase() === normalizedLang) ??
+      voices.find((voice) => voice.lang.toLowerCase().startsWith(`${baseLang}-`)) ??
+      null
+    );
+  }, []);
+
+  const playBrowserTranslatedSpeech = useCallback((text: string) => {
+    if (!("speechSynthesis" in window)) {
+      setError("This browser does not support device TTS.");
+      setTtsStatus(`Device TTS unavailable / ${TTS_DEBUG_VERSION}`);
+      return;
+    }
+
+    const lang = role === "staff" ? speechLanguageByPatientLanguage.ko : speechLanguageByPatientLanguage[room.patientLanguage];
+    const voice = findBrowserVoice(lang);
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang;
+    utterance.rate = 0.9;
+    if (voice) utterance.voice = voice;
+
+    utterance.onerror = () => {
+      setError(`${languageLabels[room.patientLanguage].native} TTS voice could not be played on this device.`);
+      setTtsStatus(`Device TTS error / ${lang} / ${TTS_DEBUG_VERSION}`);
+    };
+
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    setTtsStatus(
+      voice
+        ? `Device TTS / ${lang} / ${voice.name} / ${TTS_DEBUG_VERSION}`
+        : `Device TTS / ${lang} / no matching voice listed / ${TTS_DEBUG_VERSION}`
+    );
+  }, [findBrowserVoice, role, room.patientLanguage]);
 
   const playAiTranslatedSpeech = useCallback(async (message: TranslationMessage) => {
     const response = await fetch("/api/tts", {
@@ -679,8 +711,23 @@ export function VoiceRoom({
     });
 
     if (!response.ok) throw new Error("AI translated speech could not be created.");
+    if (!response.headers.get("Content-Type")?.includes("audio/")) {
+      throw new Error("AI translated speech response was not audio.");
+    }
+
+    const ttsProvider = response.headers.get("X-CVR-TTS-Provider");
+    const ttsLanguage = response.headers.get("X-CVR-TTS-Language");
+    const ttsVoice = response.headers.get("X-CVR-TTS-Voice");
+    const ttsModel = response.headers.get("X-CVR-TTS-Model");
+    const ttsVersion = response.headers.get("X-CVR-TTS-Version") ?? TTS_DEBUG_VERSION;
 
     const audioBlob = await response.blob();
+    if (!audioBlob.size) throw new Error("AI translated speech response was empty.");
+    if (ttsProvider) {
+      const status = `AI TTS ${ttsLanguage ?? ""}${ttsVoice ? ` / ${ttsVoice}` : ""} / ${audioBlob.size} bytes`;
+      setRealtimeStatus(status.trim());
+      setTtsStatus(`${ttsProvider} / ${ttsModel ?? "unknown-model"} / ${ttsLanguage ?? "unknown-lang"} / ${ttsVoice ?? "unknown-voice"} / ${audioBlob.size} bytes / ${ttsVersion}`);
+    }
     stopPlayback();
     const url = URL.createObjectURL(audioBlob);
     audioObjectUrlRef.current = url;
@@ -705,13 +752,18 @@ export function VoiceRoom({
     aiSpeechQueueRef.current = aiSpeechQueueRef.current
       .catch(() => undefined)
       .then(async () => {
+        if (isProcedureMode) {
+          playBrowserTranslatedSpeech(message.text);
+          return;
+        }
+
         try {
           await playAiTranslatedSpeech(message);
-        } catch {
-          speakWithBrowserTts(message.text);
+        } catch (caught) {
+          setError(caught instanceof Error ? caught.message : "AI translated speech could not be played.");
         }
       });
-  }, [playAiTranslatedSpeech, speakWithBrowserTts]);
+  }, [isProcedureMode, playAiTranslatedSpeech, playBrowserTranslatedSpeech]);
 
   const flushUsage = useCallback(async () => {
     const durationSeconds = pendingUsageSecondsRef.current;
@@ -808,13 +860,8 @@ export function VoiceRoom({
     if (!audioPlaybackEnabled || !latestMessage || spokenMessageIdsRef.current.has(latestMessage.id)) return;
 
     spokenMessageIdsRef.current.add(latestMessage.id);
-    if (isProcedureMode) {
-      speakWithBrowserTts(latestMessage.text);
-      return;
-    }
-
     playQueuedTranslatedSpeech(latestMessage);
-  }, [audioPlaybackEnabled, isProcedureMode, latestMessage, playQueuedTranslatedSpeech, speakWithBrowserTts]);
+  }, [audioPlaybackEnabled, latestMessage, playQueuedTranslatedSpeech]);
 
   useEffect(() => {
     if (!isProcedureMode) return;
@@ -1027,6 +1074,11 @@ export function VoiceRoom({
     if (!sentinel) return;
     await sentinel.release().catch(() => undefined);
     setWakeLockStatus("");
+  }
+
+  function openDeviceTtsSettings() {
+    setTtsStatus(`Open Android TTS settings / ${speechLanguageByPatientLanguage[room.patientLanguage]} / ${TTS_DEBUG_VERSION}`);
+    window.location.href = "intent:#Intent;action=android.settings.TTS_SETTINGS;end";
   }
 
   async function runProcedureLoop(stream: MediaStream, realtimeClient: OpenAIRealtimeClient) {
@@ -1343,6 +1395,14 @@ export function VoiceRoom({
           </p>
           <p className="mt-2 text-sm font-semibold text-slate-500">↑ key toggles this button. Space / Enter are also supported.</p>
           <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">{hardwareInputStatus}</p>
+          <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-trust">{ttsStatus}</p>
+          <button
+            type="button"
+            onClick={openDeviceTtsSettings}
+            className="mt-3 h-11 rounded-lg bg-slate-100 px-4 text-sm font-bold text-ink transition hover:bg-slate-200"
+          >
+            {languageLabels[room.patientLanguage].native} TTS 설정 열기
+          </button>
           {wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
           {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
           <p className="mt-2 text-sm font-semibold text-slate-500">{isSpeaking ? copy.helper.speaking : copy.helper.idle}</p>

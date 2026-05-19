@@ -163,7 +163,21 @@ export function PatientJoin({
         </p>
       </div>
 
-      <div className="mx-6 mt-6 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 text-sm font-semibold leading-6 text-slate-700 sm:mx-7">
+      <div className="m-6 rounded-lg border border-blue-100 bg-blue-50 p-4 text-center sm:m-7">
+        <p className="text-xs font-bold text-trust">{text.languageLabel}</p>
+        <p className="mt-1 text-lg font-bold text-ink">{languageLabels[room.patientLanguage].native}</p>
+        <button
+          onClick={enterRoom}
+          disabled={loading}
+          className="mt-4 flex h-16 w-full items-center justify-center gap-2 rounded-lg bg-trust px-4 text-xl font-bold text-white shadow-soft transition hover:bg-blue-600 disabled:opacity-50"
+        >
+          {loading ? "..." : text.button}
+          <ArrowRight size={22} />
+        </button>
+        {error ? <p className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
+      </div>
+
+      <div className="mx-6 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 text-sm font-semibold leading-6 text-slate-700 sm:mx-7">
         <div className="flex gap-3">
           <Volume2 size={20} className="mt-0.5 shrink-0 text-trust" />
           <p>{text.consent}</p>
@@ -179,17 +193,6 @@ export function PatientJoin({
           <Mic size={22} />
         </div>
       </div>
-
-      {error ? <p className="mx-6 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 sm:mx-7">{error}</p> : null}
-
-      <button
-        onClick={enterRoom}
-        disabled={loading}
-        className="mx-6 mb-6 flex h-14 w-[calc(100%-3rem)] items-center justify-center gap-2 rounded-lg bg-trust px-4 text-lg font-bold text-white transition hover:bg-blue-600 disabled:opacity-50 sm:mx-7 sm:mb-7 sm:w-[calc(100%-3.5rem)]"
-      >
-        {loading ? "..." : text.button}
-        <ArrowRight size={20} />
-      </button>
     </section>
   );
 }

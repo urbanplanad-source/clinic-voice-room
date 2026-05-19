@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 
@@ -8,8 +8,16 @@ export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const savedEmail = window.localStorage.getItem("cvr_login_email");
+    if (savedEmail) {
+      setEmail(savedEmail);
+    }
+  }, []);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -18,13 +26,19 @@ export function LoginForm() {
     const response = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password, remember })
     });
     setLoading(false);
 
     if (!response.ok) {
       setError("로그인 정보를 확인해주세요.");
       return;
+    }
+
+    if (remember) {
+      window.localStorage.setItem("cvr_login_email", email.trim().toLowerCase());
+    } else {
+      window.localStorage.removeItem("cvr_login_email");
     }
 
     router.replace("/staff");
@@ -64,6 +78,19 @@ export function LoginForm() {
           />
         </label>
       </div>
+
+      <label className="flex items-start gap-3 rounded-lg bg-slate-50 px-4 py-3">
+        <input
+          className="mt-1 h-4 w-4"
+          type="checkbox"
+          checked={remember}
+          onChange={(event) => setRemember(event.target.checked)}
+        />
+        <span>
+          <span className="block text-sm font-bold text-ink">이 기기에서 로그인 유지</span>
+          <span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">다음부터는 로그인 화면 없이 바로 직원 화면으로 이동합니다.</span>
+        </span>
+      </label>
 
       {error ? <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
 

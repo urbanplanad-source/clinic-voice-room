@@ -7,7 +7,8 @@ import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const schema = z.object({
   email: z.string().email(),
-  password: z.string().min(1)
+  password: z.string().min(1),
+  remember: z.boolean().optional()
 });
 
 export async function POST(request: Request) {
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
     where: { id: staff.id },
     data: { lastLoginAt: new Date() }
   });
-  await setStaffSession(staff.id);
+  await setStaffSession(staff.id, { remember: parsed.data.remember ?? true });
 
   return NextResponse.json({
     staff: {

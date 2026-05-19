@@ -3,6 +3,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { prisma } from "./prisma";
 
 const cookieName = "cvr_session";
+const defaultSessionMaxAgeSeconds = 60 * 60 * 12;
+const rememberedSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
 
 type SessionPayload = {
   staffId: string;
@@ -45,14 +47,15 @@ function decode(token?: string): SessionPayload | null {
   }
 }
 
-export async function setStaffSession(staffId: string) {
+export async function setStaffSession(staffId: string, options: { remember?: boolean } = {}) {
   const cookieStore = await cookies();
-  cookieStore.set(cookieName, encode({ staffId, exp: Date.now() + 1000 * 60 * 60 * 12 }), {
+  const maxAge = options.remember ? rememberedSessionMaxAgeSeconds : defaultSessionMaxAgeSeconds;
+  cookieStore.set(cookieName, encode({ staffId, exp: Date.now() + maxAge * 1000 }), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60 * 12
+    maxAge
   });
 }
 

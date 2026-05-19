@@ -4,6 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
 import { isPatientLanguage } from "@/lib/languages";
 
+const supportedVoices = ["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"] as const;
+type SupportedVoice = (typeof supportedVoices)[number];
+
 const schema = z.object({
   roomId: z.string(),
   roomToken: z.string().optional(),
@@ -12,20 +15,57 @@ const schema = z.object({
   text: z.string().trim().min(1).max(1000)
 });
 
-const languageVoiceHints: Record<string, string> = {
-  ko: "Speak in natural Korean with a calm, clear clinic guidance tone. Keep the pace easy for a doctor wearing an earphone during a procedure.",
-  zh: "Speak in natural Mandarin Chinese with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
-  ja: "Speak in natural Japanese with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
-  en: "Speak in natural English with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
-  ru: "Speak in natural Russian with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
-  vi: "Speak in natural Vietnamese with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
-  id: "Speak in natural Indonesian with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
-  fr: "Speak in natural French with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
-  es: "Speak in natural Spanish with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
-  de: "Speak in natural German with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
-  it: "Speak in natural Italian with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure.",
-  pt: "Speak in natural Portuguese with a calm, clear clinic guidance tone. Keep the pace easy for a patient lying down during a procedure."
+const languageNames: Record<string, string> = {
+  ko: "Korean",
+  zh: "Mandarin Chinese",
+  ja: "Japanese",
+  en: "English",
+  ru: "Russian",
+  vi: "Vietnamese",
+  id: "Indonesian",
+  fr: "French",
+  es: "Spanish",
+  de: "German",
+  it: "Italian",
+  pt: "Portuguese"
 };
+
+const languageVoiceDefaults: Record<string, SupportedVoice> = {
+  ko: "shimmer",
+  zh: "nova",
+  ja: "sage",
+  en: "coral",
+  ru: "onyx",
+  vi: "verse",
+  id: "alloy",
+  fr: "fable",
+  es: "nova",
+  de: "onyx",
+  it: "verse",
+  pt: "sage"
+};
+
+function voiceFor(language: string) {
+  const configured = process.env[`OPENAI_TTS_VOICE_${language.toUpperCase()}`] ?? process.env.OPENAI_TTS_VOICE;
+  if (configured && supportedVoices.includes(configured as SupportedVoice)) {
+    return configured as SupportedVoice;
+  }
+  return languageVoiceDefaults[language] ?? "alloy";
+}
+
+function instructionsFor(language: string, role: "staff" | "patient") {
+  const languageName = languageNames[language] ?? "the requested language";
+  const listener = role === "staff" ? "a Korean hospital staff member wearing an earphone" : "a patient lying down during a procedure";
+
+  return [
+    `The input text is already written in ${languageName}.`,
+    `Speak only in ${languageName} with a native ${languageName} accent and natural ${languageName} pronunciation.`,
+    "Do not pronounce the text with an English or Korean accent unless the word is an English brand name.",
+    "Keep brand names and device names recognizable, but read all normal words with the target-language accent.",
+    `Use a calm, clear clinic guidance tone for ${listener}.`,
+    "Speak slightly slowly, with short pauses suitable for a live medical procedure."
+  ].join(" ");
+}
 
 export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json());
@@ -52,6 +92,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "OPENAI_API_KEY is not configured" }, { status: 500 });
   }
 
+  const speechLanguage = parsed.data.role === "staff" ? "ko" : parsed.data.patientLanguage;
+  const model = process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts";
+  const voice = voiceFor(speechLanguage);
+  const instructions = instructionsFor(speechLanguage, parsed.data.role);
+
   const response = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
     headers: {
@@ -60,12 +105,12 @@ export async function POST(request: Request) {
       "OpenAI-Safety-Identifier": `clinic-voice-room-tts-${parsed.data.role}`
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts",
-      voice: process.env.OPENAI_TTS_VOICE ?? "marin",
+      model,
+      voice,
       input: parsed.data.text,
-      instructions: languageVoiceHints[parsed.data.role === "staff" ? "ko" : parsed.data.patientLanguage],
+      instructions,
       response_format: "mp3",
-      speed: 0.95
+      speed: 0.9
     })
   });
 
@@ -79,7 +124,12 @@ export async function POST(request: Request) {
     status: 200,
     headers: {
       "Content-Type": "audio/mpeg",
-      "Cache-Control": "no-store"
+      "Cache-Control": "no-store",
+      "X-CVR-TTS-Provider": "openai-audio-speech",
+      "X-CVR-TTS-Model": model,
+      "X-CVR-TTS-Voice": voice,
+      "X-CVR-TTS-Language": speechLanguage,
+      "X-CVR-TTS-Version": "ai-tts-only-2026-05-19.2"
     }
   });
 }

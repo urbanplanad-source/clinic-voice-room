@@ -1,5 +1,4 @@
-import type { PatientLanguage } from "./languages";
-
+type PatientLanguage = "zh" | "ja" | "en" | "ru" | "vi" | "id" | "fr" | "es" | "de" | "it" | "pt";
 type GlossaryTargetLanguage = PatientLanguage | "ko";
 type CriticalShortPhrase = {
   spoken: string[];
@@ -19,6 +18,8 @@ type ClinicGlossaryEntry = {
   category: string;
   note: string;
 };
+
+const rawGlossaryTargetLanguages = new Set<GlossaryTargetLanguage>(["ko", "zh", "ja", "en", "ru", "vi", "id"]);
 
 const rawClinicGlossary = `
 오십샷|50샷,50샷,五十发,ごじゅうショット,fifty shots,пятьдесят импульсов,năm mươi shot,lima puluh shot,count,샷 수
@@ -342,10 +343,13 @@ function cleanRepeatedPunctuation(text: string) {
 
 function targetFor(entry: ClinicGlossaryEntry, targetLanguage: GlossaryTargetLanguage) {
   if (targetLanguage === "ko") return entry.standardKo;
-  if (targetLanguage === "fr" || targetLanguage === "es" || targetLanguage === "de" || targetLanguage === "it" || targetLanguage === "pt") {
-    return entry.en;
-  }
-  return entry[targetLanguage];
+  if (targetLanguage === "zh") return entry.zh;
+  if (targetLanguage === "ja") return entry.ja;
+  if (targetLanguage === "en") return entry.en;
+  if (targetLanguage === "ru") return entry.ru;
+  if (targetLanguage === "vi") return entry.vi;
+  if (targetLanguage === "id") return entry.id;
+  return entry.en;
 }
 
 function targetForCritical(entry: CriticalShortPhrase, targetLanguage: GlossaryTargetLanguage) {
@@ -368,22 +372,24 @@ export function normalizeClinicTranslation(text: string, targetLanguage: Glossar
     }
   }
 
-  for (const entry of clinicGlossary) {
-    const target = targetFor(entry, targetLanguage);
-    const sources = new Set([
-      ...entry.spoken,
-      entry.standardKo,
-      entry.zh,
-      entry.ja,
-      entry.en,
-      entry.ru,
-      entry.vi,
-      entry.id
-    ]);
+  if (rawGlossaryTargetLanguages.has(targetLanguage)) {
+    for (const entry of clinicGlossary) {
+      const target = targetFor(entry, targetLanguage);
+      const sources = new Set([
+        ...entry.spoken,
+        entry.standardKo,
+        entry.zh,
+        entry.ja,
+        entry.en,
+        entry.ru,
+        entry.vi,
+        entry.id
+      ]);
 
-    for (const source of sources) {
-      if (!source || source === target) continue;
-      normalized = replaceAllCaseInsensitive(normalized, source, target);
+      for (const source of sources) {
+        if (!source || source === target) continue;
+        normalized = replaceAllCaseInsensitive(normalized, source, target);
+      }
     }
   }
 
@@ -400,7 +406,9 @@ export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage
     ...criticalShortPhrases.map((entry) => `  - ${entry.spoken.join(" / ")} => ${targetForCritical(entry, patientLanguage)} (${entry.note})`),
     "- For French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names.",
     "- Do not expand brand names into generic explanations unless the staff explains them.",
-    ...clinicGlossary.map((entry) => `- ${entry.standardKo}: ${targetFor(entry, patientLanguage)}`)
+    ...(rawGlossaryTargetLanguages.has(patientLanguage)
+      ? clinicGlossary.map((entry) => `- ${entry.standardKo}: ${targetFor(entry, patientLanguage)}`)
+      : [])
   ].join("\n");
 }
 
