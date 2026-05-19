@@ -555,6 +555,7 @@ export function VoiceRoom({
   const spokenMessageIdsRef = useRef(new Set<string>());
   const procedureActiveRef = useRef(false);
   const pressedHardwareKeysRef = useRef(new Set<string>());
+  const lastHardwareToggleAtRef = useRef(0);
   const roomRef = useRef(initialRoom);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
@@ -863,40 +864,63 @@ export function VoiceRoom({
       event.code === "NumpadEnter" ||
       event.code === "MediaPlayPause" ||
       event.key === "MediaPlayPause" ||
+      event.code === "ArrowDown" ||
+      event.code === "ArrowUp" ||
+      event.key === "ArrowDown" ||
+      event.key === "ArrowUp" ||
       event.keyCode === 13 ||
-      event.keyCode === 32;
+      event.keyCode === 32 ||
+      event.keyCode === 38 ||
+      event.keyCode === 40;
 
     const keyId = (event: KeyboardEvent) => `${event.code || event.key || event.keyCode}`;
     const pressedHardwareKeys = pressedHardwareKeysRef.current;
 
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const toggleFromHardwareInput = (event: KeyboardEvent, source: "keydown" | "keypress" | "keyup") => {
       setHardwareInputStatus(`입력 감지: ${event.code || event.key || event.keyCode}`);
       if (!isPttKey(event)) return;
 
       const id = keyId(event);
-      if (event.repeat || pressedHardwareKeys.has(id)) return;
+      if (source === "keydown" && (event.repeat || pressedHardwareKeys.has(id))) return;
       pressedHardwareKeys.add(id);
 
       event.preventDefault();
       event.stopPropagation();
-      setHardwareInputStatus("스페이스/엔터 입력 적용됨");
+      const now = Date.now();
+      if (now - lastHardwareToggleAtRef.current < 350) return;
+      lastHardwareToggleAtRef.current = now;
+
+      setHardwareInputStatus(`스페이스/엔터 입력 적용됨 (${source})`);
       if (busy && !isSpeaking) return;
       if (!isSpeaking && !micEnabled) return;
       if (isSpeaking) void stopSpeakingRef.current();
       else void startSpeakingRef.current();
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      toggleFromHardwareInput(event, "keydown");
+    };
+
+    const handleKeyPress = (event: KeyboardEvent) => {
+      toggleFromHardwareInput(event, "keypress");
+    };
+
     const handleKeyUp = (event: KeyboardEvent) => {
+      toggleFromHardwareInput(event, "keyup");
       pressedHardwareKeys.delete(keyId(event));
     };
 
     window.addEventListener("keydown", handleKeyDown, true);
     document.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keypress", handleKeyPress, true);
+    document.addEventListener("keypress", handleKeyPress, true);
     window.addEventListener("keyup", handleKeyUp, true);
     document.addEventListener("keyup", handleKeyUp, true);
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keypress", handleKeyPress, true);
+      document.removeEventListener("keypress", handleKeyPress, true);
       window.removeEventListener("keyup", handleKeyUp, true);
       document.removeEventListener("keyup", handleKeyUp, true);
       pressedHardwareKeys.clear();
@@ -1289,7 +1313,7 @@ export function VoiceRoom({
           <p className="mt-4 text-xl font-bold text-ink">
             {room.status === "ended" ? copy.primary.ended : isSpeaking ? copy.primary.speaking : micEnabled ? copy.primary.ready : copy.primary.waiting}
           </p>
-          <p className="mt-2 text-sm font-semibold text-slate-500">Space / Enter / foot switch toggles the same button</p>
+          <p className="mt-2 text-sm font-semibold text-slate-500">Space / Enter / ↑ / ↓ / foot switch toggles the same button</p>
           <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">{hardwareInputStatus}</p>
           {wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
           {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
