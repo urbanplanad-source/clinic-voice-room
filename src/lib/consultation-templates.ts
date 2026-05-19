@@ -494,6 +494,144 @@ export function stageLabel(stage: ConsultationStage) {
   return consultationStages.find((item) => item.id === stage)?.label ?? "상담";
 }
 
+function inferPatientSuggestionStage(staffMessageText: string | undefined) {
+  const normalizedText = normalizeForMatch(staffMessageText ?? "");
+  if (!normalizedText) return "intake" satisfies ConsultationStage;
+
+  const stageKeywords: Record<ConsultationStage, string[]> = {
+    intake: [
+      "상담",
+      "시술까지",
+      "오늘",
+      "처음",
+      "방문",
+      "预约",
+      "今天",
+      "第一次",
+      "相談",
+      "今日",
+      "初めて",
+      "consultation",
+      "today",
+      "firstvisit",
+      "visite",
+      "consulta",
+      "beratung"
+    ],
+    medical: [
+      "복용",
+      "약",
+      "알레르기",
+      "임신",
+      "수유",
+      "질환",
+      "过敏",
+      "服药",
+      "怀孕",
+      "哺乳",
+      "药",
+      "薬",
+      "アレルギー",
+      "妊娠",
+      "授乳",
+      "medication",
+      "medicine",
+      "allergy",
+      "pregnant",
+      "breastfeeding",
+      "médicament",
+      "allergie",
+      "medicamento",
+      "alergia",
+      "medikament",
+      "allergie"
+    ],
+    procedure: [
+      "시술",
+      "효과",
+      "부위",
+      "리프팅",
+      "스킨부스터",
+      "보톡스",
+      "필러",
+      "施术",
+      "治疗",
+      "效果",
+      "部位",
+      "施術",
+      "効果",
+      "部位",
+      "treatment",
+      "procedure",
+      "effect",
+      "lifting",
+      "booster",
+      "traitement",
+      "procedimiento",
+      "behandlung"
+    ],
+    price_schedule: [
+      "가격",
+      "비용",
+      "결제",
+      "카드",
+      "예약",
+      "날짜",
+      "시간",
+      "费用",
+      "价格",
+      "刷卡",
+      "预约",
+      "料金",
+      "費用",
+      "カード",
+      "予約",
+      "price",
+      "cost",
+      "card",
+      "book",
+      "appointment",
+      "prix",
+      "carte",
+      "réserver",
+      "precio",
+      "tarjeta",
+      "reservar",
+      "preis",
+      "karte",
+      "termin"
+    ],
+    summary: [
+      "요약",
+      "마무리",
+      "주의사항",
+      "궁금",
+      "总结",
+      "注意事项",
+      "まとめ",
+      "注意事項",
+      "summary",
+      "summarize",
+      "precautions",
+      "résumer",
+      "précautions",
+      "resumen",
+      "precauciones",
+      "zusammenfassen",
+      "vorsichts"
+    ]
+  };
+
+  const ranked = consultationStages
+    .map((stage) => ({
+      stage: stage.id,
+      score: stageKeywords[stage.id].reduce((total, keyword) => total + (normalizedText.includes(normalizeForMatch(keyword)) ? 1 : 0), 0)
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  return ranked[0]?.score ? ranked[0].stage : ("intake" satisfies ConsultationStage);
+}
+
 export function getPatientFollowUpSuggestionSet(staffMessageText: string | undefined, patientLanguage: PatientLanguage) {
   const normalizedText = normalizeForMatch(staffMessageText ?? "");
   if (!normalizedText) return initialPatientSuggestionSet[patientLanguage];
@@ -578,5 +716,5 @@ export function getPatientFollowUpSuggestionSet(staffMessageText: string | undef
     }
   };
 
-  return suggestions[patientLanguage][inferConsultationStage(staffMessageText, "intake")];
+  return suggestions[patientLanguage][inferPatientSuggestionStage(staffMessageText)];
 }

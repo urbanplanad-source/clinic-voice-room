@@ -293,13 +293,17 @@ export function ConsultationChatRoom({
           </span>
         </div>
 
-        <div className="mt-2 flex items-start gap-3 rounded-lg bg-slate-50 px-3 py-2.5">
-          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-green-100 text-xs font-bold text-mint">AI</div>
-          <div>
-            <p className="text-sm font-bold text-ink">{role === "staff" ? "텍스트 번역 상담이 시작되었습니다." : copy.chatStarted}</p>
-            <p className="mt-0.5 text-xs font-semibold leading-5 text-slate-500">{role === "staff" ? "상담 단계와 추천문구로 흐름을 정리하세요." : copy.placeholder}</p>
+        {role === "staff" ? (
+          <div className="mt-2 flex items-start gap-3 rounded-lg bg-slate-50 px-3 py-2.5">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-green-100 text-xs font-bold text-mint">AI</div>
+            <div>
+              <p className="text-sm font-bold text-ink">텍스트 번역 상담이 시작되었습니다.</p>
+              <p className="mt-0.5 text-xs font-semibold leading-5 text-slate-500">상담 단계와 추천문구로 흐름을 정리하세요.</p>
+            </div>
           </div>
-        </div>
+        ) : (
+          <p className="mt-1 truncate text-xs font-semibold text-slate-500">{copy.chatStarted}</p>
+        )}
 
         {role === "staff" ? (
           <div className="mt-2 inline-flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-xs font-bold text-mint">
