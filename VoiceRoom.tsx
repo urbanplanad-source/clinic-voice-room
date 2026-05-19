@@ -34,35 +34,6 @@ type NavigatorWithWakeLock = Navigator & {
   };
 };
 
-const speechLanguageByPatientLanguage: Record<string, string> = {
-  ko: "ko-KR",
-  zh: "zh-CN",
-  ja: "ja-JP",
-  en: "en-US",
-  ru: "ru-RU",
-  vi: "vi-VN",
-  id: "id-ID",
-  fr: "fr-FR",
-  es: "es-ES",
-  de: "de-DE",
-  it: "it-IT",
-  pt: "pt-PT"
-};
-
-function pickBrowserVoice(lang: string) {
-  if (!("speechSynthesis" in window)) return null;
-
-  const voices = window.speechSynthesis.getVoices();
-  const normalizedLang = lang.toLowerCase();
-  const baseLang = normalizedLang.split("-")[0];
-
-  return (
-    voices.find((voice) => voice.lang.toLowerCase() === normalizedLang) ??
-    voices.find((voice) => voice.lang.toLowerCase().startsWith(`${baseLang}-`)) ??
-    null
-  );
-}
-
 type RoomSnapshot = {
   id: string;
   status: RoomStatus;
@@ -659,18 +630,6 @@ export function VoiceRoom({
     });
   }, []);
 
-  const speakWithBrowserTts = useCallback((text: string) => {
-    if (!("speechSynthesis" in window)) return;
-
-    const lang = role === "staff" ? speechLanguageByPatientLanguage.ko : speechLanguageByPatientLanguage[room.patientLanguage] ?? "en-US";
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = lang;
-    utterance.voice = pickBrowserVoice(lang);
-    utterance.rate = 0.95;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-  }, [role, room.patientLanguage]);
-
   const stopPlayback = useCallback(() => {
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     audioElementRef.current?.pause();
@@ -723,11 +682,11 @@ export function VoiceRoom({
       .then(async () => {
         try {
           await playAiTranslatedSpeech(message);
-        } catch {
-          speakWithBrowserTts(message.text);
+        } catch (caught) {
+          setError(caught instanceof Error ? caught.message : "AI translated speech could not be played.");
         }
       });
-  }, [playAiTranslatedSpeech, speakWithBrowserTts]);
+  }, [playAiTranslatedSpeech]);
 
   const flushUsage = useCallback(async () => {
     const durationSeconds = pendingUsageSecondsRef.current;
