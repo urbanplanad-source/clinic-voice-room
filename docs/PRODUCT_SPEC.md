@@ -36,6 +36,7 @@ Clinic Voice Room is a hospital-focused, QR-based interpretation system for Kore
 - QR code join
 - Guest patient entry
 - Consultation chat with translated message delivery
+- Polling fallback for consultation chat delivery if realtime broadcast is missed
 - Patient example-message categories and one-tap sending
 - Staff follow-up suggestions by consultation stage and patient message
 - Lightweight risk flags and consultation summary draft

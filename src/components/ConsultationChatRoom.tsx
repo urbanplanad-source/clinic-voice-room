@@ -38,6 +38,7 @@ type TranslationMessage = {
   id: string;
   speaker: ParticipantRole;
   text: string;
+  createdAt?: string;
   deliveryStatus?: "sending" | "failed";
 };
 
@@ -61,6 +62,8 @@ export function ConsultationChatRoom({
   const chatScrollRef = useRef<HTMLElement | null>(null);
   const isComposingTextRef = useRef(false);
   const inactivityTimerRef = useRef<number | null>(null);
+  const lastFetchedMessageAtRef = useRef<string | null>(null);
+  const messagePollInFlightRef = useRef(false);
 
   const copy = consultationTextCopy[room.patientLanguage];
   const deliveryStatusCopy = role === "staff" ? { sending: "전송 중", failed: "전송 실패" } : consultationDeliveryStatusCopy[room.patientLanguage];
@@ -162,6 +165,49 @@ export function ConsultationChatRoom({
   }, [appendMessage, markActivity, role, room.id]);
 
   useEffect(() => {
+    async function fetchMessages() {
+      if (messagePollInFlightRef.current) return;
+      if (role === "patient" && !roomToken) return;
+
+      messagePollInFlightRef.current = true;
+      try {
+        const params = new URLSearchParams();
+        if (role === "patient" && roomToken) params.set("roomToken", roomToken);
+        if (lastFetchedMessageAtRef.current) params.set("after", lastFetchedMessageAtRef.current);
+
+        const query = params.toString();
+        const response = await fetch(`/api/rooms/${room.id}/messages${query ? `?${query}` : ""}`, { cache: "no-store" });
+        if (!response.ok) return;
+
+        const data = (await response.json()) as { messages?: TranslationMessage[] };
+        const fetchedMessages = data.messages ?? [];
+        let latestCreatedAt = lastFetchedMessageAtRef.current;
+
+        for (const message of fetchedMessages) {
+          if (message.createdAt && (!latestCreatedAt || message.createdAt > latestCreatedAt)) {
+            latestCreatedAt = message.createdAt;
+          }
+          if (message.speaker !== role) {
+            appendMessage(message);
+          }
+        }
+
+        if (latestCreatedAt) lastFetchedMessageAtRef.current = latestCreatedAt;
+        if (fetchedMessages.length) markActivity();
+      } finally {
+        messagePollInFlightRef.current = false;
+      }
+    }
+
+    void fetchMessages();
+    const interval = window.setInterval(() => {
+      void fetchMessages();
+    }, 1500);
+
+    return () => window.clearInterval(interval);
+  }, [appendMessage, markActivity, role, room.id, roomToken]);
+
+  useEffect(() => {
     const interval = window.setInterval(async () => {
       const response =
         role === "staff"
@@ -207,27 +253,29 @@ export function ConsultationChatRoom({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           roomId: room.id,
+          messageId,
           role,
           roomToken,
           patientLanguage: room.patientLanguage,
           text: sourceText
         })
       });
-      const data = (await response.json().catch(() => null)) as { translatedText?: string; error?: string } | null;
+      const data = (await response.json().catch(() => null)) as {
+        translatedText?: string;
+        message?: RealtimeTranslationMessage & { createdAt?: string };
+        error?: string;
+      } | null;
       if (!response.ok || !data?.translatedText) {
         throw new Error(data?.error ?? "Text translation failed.");
       }
 
-      const message = {
+      const message = data.message ?? {
         id: messageId,
         speaker: role,
         text: data.translatedText
       } satisfies RealtimeTranslationMessage;
 
-      const delivered = await broadcastTranslationMessage(room.id, message);
-      if (!delivered) {
-        throw new Error(role === "staff" ? "메시지를 전송하지 못했습니다. 네트워크 연결을 확인해주세요." : deliveryStatusCopy.failed);
-      }
+      void broadcastTranslationMessage(room.id, message);
 
       updateMessageDeliveryStatus(localMessage.id);
       if (!textOverride) setTextInput("");

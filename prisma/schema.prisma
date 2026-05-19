@@ -105,6 +105,7 @@ model TranslationRoom {
   endedAt         DateTime?
   participants    RoomParticipant[]
   usageSession    UsageSession?
+  consultationMessages ConsultationMessage[]
 }
 
 model RoomParticipant {
@@ -136,4 +137,15 @@ model UsageSession {
   translatedAudioSeconds  Int?
   estimatedApiCostUsd     Decimal?        @db.Decimal(10, 4)
   createdAt               DateTime        @default(now())
+}
+
+model ConsultationMessage {
+  id        String          @id @default(cuid())
+  roomId    String
+  room      TranslationRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  speaker   ParticipantRole
+  text      String
+  createdAt DateTime        @default(now())
+
+  @@index([roomId, createdAt])
 }

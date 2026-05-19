@@ -30,6 +30,7 @@ See [ANDROID_TRANSITION_ARCHITECTURE.md](ANDROID_TRANSITION_ARCHITECTURE.md) for
 Procedure mode keeps one-speaker-at-a-time room control. Microphones are disabled when the other person is speaking, while translation is pending, and while translated audio is playing. Playback end returns the room to `ready`.
 
 Consultation mode is chat-based. Messages are optimistically shown on the sender side with sending/failed status, translated through the server, and delivered to the other participant through Supabase Realtime with polling as a fallback.
+For reliability, translated consultation chat snippets are kept as room-scoped live messages and removed when the room ends or is marked stale. Raw audio, source voice, and permanent full transcripts remain out of scope.
 
 ## API Surface
 - `POST /api/auth/login`
@@ -48,3 +49,4 @@ Consultation mode is chat-based. Messages are optimistically shown on the sender
 
 ## Data Retention
 Store room metadata, usage metadata, and plan metadata. Do not store raw audio, full transcripts, or patient PII.
+Consultation chat live-delivery rows are temporary room data and are deleted on room termination/stale cleanup.

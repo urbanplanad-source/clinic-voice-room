@@ -31,6 +31,10 @@ export async function endStaleRooms(options: EndStaleRoomsOptions = {}) {
   }
 
   const roomIds = endedRooms.map((room) => room.id);
+  await prisma.consultationMessage.deleteMany({
+    where: { roomId: { in: roomIds } }
+  });
+
   await prisma.$executeRaw(Prisma.sql`
     UPDATE "UsageSession" AS usage
     SET "roomEndedAt" = COALESCE(usage."roomEndedAt", rooms."endedAt"),

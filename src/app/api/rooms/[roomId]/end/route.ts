@@ -18,21 +18,25 @@ export async function POST(_: Request, context: { params: Promise<{ roomId: stri
   if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 });
 
   const endedAt = room.endedAt ?? new Date();
-  const updated = await prisma.translationRoom.update({
-    where: { id: room.id },
-    data: {
-      status: "ended",
-      endedAt,
-      usageSession: room.usageSession
-        ? {
-            update: {
-              roomEndedAt: endedAt,
-              totalRoomSeconds: secondsBetween(room.usageSession.roomStartedAt, endedAt)
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.consultationMessage.deleteMany({ where: { roomId: room.id } });
+
+    return tx.translationRoom.update({
+      where: { id: room.id },
+      data: {
+        status: "ended",
+        endedAt,
+        usageSession: room.usageSession
+          ? {
+              update: {
+                roomEndedAt: endedAt,
+                totalRoomSeconds: secondsBetween(room.usageSession.roomStartedAt, endedAt)
+              }
             }
-          }
-        : undefined
-    },
-    include: { hospital: true, usageSession: true }
+          : undefined
+      },
+      include: { hospital: true, usageSession: true }
+    });
   });
 
   return NextResponse.json({ room: updated });

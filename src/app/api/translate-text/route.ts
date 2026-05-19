@@ -9,6 +9,7 @@ import { buildClinicGlossaryInstructions, normalizeClinicTranslation } from "@/l
 const schema = z.object({
   roomId: z.string(),
   roomToken: z.string().optional(),
+  messageId: z.string().min(1).max(120).optional(),
   role: z.enum(["staff", "patient"]),
   patientLanguage: z.custom<PatientLanguage>((value) => isPatientLanguage(value)),
   text: z.string().trim().min(1).max(2000)
@@ -127,8 +128,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No translated text was returned" }, { status: 502 });
   }
 
+  const normalizedText = normalizeClinicTranslation(translatedText, targetLanguage);
+  const message = await prisma.consultationMessage.create({
+    data: {
+      id: parsed.data.messageId,
+      roomId: room.id,
+      speaker: parsed.data.role,
+      text: normalizedText
+    }
+  });
+
   return NextResponse.json({
-    translatedText: normalizeClinicTranslation(translatedText, targetLanguage),
+    translatedText: normalizedText,
+    message: {
+      id: message.id,
+      speaker: message.speaker,
+      text: message.text,
+      createdAt: message.createdAt.toISOString()
+    },
     model
   });
 }
