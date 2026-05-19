@@ -280,25 +280,25 @@ export function ConsultationChatRoom({
   }
 
   return (
-    <div className="flex h-[calc(100dvh-56px)] min-h-[620px] flex-col overflow-hidden rounded-lg bg-white shadow-soft md:min-h-[760px]">
-      <header className="shrink-0 border-b border-line bg-white px-4 py-3 md:px-6 md:py-4">
+    <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col overflow-hidden rounded-lg bg-white shadow-soft md:min-h-[720px]">
+      <header className="shrink-0 border-b border-line bg-white px-3 py-2.5 md:px-6 md:py-4">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate text-xs font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
-            <h1 className="mt-1 text-lg font-bold text-ink">{title}</h1>
+            <h1 className="mt-0.5 truncate text-base font-bold text-ink md:mt-1 md:text-lg">{title}</h1>
           </div>
-          <span className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-trust">
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1.5 text-[11px] font-bold text-trust md:gap-2 md:px-3 md:py-2 md:text-xs">
             <span className="h-2 w-2 rounded-full bg-trust" />
             {room.status === "ended" ? (role === "staff" ? "종료" : copy.statusEnded) : role === "staff" ? "채팅" : copy.statusChat}
           </span>
         </div>
 
         {role === "staff" ? (
-          <div className="mt-2 flex items-start gap-3 rounded-lg bg-slate-50 px-3 py-2.5">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-green-100 text-xs font-bold text-mint">AI</div>
-            <div>
-              <p className="text-sm font-bold text-ink">텍스트 번역 상담이 시작되었습니다.</p>
-              <p className="mt-0.5 text-xs font-semibold leading-5 text-slate-500">상담 단계와 추천문구로 흐름을 정리하세요.</p>
+          <div className="mt-1.5 flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 md:mt-2 md:items-start md:gap-3 md:px-3 md:py-2.5">
+            <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-green-100 text-[10px] font-bold text-mint md:h-8 md:w-8 md:text-xs">AI</div>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-bold text-ink md:text-sm">텍스트 번역 상담이 시작되었습니다.</p>
+              <p className="hidden text-xs font-semibold leading-5 text-slate-500 md:mt-0.5 md:block">상담 단계와 추천문구로 흐름을 정리하세요.</p>
             </div>
           </div>
         ) : (
@@ -306,14 +306,14 @@ export function ConsultationChatRoom({
         )}
 
         {role === "staff" ? (
-          <div className="mt-2 inline-flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 text-xs font-bold text-mint">
+          <div className="mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-lg bg-green-50 px-2.5 py-1.5 text-[11px] font-bold text-mint md:mt-2 md:gap-2 md:px-3 md:py-2 md:text-xs">
             <Sparkles size={14} />
-            AI가 고객 메시지에 맞춰 다음 질문 흐름을 추천합니다.
+            <span className="truncate">AI가 고객 메시지에 맞춰 다음 질문을 추천합니다.</span>
           </div>
         ) : null}
       </header>
 
-      <section ref={chatScrollRef} className="flex-1 overflow-y-auto bg-mist px-4 py-4 md:px-6" aria-live="polite">
+      <section ref={chatScrollRef} className="min-h-0 flex-1 overflow-y-auto bg-mist px-3 py-3 md:px-6 md:py-4" aria-live="polite">
         {chatMessages.length ? (
           <div className="space-y-3">
             {chatMessages.map((message) => {
@@ -343,17 +343,17 @@ export function ConsultationChatRoom({
             })}
           </div>
         ) : (
-          <div className="flex h-full min-h-[260px] items-center justify-center text-center">
+          <div className="flex h-full min-h-[180px] items-center justify-center text-center md:min-h-[260px]">
             <div>
-              <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-green-100 text-lg font-bold text-mint">AI</div>
-              <p className="mt-4 text-base font-bold text-ink">{role === "staff" ? "고객의 메시지가 여기에 표시됩니다." : copy.title}</p>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">{role === "staff" ? "상담 단계를 선택하고 고객 응답에 맞춰 안내하세요." : copy.empty}</p>
+              <div className="mx-auto grid h-11 w-11 place-items-center rounded-full bg-green-100 text-sm font-bold text-mint md:h-14 md:w-14 md:text-lg">AI</div>
+              <p className="mt-3 text-sm font-bold text-ink md:mt-4 md:text-base">{role === "staff" ? "고객의 메시지가 여기에 표시됩니다." : copy.title}</p>
+              <p className="mt-1.5 text-xs font-semibold leading-5 text-slate-500 md:mt-2 md:text-sm md:leading-6">{role === "staff" ? "고객 응답에 맞춰 안내하세요." : copy.empty}</p>
             </div>
           </div>
         )}
       </section>
 
-      <footer className="shrink-0 border-t border-line bg-white px-3 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-2 md:px-4 md:pb-4">
+      <footer className="shrink-0 border-t border-line bg-white px-2.5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-2 md:px-4 md:pb-4">
         {role === "patient" ? (
           <div className="mb-2 rounded-2xl bg-blue-50 p-2.5">
             <div className="mb-2 flex items-center gap-2 px-1">
@@ -380,30 +380,30 @@ export function ConsultationChatRoom({
             </div>
           </div>
         ) : latestPatientMessage ? (
-          <div className="mb-2 rounded-2xl bg-slate-50 p-3">
+          <div className="mb-2 rounded-2xl bg-slate-50 p-2.5 md:p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-blue-100 text-trust">
-                  <Sparkles size={16} />
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-100 text-trust md:h-8 md:w-8">
+                  <Sparkles size={15} />
                 </span>
                 <div>
-                  <p className="text-sm font-bold text-ink">AI 추천 질문</p>
-                  <p className="mt-0.5 text-xs font-bold text-slate-500">
+                  <p className="text-xs font-bold text-ink md:text-sm">AI 추천 질문</p>
+                  <p className="mt-0.5 text-[11px] font-bold text-slate-500 md:text-xs">
                     {staffSuggestionSet.label} · {stageLabel(inferredStage)}
                   </p>
                 </div>
               </div>
-              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-slate-500 shadow-sm">
+              <span className="hidden rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-slate-500 shadow-sm sm:inline-flex">
                 고객 답변에 따라 자동 변경
               </span>
             </div>
-            <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5 md:mt-3 md:grid md:grid-cols-2 md:gap-2 md:overflow-visible md:pb-0">
               {staffSuggestionSet.suggestions.map((suggestion) => (
                 <button
                   key={suggestion}
                   type="button"
                   onClick={() => setTextInput(suggestion)}
-                  className="min-h-12 rounded-xl bg-white px-3 py-2 text-left text-sm font-bold leading-5 text-ink shadow-sm transition hover:bg-blue-50 hover:text-trust"
+                  className="min-h-10 min-w-[220px] rounded-xl bg-white px-3 py-2 text-left text-xs font-bold leading-4 text-ink shadow-sm transition hover:bg-blue-50 hover:text-trust md:min-h-12 md:min-w-0 md:text-sm md:leading-5"
                 >
                   {suggestion}
                 </button>
@@ -412,7 +412,7 @@ export function ConsultationChatRoom({
           </div>
         ) : null}
 
-        <div className="flex items-end gap-2 rounded-2xl bg-slate-50 p-2">
+        <div className="flex items-end gap-2 rounded-2xl bg-slate-50 p-1.5 md:p-2">
           <textarea
             value={textInput}
             onChange={(event) => setTextInput(event.target.value)}
@@ -426,13 +426,13 @@ export function ConsultationChatRoom({
             placeholder={role === "staff" ? "상담 내용을 입력하세요." : copy.placeholder}
             disabled={room.status === "ended" || textSubmitting}
             rows={1}
-            className="max-h-28 min-h-11 flex-1 resize-none bg-transparent px-3 py-2 text-base font-semibold leading-7 text-ink outline-none disabled:opacity-60"
+            className="max-h-24 min-h-10 flex-1 resize-none bg-transparent px-3 py-1.5 text-base font-semibold leading-7 text-ink outline-none disabled:opacity-60 md:max-h-28 md:min-h-11 md:py-2"
           />
           <button
             type="button"
             onClick={() => void submitTextMessage()}
             disabled={!canSubmitText}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-trust text-white transition hover:bg-blue-600 disabled:opacity-50"
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-trust text-white transition hover:bg-blue-600 disabled:opacity-50 md:h-11 md:w-11"
             aria-label={role === "staff" ? "번역 보내기" : copy.submit}
             title={role === "staff" ? "번역 보내기" : copy.submit}
           >
@@ -444,7 +444,7 @@ export function ConsultationChatRoom({
           <button
             onClick={endRoom}
             disabled={ending || room.status === "ended"}
-            className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-rose-50 px-4 text-sm font-bold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
+            className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-rose-50 px-4 text-xs font-bold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 md:mt-3 md:h-11 md:text-sm"
           >
             {ending ? <Loader2 size={17} className="animate-spin" /> : <PhoneOff size={17} />}
             상담 종료

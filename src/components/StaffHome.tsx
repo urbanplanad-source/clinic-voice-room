@@ -65,12 +65,14 @@ export function StaffHome({
   }
 
   return (
-    <div className="space-y-5 md:space-y-6">
-      <header className="flex items-center justify-between gap-4 rounded-lg bg-ink p-5 text-white shadow-soft md:p-7">
+    <div className={selectedMode ? "space-y-3 md:space-y-4" : "space-y-5 md:space-y-6"}>
+      <header className={`flex items-center justify-between gap-4 rounded-lg bg-ink text-white shadow-soft ${selectedMode ? "p-3 md:p-4" : "p-5 md:p-7"}`}>
         <div className="min-w-0">
           <p className="truncate text-sm font-bold text-blue-200">{staff.hospital.name}</p>
-          <h1 className="mt-1 text-[30px] font-bold leading-tight md:text-[36px]">{selectedMode ? modeCopy[selectedMode].title : "Select translation mode"}</h1>
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-300 md:text-base">
+          <h1 className={selectedMode ? "mt-0.5 text-xl font-bold leading-tight md:text-2xl" : "mt-1 text-[30px] font-bold leading-tight md:text-[36px]"}>
+            {selectedMode ? "Choose patient language" : "Select translation mode"}
+          </h1>
+          <p className={selectedMode ? "hidden md:mt-1 md:block md:text-sm md:font-semibold md:leading-5 md:text-slate-300" : "mt-2 text-sm font-semibold leading-6 text-slate-300 md:text-base"}>
             {selectedMode ? modeCopy[selectedMode].body : "Choose the room type first. The patient will choose their language on the next screen."}
           </p>
         </div>
@@ -121,28 +123,32 @@ export function StaffHome({
           </button>
         </section>
       ) : (
-        <section className="rounded-lg bg-white p-5 shadow-soft sm:p-6 md:p-8">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-bold uppercase tracking-[0.08em] text-trust">{selectedMode === "consultation" ? "Consultation" : "Procedure"}</p>
-              <h2 className="mt-2 text-[30px] font-bold leading-tight text-ink md:text-[42px]">{modeCopy[selectedMode].title}</h2>
-              <p className="mt-3 max-w-xl text-base font-semibold leading-7 text-slate-500 md:text-lg md:leading-8">{modeCopy[selectedMode].body}</p>
-            </div>
+        <section className="rounded-lg bg-white p-3 shadow-soft sm:p-4 md:p-5">
+          <div className="flex items-center justify-between gap-3">
             <button
               type="button"
               onClick={() => {
                 setSelectedMode(null);
                 setError("");
               }}
-              className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-slate-100 text-ink transition hover:bg-slate-200"
+              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-slate-100 px-3 text-sm font-bold text-ink transition hover:bg-slate-200"
               aria-label="처음으로"
               title="처음으로"
             >
-              <ArrowLeft size={20} />
+              <ArrowLeft size={18} />
+              처음으로
             </button>
+            <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-trust md:text-sm">
+              {selectedMode === "consultation" ? "Consultation" : "Procedure"}
+            </span>
           </div>
 
-          <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4" role="radiogroup" aria-label="Choose your language">
+          <div className="mt-3">
+            <h2 className="text-xl font-bold leading-tight text-ink md:text-2xl">{modeCopy[selectedMode].title}</h2>
+            <p className="mt-1 text-sm font-semibold leading-5 text-slate-500 md:text-base">{modeCopy[selectedMode].body}</p>
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 md:gap-3" role="radiogroup" aria-label="Choose your language">
           {patientLanguages.map((language) => {
             const active = language === patientLanguage;
             return (
@@ -150,13 +156,13 @@ export function StaffHome({
                 key={language}
                 type="button"
                 onClick={() => setPatientLanguage(language)}
-                className={`min-h-[96px] rounded-lg border px-3 py-4 text-center transition md:min-h-[118px] ${
+                className={`min-h-[72px] rounded-lg border px-2 py-2 text-center transition md:min-h-[84px] ${
                   active ? "border-trust bg-blue-50 text-trust" : "border-line bg-white text-slate-600 hover:bg-slate-50"
                 }`}
                 aria-pressed={active}
               >
-                <span className="block text-lg font-bold leading-6 md:text-xl">{languageLabels[language].native}</span>
-                <span className="mt-2 block text-xs font-semibold md:text-sm">{languageLabels[language].english}</span>
+                <span className="block text-base font-bold leading-5 md:text-lg">{languageLabels[language].native}</span>
+                <span className="mt-1 block text-[11px] font-semibold leading-4 md:text-xs">{languageLabels[language].english}</span>
               </button>
             );
           })}
@@ -165,7 +171,7 @@ export function StaffHome({
           <button
             onClick={() => createRoom(selectedMode)}
             disabled={loadingMode !== null}
-            className="mt-7 flex h-16 w-full items-center justify-center gap-2 rounded-lg bg-trust px-5 text-xl font-bold text-white transition hover:bg-blue-600 disabled:opacity-50 md:h-20 md:text-2xl"
+            className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-trust px-5 text-lg font-bold text-white transition hover:bg-blue-600 disabled:opacity-50 md:h-16 md:text-xl"
           >
             {loadingMode === selectedMode ? <Loader2 size={24} className="animate-spin" /> : <Languages size={24} />}
             {modeCopy[selectedMode].button}
