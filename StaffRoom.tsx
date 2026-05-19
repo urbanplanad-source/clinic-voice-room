@@ -21,7 +21,7 @@ type StaffRoomProps = {
   roomMode?: "consultation" | "procedure";
 };
 
-const qrCopy: Record<PatientLanguage, { heading: string; instruction: string; waiting: string }> = {
+const qrCopy: Partial<Record<PatientLanguage, { heading: string; instruction: string; waiting: string }>> = {
   zh: {
     heading: "请扫描二维码",
     instruction: "请使用手机相机扫描下方二维码，进入医院翻译室。",
@@ -51,28 +51,56 @@ const qrCopy: Record<PatientLanguage, { heading: string; instruction: string; wa
     heading: "Pindai kode QR",
     instruction: "Gunakan kamera ponsel untuk memindai kode QR di bawah dan masuk ke ruang interpretasi.",
     waiting: "Menunggu pasien masuk"
+  },
+  fr: {
+    heading: "Scannez le code QR",
+    instruction: "Utilisez l'appareil photo du téléphone pour scanner le code QR et entrer dans la salle d'interprétation.",
+    waiting: "En attente de l'arrivée du patient"
+  },
+  es: {
+    heading: "Escanee el código QR",
+    instruction: "Use la cámara del teléfono para escanear el código QR y entrar en la sala de interpretación.",
+    waiting: "Esperando a que entre el paciente"
+  },
+  de: {
+    heading: "QR-Code scannen",
+    instruction: "Scannen Sie den QR-Code mit der Handykamera und betreten Sie den Dolmetschraum.",
+    waiting: "Warten auf den Patienten"
+  },
+  it: {
+    heading: "Scansiona il codice QR",
+    instruction: "Usa la fotocamera del telefono per scansionare il codice QR ed entrare nella stanza di interpretariato.",
+    waiting: "In attesa dell'ingresso del paziente"
+  },
+  pt: {
+    heading: "Escaneie o código QR",
+    instruction: "Use a câmera do celular para escanear o código QR e entrar na sala de interpretação.",
+    waiting: "Aguardando a entrada do paciente"
   }
 };
 
-export function StaffRoom({ room, joinUrl, androidJoinUrl, roomMode = "consultation" }: StaffRoomProps) {
+const defaultQrCopy = qrCopy.en ?? {
+  heading: "Scan the QR code",
+  instruction: "Use your phone camera to scan the QR code below and enter the interpretation room.",
+  waiting: "Waiting for the patient to join"
+};
+
+export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoomProps) {
   const [snapshot, setSnapshot] = useState(room);
   const [copied, setCopied] = useState<"web" | "android" | null>(null);
   const [qrExpanded, setQrExpanded] = useState(false);
   const connected = snapshot.status !== "waiting_for_patient";
-  const copy = qrCopy[snapshot.patientLanguage];
+  const copy = qrCopy[snapshot.patientLanguage] ?? defaultQrCopy;
   const isProcedureMode = roomMode === "procedure";
   const primaryQrUrl = joinUrl;
-  const resolvedAndroidJoinUrl =
-    androidJoinUrl ??
-    `clinicvoiceroom://room/join?token=${encodeURIComponent(snapshot.roomToken)}&mode=${roomMode}`;
   const primaryQrCopy = isProcedureMode
     ? {
         icon: Smartphone,
-        title: "Android 시술 앱 연결",
-        body: "앱에서 방 토큰과 서버 주소가 자동으로 입력됩니다.",
-        button: "앱 링크 복사",
-        copied: "앱 링크 복사됨",
-        target: "android" as const
+        title: "시술 웹 연결",
+        body: "환자 기기에서 웹 통역방으로 바로 입장합니다.",
+        button: "환자 링크 복사",
+        copied: "환자 링크 복사됨",
+        target: "web" as const
       }
     : {
         icon: QrCode,
@@ -85,15 +113,15 @@ export function StaffRoom({ room, joinUrl, androidJoinUrl, roomMode = "consultat
   const secondaryQrCopy = isProcedureMode
     ? {
         title: "환자 웹 입장 링크",
-        body: "앱 연결이 어려우면 웹 링크로 바로 입장할 수 있습니다.",
+        body: "QR 스캔이 어려우면 이 웹 링크를 환자 기기에 직접 공유하세요.",
         url: joinUrl,
         target: "web" as const
       }
     : {
-        title: "Android 앱 자동입력 링크",
-        body: "현장 테스트 앱에 서버 주소와 방 토큰을 자동으로 채웁니다.",
-        url: resolvedAndroidJoinUrl,
-        target: "android" as const
+        title: "환자 웹 입장 링크",
+        body: "QR 스캔이 어려우면 이 웹 링크를 환자 기기에 직접 공유하세요.",
+        url: joinUrl,
+        target: "web" as const
       };
   const PrimaryIcon = primaryQrCopy.icon;
   const tokenPreview = `${snapshot.roomToken.slice(0, 8)}...${snapshot.roomToken.slice(-6)}`;
