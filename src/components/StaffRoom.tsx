@@ -21,7 +21,7 @@ type StaffRoomProps = {
   roomMode?: "consultation" | "procedure";
 };
 
-const qrCopy: Record<PatientLanguage, { heading: string; instruction: string; waiting: string }> = {
+const qrCopy: Partial<Record<PatientLanguage, { heading: string; instruction: string; waiting: string }>> = {
   zh: {
     heading: "请扫描二维码",
     instruction: "请使用手机相机扫描下方二维码，进入医院翻译室。",
@@ -79,12 +79,18 @@ const qrCopy: Record<PatientLanguage, { heading: string; instruction: string; wa
   }
 };
 
+const defaultQrCopy = qrCopy.en ?? {
+  heading: "Scan the QR code",
+  instruction: "Use your phone camera to scan the QR code below and enter the interpretation room.",
+  waiting: "Waiting for the patient to join"
+};
+
 export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoomProps) {
   const [snapshot, setSnapshot] = useState(room);
   const [copied, setCopied] = useState<"web" | "android" | null>(null);
   const [qrExpanded, setQrExpanded] = useState(false);
   const connected = snapshot.status !== "waiting_for_patient";
-  const copy = qrCopy[snapshot.patientLanguage];
+  const copy = qrCopy[snapshot.patientLanguage] ?? defaultQrCopy;
   const isProcedureMode = roomMode === "procedure";
   const primaryQrUrl = joinUrl;
   const primaryQrCopy = isProcedureMode

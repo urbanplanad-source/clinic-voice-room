@@ -29,7 +29,7 @@ export default async function StaffRoomPage({
   const androidJoinUrl = `clinicvoiceroom://room/join?token=${encodeURIComponent(room.roomToken)}&mode=${roomMode}&backend=${encodeURIComponent(baseUrl)}`;
 
   return (
-    <AppFrame narrow>
+    <AppFrame narrow backHref="/staff" backLabel="직원 화면으로">
       <StaffRoom
         room={{
           id: room.id,

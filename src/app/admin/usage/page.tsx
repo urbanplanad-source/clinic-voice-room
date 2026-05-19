@@ -11,7 +11,7 @@ export default async function AdminUsagePage() {
   const usage = await getAdminUsageSummary();
 
   return (
-    <AppFrame>
+    <AppFrame backHref="/staff">
       <div className="space-y-6">
         <header>
           <p className="text-sm font-bold text-trust">Internal Admin</p>

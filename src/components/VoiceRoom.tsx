@@ -34,7 +34,7 @@ type NavigatorWithWakeLock = Navigator & {
   };
 };
 
-const speechLanguageByPatientLanguage: Record<PatientLanguage | "ko", string> = {
+const speechLanguageByPatientLanguage: Record<string, string> = {
   ko: "ko-KR",
   zh: "zh-CN",
   ja: "ja-JP",
@@ -644,7 +644,7 @@ export function VoiceRoom({
     if (!("speechSynthesis" in window)) return;
 
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = role === "staff" ? speechLanguageByPatientLanguage.ko : speechLanguageByPatientLanguage[room.patientLanguage];
+    utterance.lang = role === "staff" ? speechLanguageByPatientLanguage.ko : speechLanguageByPatientLanguage[room.patientLanguage] ?? "en-US";
     utterance.rate = 0.95;
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);

@@ -19,7 +19,7 @@ export default async function PatientJoinPage({
 
   if (!room || room.status === "ended") {
     return (
-      <AppFrame narrow>
+      <AppFrame narrow backHref="/staff">
         <section className="rounded-lg bg-white p-6 shadow-soft">
           <h1 className="text-2xl font-bold">Room not available</h1>
           <p className="mt-3 text-slate-600">This interpretation room has ended or cannot be found.</p>
@@ -29,7 +29,7 @@ export default async function PatientJoinPage({
   }
 
   return (
-    <AppFrame narrow>
+    <AppFrame narrow backHref="/staff">
       <PatientJoin
         room={{
           id: room.id,

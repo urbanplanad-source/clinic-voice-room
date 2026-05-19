@@ -9,7 +9,7 @@ export default async function AdminStaffPage() {
   if (staff.role !== "internal_admin") redirect("/staff");
 
   return (
-    <AppFrame>
+    <AppFrame backHref="/staff">
       <AdminStaffManager />
     </AppFrame>
   );
