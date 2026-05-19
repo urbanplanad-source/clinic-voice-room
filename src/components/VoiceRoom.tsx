@@ -1,11 +1,12 @@
-"use client";
+﻿"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Headphones, Loader2, Mic, MessageSquareText, PhoneOff, Send } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Mic, PhoneOff } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
 import { normalizeClinicTranslation } from "@/lib/clinic-glossary";
 import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
+import { ConsultationChatRoom } from "./ConsultationChatRoom";
 import {
   broadcastRoomUpdate,
   broadcastTranslationMessage,
@@ -15,9 +16,6 @@ import {
 } from "@/lib/supabase-realtime";
 
 const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
-const PROCEDURE_SEGMENT_MS = 11000;
-const CONSULTATION_TRANSLATION_QUIET_MS = 900;
-const CONSULTATION_TRANSLATION_MAX_MS = 7000;
 const PROCEDURE_TRANSLATION_QUIET_MS = 700;
 const PROCEDURE_TRANSLATION_MAX_MS = 5500;
 const TTS_DEBUG_VERSION = "device-tts-only-2026-05-19.1";
@@ -38,181 +36,6 @@ const speechLanguageByPatientLanguage: Record<PatientLanguage | "ko", string> = 
   it: "it-IT",
   pt: "pt-PT"
 };
-
-const consultationTextCopy: Record<PatientLanguage, { placeholder: string; submit: string; title: string }> = {
-  zh: { title: "请输入文字", placeholder: "请在这里输入您想说的话。", submit: "发送翻译" },
-  ja: { title: "テキストで入力してください", placeholder: "伝えたい内容をここに入力してください。", submit: "翻訳を送信" },
-  en: { title: "Type your message", placeholder: "Type what you want to say here.", submit: "Send translation" },
-  ru: { title: "Введите сообщение", placeholder: "Введите здесь то, что хотите сказать.", submit: "Отправить перевод" },
-  vi: { title: "Nhập tin nhắn", placeholder: "Nhập điều bạn muốn nói ở đây.", submit: "Gửi bản dịch" },
-  id: { title: "Ketik pesan Anda", placeholder: "Ketik apa yang ingin Anda sampaikan di sini.", submit: "Kirim terjemahan" },
-  fr: { title: "Saisissez votre message", placeholder: "Écrivez ici ce que vous voulez dire.", submit: "Envoyer la traduction" },
-  es: { title: "Escriba su mensaje", placeholder: "Escriba aquí lo que quiere decir.", submit: "Enviar traducción" },
-  de: { title: "Nachricht eingeben", placeholder: "Geben Sie hier ein, was Sie sagen möchten.", submit: "Übersetzung senden" },
-  it: { title: "Scrivi il messaggio", placeholder: "Scrivi qui ciò che vuoi dire.", submit: "Invia traduzione" },
-  pt: { title: "Digite sua mensagem", placeholder: "Digite aqui o que você quer dizer.", submit: "Enviar tradução" }
-};
-
-const consultationDeliveryStatusCopy: Record<PatientLanguage, { sending: string; failed: string }> = {
-  zh: { sending: "正在发送", failed: "发送失败" },
-  ja: { sending: "送信中", failed: "送信に失敗しました" },
-  en: { sending: "Sending", failed: "Send failed" },
-  ru: { sending: "Отправка", failed: "Не удалось отправить" },
-  vi: { sending: "Đang gửi", failed: "Gửi thất bại" },
-  id: { sending: "Mengirim", failed: "Gagal mengirim" },
-  fr: { sending: "Envoi", failed: "Échec de l'envoi" },
-  es: { sending: "Enviando", failed: "Error al enviar" },
-  de: { sending: "Wird gesendet", failed: "Senden fehlgeschlagen" },
-  it: { sending: "Invio", failed: "Invio non riuscito" },
-  pt: { sending: "Enviando", failed: "Falha ao enviar" }
-};
-
-type ConsultationExampleCategory = "reservation" | "procedure" | "price";
-
-const consultationExampleCategories: Record<
-  PatientLanguage,
-  Record<ConsultationExampleCategory, { label: string; examples: string[] }>
-> = {
-  zh: {
-    reservation: { label: "预约相关", examples: ["我没有预约。今天可以咨询吗？", "我想预约咨询。"] },
-    procedure: { label: "治疗咨询", examples: ["我想咨询皮肤营养注射。", "我想咨询提升治疗。", "我想咨询适合我的治疗。"] },
-    price: { label: "价格咨询", examples: ["我想看完整价目表。", "可以刷卡付款吗？"] }
-  },
-  ja: {
-    reservation: { label: "予約について", examples: ["予約していません。今日カウンセリングできますか？", "カウンセリングを予約したいです。"] },
-    procedure: { label: "施術相談", examples: ["スキンブースターの施術を相談したいです。", "リフティング施術を相談したいです。", "自分に合う施術を相談したいです。"] },
-    price: { label: "料金について", examples: ["全体の料金表を見たいです。", "カードで支払えますか？"] }
-  },
-  en: {
-    reservation: { label: "Reservation", examples: ["I don't have an appointment. Can I have a consultation today?", "I would like to book a consultation."] },
-    procedure: { label: "Procedure", examples: ["I would like to ask about skin booster treatment.", "I would like to ask about lifting treatment.", "I would like to ask which procedure is suitable for me."] },
-    price: { label: "Price", examples: ["I would like to see the full price list.", "Can I pay by card?"] }
-  },
-  ru: {
-    reservation: { label: "Запись", examples: ["У меня нет записи. Можно пройти консультацию сегодня?", "Я хочу записаться на консультацию."] },
-    procedure: { label: "Процедуры", examples: ["Я хочу проконсультироваться по поводу скинбустера.", "Я хочу проконсультироваться по поводу лифтинг-процедуры.", "Я хочу узнать какая процедура мне подходит."] },
-    price: { label: "Стоимость", examples: ["Я хочу посмотреть полный прайс-лист.", "Можно оплатить картой?"] }
-  },
-  vi: {
-    reservation: { label: "Đặt lịch", examples: ["Tôi chưa đặt lịch. Hôm nay tôi có thể tư vấn được không?", "Tôi muốn đặt lịch tư vấn."] },
-    procedure: { label: "Tư vấn liệu trình", examples: ["Tôi muốn tư vấn về liệu trình skin booster.", "Tôi muốn tư vấn về liệu trình nâng cơ.", "Tôi muốn hỏi liệu trình nào phù hợp với mình."] },
-    price: { label: "Giá", examples: ["Tôi muốn xem bảng giá đầy đủ.", "Tôi có thể thanh toán bằng thẻ không?"] }
-  },
-  id: {
-    reservation: { label: "Reservasi", examples: ["Saya belum membuat janji. Apakah saya bisa konsultasi hari ini?", "Saya ingin membuat janji konsultasi."] },
-    procedure: { label: "Konsultasi perawatan", examples: ["Saya ingin konsultasi tentang perawatan skin booster.", "Saya ingin konsultasi tentang perawatan lifting.", "Saya ingin bertanya perawatan apa yang cocok untuk saya."] },
-    price: { label: "Harga", examples: ["Saya ingin melihat daftar harga lengkap.", "Apakah bisa bayar dengan kartu?"] }
-  },
-  fr: {
-    reservation: { label: "Rendez-vous", examples: ["Je n'ai pas de rendez-vous. Puis-je avoir une consultation aujourd'hui ?", "Je voudrais réserver une consultation."] },
-    procedure: { label: "Traitement", examples: ["Je voudrais me renseigner sur le skin booster.", "Je voudrais me renseigner sur le traitement lifting.", "Je voudrais savoir quel traitement me convient."] },
-    price: { label: "Tarifs", examples: ["Je voudrais voir la liste complète des prix.", "Puis-je payer par carte ?"] }
-  },
-  es: {
-    reservation: { label: "Reserva", examples: ["No tengo cita. ¿Puedo tener una consulta hoy?", "Quisiera reservar una consulta."] },
-    procedure: { label: "Tratamiento", examples: ["Quisiera consultar sobre el tratamiento skin booster.", "Quisiera consultar sobre el tratamiento lifting.", "Quisiera saber qué tratamiento es adecuado para mí."] },
-    price: { label: "Precio", examples: ["Quisiera ver la lista completa de precios.", "¿Puedo pagar con tarjeta?"] }
-  },
-  de: {
-    reservation: { label: "Termin", examples: ["Ich habe keinen Termin. Kann ich heute eine Beratung bekommen?", "Ich möchte einen Beratungstermin buchen."] },
-    procedure: { label: "Behandlung", examples: ["Ich möchte mich zum Skin-Booster beraten lassen.", "Ich möchte mich zu einer Lifting-Behandlung beraten lassen.", "Ich möchte wissen welche Behandlung für mich geeignet ist."] },
-    price: { label: "Preis", examples: ["Ich möchte die vollständige Preisliste sehen.", "Kann ich mit Karte bezahlen?"] }
-  },
-  it: {
-    reservation: { label: "Prenotazione", examples: ["Non ho un appuntamento. Posso fare una consulenza oggi?", "Vorrei prenotare una consulenza."] },
-    procedure: { label: "Trattamento", examples: ["Vorrei chiedere informazioni sul trattamento skin booster.", "Vorrei chiedere informazioni sul trattamento lifting.", "Vorrei sapere quale trattamento è adatto a me."] },
-    price: { label: "Prezzo", examples: ["Vorrei vedere il listino prezzi completo.", "Posso pagare con carta?"] }
-  },
-  pt: {
-    reservation: { label: "Agendamento", examples: ["Não tenho agendamento. Posso fazer uma consulta hoje?", "Gostaria de marcar uma consulta."] },
-    procedure: { label: "Procedimento", examples: ["Gostaria de perguntar sobre o tratamento skin booster.", "Gostaria de perguntar sobre o tratamento lifting.", "Gostaria de saber qual procedimento é adequado para mim."] },
-    price: { label: "Preço", examples: ["Gostaria de ver a lista completa de preços.", "Posso pagar com cartão?"] }
-  }
-};
-
-type StaffFollowUpSuggestionSet = {
-  label: string;
-  keywords: string[];
-  suggestions: string[];
-};
-
-const defaultStaffFollowUpSuggestionSet: StaffFollowUpSuggestionSet = {
-  label: "상담 흐름 다음 질문",
-  keywords: [],
-  suggestions: [
-    "어떤 부분이 가장 고민이신지 조금 더 자세히 말씀해주세요.",
-    "처음 방문이신가요, 아니면 이전 상담이나 시술 경험이 있으신가요?",
-    "원하시는 변화나 가장 중요하게 생각하시는 점이 있으실까요?",
-    "불편하신 증상이나 피하고 싶은 부분이 있다면 알려주세요."
-  ]
-};
-
-const staffFollowUpSuggestionSets: StaffFollowUpSuggestionSet[] = [
-  {
-    label: "예약 상담 다음 질문",
-    keywords: ["예약", "오늘", "상담가능", "상담예약", "날짜", "시간", "appointment", "book", "today"],
-    suggestions: [
-      "오늘 상담을 원하시면 가능한 시간을 확인해드리겠습니다.",
-      "희망하시는 상담 날짜와 시간대를 알려주세요.",
-      "처음 방문이신가요, 재방문이신가요?",
-      "상담받고 싶은 시술이나 고민 부위가 있으실까요?"
-    ]
-  },
-  {
-    label: "가격 문의 다음 질문",
-    keywords: ["가격", "비용", "금액", "가격표", "결제", "카드", "현금", "할부", "price", "cost", "pay", "card"],
-    suggestions: [
-      "어떤 시술의 가격을 확인하고 싶으신가요?",
-      "원하시는 부위나 시술명을 알려주시면 더 정확히 안내드릴게요.",
-      "카드 결제는 가능하며, 할부 가능 여부도 함께 확인해드리겠습니다.",
-      "상담 후 개인 상태에 따라 최종 비용이 달라질 수 있습니다."
-    ]
-  },
-  {
-    label: "시술 문의 다음 질문",
-    keywords: ["시술", "스킨부스터", "리프팅", "보톡스", "필러", "레이저", "제모", "lifting", "booster", "treatment", "procedure"],
-    suggestions: [
-      "상담 원하시는 부위가 어디인지 알려주세요.",
-      "언제쯤 시술을 받고 싶으신가요?",
-      "이전에 같은 시술을 받아보신 적이 있으신가요?",
-      "원하시는 효과나 걱정되는 부분을 알려주시면 더 정확히 상담드릴게요."
-    ]
-  },
-  {
-    label: "맞춤 상담 다음 질문",
-    keywords: ["맞는", "추천", "무엇", "어떤", "고민", "피부", "탄력", "주름", "여드름", "기미", "모공", "suitable", "recommend"],
-    suggestions: [
-      "가장 개선하고 싶은 고민을 하나만 먼저 말씀해주실 수 있을까요?",
-      "피부 상태나 고민이 시작된 시기를 알려주세요.",
-      "다운타임이 짧은 시술을 원하시는지, 효과 중심 상담을 원하시는지 알려주세요.",
-      "예산이나 회복 기간에 대한 선호가 있으실까요?"
-    ]
-  },
-  {
-    label: "주의사항 확인 질문",
-    keywords: ["알레르기", "복용", "약", "질환", "임신", "수유", "부작용", "통증", "붓기", "멍", "회복", "allergy", "medicine", "pregnant", "pain"],
-    suggestions: [
-      "현재 복용 중인 약이나 알레르기가 있으신가요?",
-      "임신, 수유 중이거나 치료 중인 질환이 있으신가요?",
-      "이전 시술 후 불편했던 반응이 있었는지 알려주세요.",
-      "통증이나 회복 기간에 대해 가장 걱정되는 부분이 있으실까요?"
-    ]
-  }
-];
-
-function getStaffFollowUpSuggestionSet(message?: TranslationMessage) {
-  if (!message || message.speaker !== "patient") return defaultStaffFollowUpSuggestionSet;
-
-  const text = message.text.toLowerCase().replace(/\s+/g, "");
-  const ranked = staffFollowUpSuggestionSets
-    .map((set) => ({
-      set,
-      score: set.keywords.reduce((total, keyword) => total + (text.includes(keyword.toLowerCase().replace(/\s+/g, "")) ? 1 : 0), 0)
-    }))
-    .sort((left, right) => right.score - left.score);
-
-  return ranked[0]?.score ? ranked[0].set : defaultStaffFollowUpSuggestionSet;
-}
 
 type RoomMode = "consultation" | "procedure";
 
@@ -235,11 +58,17 @@ type RoomSnapshot = {
   usageSession?: { totalRoomSeconds: number; roomStartedAt: string; roomEndedAt?: string | null } | null;
 };
 
+type VoiceRoomProps = {
+  initialRoom: RoomSnapshot;
+  role: ParticipantRole;
+  roomToken?: string;
+  roomMode?: RoomMode;
+};
+
 type TranslationMessage = {
   id: string;
   speaker: ParticipantRole;
   text: string;
-  deliveryStatus?: "sending" | "failed";
 };
 
 type VoiceRoomCopy = {
@@ -686,34 +515,24 @@ const patientCopies: Record<PatientLanguage, VoiceRoomCopy> = {
   }
 };
 
-const statusTones: Record<RoomStatus, { tone: string; dot: string }> = {
-  waiting_for_patient: { tone: "bg-slate-50 text-slate-600", dot: "bg-slate-400" },
-  ready: { tone: "bg-emerald-50 text-emerald-700", dot: "bg-mint" },
-  staff_speaking: { tone: "bg-blue-50 text-trust", dot: "bg-trust" },
-  translating_to_patient: { tone: "bg-amber-50 text-amber-700", dot: "bg-amber-500" },
-  patient_listening: { tone: "bg-indigo-50 text-indigo-700", dot: "bg-indigo-500" },
-  patient_speaking: { tone: "bg-blue-50 text-trust", dot: "bg-trust" },
-  translating_to_staff: { tone: "bg-amber-50 text-amber-700", dot: "bg-amber-500" },
-  staff_listening: { tone: "bg-indigo-50 text-indigo-700", dot: "bg-indigo-500" },
-  ended: { tone: "bg-slate-100 text-slate-500", dot: "bg-slate-400" },
-  error: { tone: "bg-rose-50 text-rose-700", dot: "bg-coral" }
-};
-
 function copyFor(role: ParticipantRole, patientLanguage: PatientLanguage) {
   return role === "staff" ? staffCopy : patientCopies[patientLanguage];
 }
 
-export function VoiceRoom({
+export function VoiceRoom(props: VoiceRoomProps) {
+  if ((props.roomMode ?? "consultation") !== "procedure") {
+    return <ConsultationChatRoom initialRoom={props.initialRoom} role={props.role} roomToken={props.roomToken} />;
+  }
+
+  return <ProcedureVoiceRoom {...props} roomMode="procedure" />;
+}
+
+function ProcedureVoiceRoom({
   initialRoom,
   role,
   roomToken,
   roomMode = "consultation"
-}: {
-  initialRoom: RoomSnapshot;
-  role: ParticipantRole;
-  roomToken?: string;
-  roomMode?: RoomMode;
-}) {
+}: VoiceRoomProps) {
   const [room, setRoom] = useState(initialRoom);
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
   const [speakingStartedAt, setSpeakingStartedAt] = useState<number | null>(null);
@@ -721,26 +540,18 @@ export function VoiceRoom({
   const [error, setError] = useState("");
   const [realtimeStatus, setRealtimeStatus] = useState("");
   const [, setTranslationDraft] = useState("");
-  const [textInput, setTextInput] = useState("");
-  const [textSubmitting, setTextSubmitting] = useState(false);
-  const [activeExampleCategory, setActiveExampleCategory] = useState<ConsultationExampleCategory>("reservation");
   const [backWarning, setBackWarning] = useState(false);
   const [audioPlaybackEnabled, setAudioPlaybackEnabled] = useState(false);
-  const [procedureActive, setProcedureActive] = useState(false);
-  const [procedureBusy, setProcedureBusy] = useState(false);
   const [wakeLockStatus, setWakeLockStatus] = useState("");
   const [hardwareInputStatus, setHardwareInputStatus] = useState("키보드 입력 대기");
   const [ttsStatus, setTtsStatus] = useState(`TTS ${TTS_DEBUG_VERSION}`);
   const [ttsSetupHint, setTtsSetupHint] = useState("");
   const streamRef = useRef<MediaStream | null>(null);
   const roomRootRef = useRef<HTMLDivElement | null>(null);
-  const chatScrollRef = useRef<HTMLElement | null>(null);
   const hardwareCaptureRef = useRef<HTMLInputElement | null>(null);
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
   const realtimePreconnectStartedRef = useRef(false);
-  const isComposingTextRef = useRef(false);
   const spokenMessageIdsRef = useRef(new Set<string>());
-  const procedureActiveRef = useRef(false);
   const pressedHardwareKeysRef = useRef(new Set<string>());
   const lastHardwareToggleAtRef = useRef(0);
   const roomRef = useRef(initialRoom);
@@ -757,21 +568,10 @@ export function VoiceRoom({
   const isProcedureMode = roomMode === "procedure";
   const micEnabled = isMicEnabled(room.status, role);
   const isSpeaking = speakingStartedAt !== null;
-  const statusTone = statusTones[room.status];
   const latestMessage = messages[0];
-  const olderMessages = messages.slice(1);
   const isConnectingRealtime = busy && !isSpeaking && realtimeStatus.includes("준비");
   const currentSpeechLanguage = role === "staff" ? speechLanguageByPatientLanguage.ko : speechLanguageByPatientLanguage[room.patientLanguage];
   const currentSpeechLanguageLabel = role === "staff" ? "한국어" : languageLabels[room.patientLanguage].native;
-  const patientTextCopy = consultationTextCopy[room.patientLanguage];
-  const deliveryStatusCopy = role === "staff" ? { sending: "전송 중", failed: "전송 실패" } : consultationDeliveryStatusCopy[room.patientLanguage];
-  const patientExamples = consultationExampleCategories[room.patientLanguage];
-  const consultationStatusDescription = role === "staff" ? "상담 내용을 텍스트로 입력해 번역을 보내세요." : patientTextCopy.placeholder;
-  const chatMessages = [...messages].reverse();
-  const staffFollowUpSuggestionSet = getStaffFollowUpSuggestionSet(latestMessage);
-  const canSubmitText = Boolean(textInput.trim()) && !textSubmitting && (isProcedureMode ? room.status === "ready" : room.status !== "ended");
-  const canSendExampleText = !textSubmitting && (isProcedureMode ? room.status === "ready" : room.status !== "ended");
-  const visibleError = !isProcedureMode && error === copy.errors.busy ? "" : error;
 
   useEffect(() => {
     roomRef.current = room;
@@ -782,20 +582,6 @@ export function VoiceRoom({
     if (isProcedureMode) return role === "staff" ? `${language.ko} 시술 통역` : `${language.native} Procedure`;
     return role === "staff" ? `${language.ko} 통역` : `${language.native} Interpretation`;
   }, [isProcedureMode, role, room.patientLanguage]);
-
-  useEffect(() => {
-    if (isProcedureMode) return;
-    const chatScroll = chatScrollRef.current;
-    if (!chatScroll) return;
-
-    const frame = window.requestAnimationFrame(() => {
-      chatScroll.scrollTo({
-        top: chatScroll.scrollHeight,
-        behavior: chatMessages.length > 1 ? "smooth" : "auto"
-      });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [chatMessages.length, isProcedureMode, textSubmitting]);
 
   const transition = useCallback(async (status: RoomStatus) => {
     const response = await fetch(`/api/rooms/${room.id}/state`, {
@@ -852,16 +638,6 @@ export function VoiceRoom({
       if (current.some((item) => item.id === message.id)) return current;
       return [message, ...current].slice(0, 50);
     });
-  }, []);
-
-  const updateMessageDeliveryStatus = useCallback((messageId: string, deliveryStatus?: TranslationMessage["deliveryStatus"]) => {
-    setMessages((current) =>
-      current.map((message) => {
-        if (message.id !== messageId) return message;
-        if (!deliveryStatus) return { id: message.id, speaker: message.speaker, text: message.text };
-        return { ...message, deliveryStatus };
-      })
-    );
   }, []);
 
   const stopPlayback = useCallback(() => {
@@ -935,8 +711,6 @@ export function VoiceRoom({
   }, [role, room.id, roomToken]);
 
   const endRoom = useCallback(async () => {
-    procedureActiveRef.current = false;
-    setProcedureActive(false);
     setBusy(true);
     await flushUsage();
     await releaseScreenWakeLock();
@@ -983,7 +757,6 @@ export function VoiceRoom({
 
   useEffect(() => {
     cleanupRef.current = () => {
-      procedureActiveRef.current = false;
       void flushUsage();
       void releaseScreenWakeLock();
       stopPlayback();
@@ -1023,8 +796,7 @@ export function VoiceRoom({
   }, [isProcedureMode, stopPlayback]);
 
   useEffect(() => {
-    const shouldKeepAwake = isProcedureMode || procedureActive;
-    if (!shouldKeepAwake) return;
+    if (!isProcedureMode) return;
 
     const handleVisibility = () => {
       if (document.visibilityState === "visible") void requestScreenWakeLock();
@@ -1032,7 +804,7 @@ export function VoiceRoom({
 
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [isProcedureMode, procedureActive]);
+  }, [isProcedureMode]);
 
   useEffect(() => {
     if (role !== "patient" || room.status === "ended") return;
@@ -1188,86 +960,6 @@ export function VoiceRoom({
     }, 3000);
   }
 
-  async function submitTextMessage(textOverride?: string) {
-    const sourceText = (textOverride ?? textInput).trim();
-    if (!sourceText || textSubmitting || room.status === "ended") return;
-    if (isProcedureMode && room.status !== "ready") return;
-
-    markActivity();
-    setError("");
-    setRealtimeStatus("");
-    setTextSubmitting(true);
-
-    const translatingStatus = role === "staff" ? "translating_to_patient" : "translating_to_staff";
-    const readyRoom = { ...room, status: "ready" as const };
-    const messageId = `${role}-text-${Date.now()}`;
-    const localMessage = {
-      id: `${messageId}-local`,
-      speaker: role,
-      text: sourceText,
-      deliveryStatus: "sending"
-    } satisfies TranslationMessage;
-
-    try {
-      if (isProcedureMode) {
-        const turnAcquired = await transition(translatingStatus);
-        if (!turnAcquired) throw new Error(copy.errors.busy);
-      }
-      appendMessage(localMessage);
-
-      const response = await fetch("/api/translate-text", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roomId: room.id,
-          role,
-          roomToken,
-          patientLanguage: room.patientLanguage,
-          text: sourceText
-        })
-      });
-      const data = (await response.json().catch(() => null)) as { translatedText?: string; error?: string } | null;
-      if (!response.ok || !data?.translatedText) {
-        throw new Error(data?.error ?? "Text translation failed.");
-      }
-
-      const message = {
-        id: messageId,
-        speaker: role,
-        text: data.translatedText
-      } satisfies RealtimeTranslationMessage;
-
-      const delivered = await broadcastTranslationMessage(room.id, message);
-      if (!delivered) {
-        throw new Error(role === "staff" ? "메시지를 전송하지 못했습니다. 네트워크 연결을 확인해주세요." : deliveryStatusCopy.failed);
-      }
-      updateMessageDeliveryStatus(localMessage.id);
-      if (!textOverride) setTextInput("");
-    } catch (caught) {
-      updateMessageDeliveryStatus(localMessage.id, "failed");
-      setError(caught instanceof Error ? caught.message : "Text translation failed.");
-    } finally {
-      if (isProcedureMode) {
-        setRoom(readyRoom);
-        void broadcastRoomUpdate(readyRoom);
-        await transition("ready");
-      }
-      setTextSubmitting(false);
-    }
-  }
-
-  function handleTextInputKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey) return;
-    if (isComposingTextRef.current || event.nativeEvent.isComposing) return;
-
-    event.preventDefault();
-    void submitTextMessage();
-  }
-
-  function sleep(ms: number) {
-    return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
-  }
-
   async function requestScreenWakeLock() {
     const wakeLock = (navigator as NavigatorWithWakeLock).wakeLock;
     if (!wakeLock || wakeLockRef.current) return;
@@ -1310,104 +1002,6 @@ export function VoiceRoom({
     window.setTimeout(() => {
       if (document.visibilityState === "visible") window.location.href = GOOGLE_TTS_WEB_URL;
     }, 700);
-  }
-
-  async function runProcedureLoop(stream: MediaStream, realtimeClient: OpenAIRealtimeClient) {
-    while (procedureActiveRef.current) {
-      if (roomRef.current.status !== "ready") {
-        setRealtimeStatus("시술 모드 대기 중");
-        await sleep(700);
-        continue;
-      }
-
-      const acquiredTurn = await transition("staff_speaking");
-      if (!acquiredTurn) {
-        setRealtimeStatus("시술 모드 대기 중");
-        await sleep(1000);
-        continue;
-      }
-
-      setError("");
-      const startedAt = Date.now();
-      realtimeClient.startTurn();
-      setMicEnabled(true);
-      setRealtimeStatus("시술 모드 청취 중");
-      await sleep(PROCEDURE_SEGMENT_MS);
-      setMicEnabled(false);
-      queueUsage(Math.max(1, Math.round((Date.now() - startedAt) / 1000)));
-
-      if (!procedureActiveRef.current) {
-        await transition("ready");
-        break;
-      }
-
-      void transition("translating_to_patient");
-      try {
-        const translatedText = await realtimeClient.stopTurnAndTranslate({
-          quietMs: PROCEDURE_TRANSLATION_QUIET_MS,
-          maxMs: PROCEDURE_TRANSLATION_MAX_MS
-        });
-
-        if (translatedText) {
-          const normalizedText = normalizeClinicTranslation(translatedText, room.patientLanguage);
-          const message = {
-            id: `staff-procedure-${Date.now()}`,
-            speaker: "staff",
-            text: normalizedText
-          } satisfies RealtimeTranslationMessage;
-          void broadcastTranslationMessage(room.id, message);
-        }
-      } catch {
-        setRealtimeStatus("시술 모드 계속 청취 중");
-      } finally {
-        if (stream.active && procedureActiveRef.current) {
-          const readyRoom = { ...room, status: "ready" as const };
-          roomRef.current = readyRoom;
-          setRoom(readyRoom);
-          void broadcastRoomUpdate(readyRoom);
-          void transition("ready");
-        }
-      }
-
-      await sleep(300);
-    }
-  }
-
-  async function startProcedureMode() {
-    if (role !== "staff" || procedureActiveRef.current) return;
-    setError("");
-    setProcedureBusy(true);
-    setTranslationDraft("");
-
-    try {
-      const stream = await ensureMicStream();
-      const realtimeClient = await ensureRealtimeSession(stream);
-      await requestScreenWakeLock();
-      procedureActiveRef.current = true;
-      setProcedureActive(true);
-      setAudioPlaybackEnabled(true);
-      void runProcedureLoop(stream, realtimeClient);
-    } catch (caught) {
-      procedureActiveRef.current = false;
-      setProcedureActive(false);
-      setMicEnabled(false);
-      setError(caught instanceof Error ? caught.message : copy.errors.mic);
-    } finally {
-      setProcedureBusy(false);
-    }
-  }
-
-  async function stopProcedureMode() {
-    procedureActiveRef.current = false;
-    setProcedureActive(false);
-    setProcedureBusy(true);
-    setMicEnabled(false);
-    setRealtimeStatus("시술 모드 종료 중");
-    await transition("ready");
-    await flushUsage();
-    await releaseScreenWakeLock();
-    setRealtimeStatus("시술 모드 종료됨");
-    setProcedureBusy(false);
   }
 
   async function startSpeaking() {
@@ -1457,8 +1051,8 @@ export function VoiceRoom({
     try {
       void transition(translatingStatus);
       const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
-        quietMs: isProcedureMode ? PROCEDURE_TRANSLATION_QUIET_MS : CONSULTATION_TRANSLATION_QUIET_MS,
-        maxMs: isProcedureMode ? PROCEDURE_TRANSLATION_MAX_MS : CONSULTATION_TRANSLATION_MAX_MS
+        quietMs: PROCEDURE_TRANSLATION_QUIET_MS,
+        maxMs: PROCEDURE_TRANSLATION_MAX_MS
       });
       if (!translatedText) throw new Error("No translated text was returned.");
       const normalizedText = normalizeClinicTranslation(translatedText, role === "staff" ? room.patientLanguage : "ko");
@@ -1486,209 +1080,26 @@ export function VoiceRoom({
     stopSpeakingRef.current = stopSpeaking;
   });
 
-  if (!isProcedureMode) {
-    return (
-      <div className="flex h-[calc(100dvh-56px)] min-h-[620px] flex-col overflow-hidden rounded-lg bg-white shadow-soft md:min-h-[760px]">
-        <header className="shrink-0 border-b border-line bg-white px-4 py-3 md:px-6 md:py-4">
-          {backWarning ? (
-            <section className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <p className="text-sm font-bold text-amber-800">{copy.backWarning.title}</p>
-              <button
-                type="button"
-                onClick={() => setBackWarning(false)}
-                className="mt-2 h-9 rounded-lg bg-white px-3 text-sm font-bold text-amber-800 shadow-sm"
-              >
-                OK
-              </button>
-            </section>
-          ) : null}
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-xs font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
-              <h1 className="mt-1 text-lg font-bold text-ink">{title}</h1>
-            </div>
-            <span className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-trust">
-              <span className="h-2 w-2 rounded-full bg-trust" />
-              {room.status === "ended" ? copy.statusLabels.ended : "채팅"}
-            </span>
-          </div>
-          <div className="mt-2 flex items-start gap-3 rounded-lg bg-slate-50 px-3 py-2.5">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-green-100 text-xs font-bold text-mint">
-              AI
-            </div>
-            <div>
-              <p className="text-sm font-bold text-ink">{role === "staff" ? "텍스트 상담방이 시작되었습니다." : "AI translation consultation has started."}</p>
-              <p className="mt-0.5 text-xs font-semibold leading-5 text-slate-500">{consultationStatusDescription}</p>
-            </div>
-          </div>
-        </header>
-
-        <section ref={chatScrollRef} className="flex-1 overflow-y-auto bg-mist px-4 py-4 md:px-6" aria-live="polite">
-          {chatMessages.length ? (
-            <div className="space-y-3">
-              {chatMessages.map((message) => {
-                const mine = message.speaker === role;
-                const failed = message.deliveryStatus === "failed";
-                return (
-                  <article key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                    {!mine ? (
-                      <div className="mr-2 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-green-100 text-xs font-bold text-mint">
-                        {message.speaker === "staff" ? "S" : "P"}
-                      </div>
-                    ) : null}
-                    <div
-                      className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm font-semibold leading-6 shadow-sm md:max-w-[70%] md:text-base ${
-                        mine
-                          ? failed
-                            ? "rounded-br-md bg-rose-500 text-white"
-                            : "rounded-br-md bg-trust text-white"
-                          : "rounded-bl-md bg-white text-ink"
-                      }`}
-                    >
-                      {message.text}
-                      {message.deliveryStatus ? (
-                        <span className={`mt-1 block text-[11px] font-bold ${mine ? "text-white/80" : "text-slate-400"}`}>
-                          {message.deliveryStatus === "sending" ? deliveryStatusCopy.sending : deliveryStatusCopy.failed}
-                        </span>
-                      ) : null}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="flex h-full min-h-[260px] items-center justify-center text-center">
-              <div>
-                <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-green-100 text-lg font-bold text-mint">AI</div>
-                <p className="mt-4 text-base font-bold text-ink">{role === "staff" ? "고객의 메시지가 여기에 표시됩니다." : patientTextCopy.title}</p>
-                <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">{consultationStatusDescription}</p>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <footer className="shrink-0 border-t border-line bg-white px-3 pb-[calc(env(safe-area-inset-bottom)+28px)] pt-2 md:px-4 md:pb-4">
-          {role === "patient" ? (
-            <div className="mb-2 rounded-lg bg-blue-50 p-2">
-              <div className="grid grid-cols-3 gap-1.5">
-                {(Object.keys(patientExamples) as ConsultationExampleCategory[]).map((category) => {
-                  const active = category === activeExampleCategory;
-                  return (
-                    <button
-                      key={category}
-                      type="button"
-                      onClick={() => setActiveExampleCategory(category)}
-                      className={`min-h-8 rounded-lg px-2 text-[11px] font-bold transition md:text-xs ${
-                        active ? "bg-trust text-white" : "bg-white text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      {patientExamples[category].label}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-0.5">
-                {patientExamples[activeExampleCategory].examples.map((example) => (
-                  <button
-                    key={example}
-                    type="button"
-                    onClick={() => void submitTextMessage(example)}
-                    disabled={!canSendExampleText}
-                    className="min-w-[190px] rounded-lg bg-white px-2.5 py-1.5 text-left text-xs font-bold leading-4 text-ink shadow-sm transition hover:bg-slate-50 disabled:opacity-50 md:min-w-[230px]"
-                  >
-                    {example}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : latestMessage?.speaker === "patient" ? (
-            <div className="mb-3 rounded-lg bg-slate-50 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-bold text-slate-500">다음 질문 예시</p>
-                <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[11px] font-bold text-trust shadow-sm">
-                  {staffFollowUpSuggestionSet.label}
-                </span>
-              </div>
-              <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-                {staffFollowUpSuggestionSet.suggestions.map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    onClick={() => setTextInput(suggestion)}
-                    className="min-w-[220px] rounded-lg bg-white px-3 py-2 text-left text-sm font-bold leading-5 text-ink shadow-sm transition hover:bg-slate-50"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="flex items-end gap-2 rounded-2xl bg-slate-50 p-2">
-            <textarea
-              value={textInput}
-              onChange={(event) => setTextInput(event.target.value)}
-              onCompositionStart={() => {
-                isComposingTextRef.current = true;
-              }}
-              onCompositionEnd={() => {
-                isComposingTextRef.current = false;
-              }}
-              onKeyDown={handleTextInputKeyDown}
-              placeholder={role === "staff" ? "상담 내용을 입력하세요." : patientTextCopy.placeholder}
-              disabled={room.status === "ended" || textSubmitting}
-              rows={1}
-              className="max-h-28 min-h-11 flex-1 resize-none bg-transparent px-3 py-2 text-base font-semibold leading-7 text-ink outline-none disabled:opacity-60"
-            />
-            <button
-              type="button"
-              onClick={() => void submitTextMessage()}
-              disabled={!canSubmitText}
-              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-trust text-white transition hover:bg-blue-600 disabled:opacity-50"
-              aria-label={role === "staff" ? "번역 보내기" : patientTextCopy.submit}
-              title={role === "staff" ? "번역 보내기" : patientTextCopy.submit}
-            >
-              {textSubmitting ? <Loader2 size={18} className="animate-spin" /> : <Send size={19} />}
-            </button>
-          </div>
-          {visibleError ? <p className="mt-2 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{visibleError}</p> : null}
-          {role === "staff" ? (
-            <button
-              onClick={endRoom}
-              disabled={busy || room.status === "ended"}
-              className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-rose-50 px-4 text-sm font-bold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
-            >
-              <PhoneOff size={17} />
-              {copy.end}
-            </button>
-          ) : null}
-        </footer>
-      </div>
-    );
-  }
-
   return (
     <div
       ref={roomRootRef}
       className="space-y-4 outline-none"
       tabIndex={-1}
       onPointerDown={() => {
-        if (!isProcedureMode) return;
         roomRootRef.current?.focus();
         hardwareCaptureRef.current?.focus({ preventScroll: true });
       }}
     >
-      {isProcedureMode ? (
-        <input
-          ref={hardwareCaptureRef}
-          aria-hidden="true"
-          autoComplete="off"
-          inputMode="none"
-          readOnly
-          tabIndex={-1}
-          className="fixed left-0 top-0 h-px w-px opacity-0"
-        />
-      ) : null}
+      <input
+        ref={hardwareCaptureRef}
+        aria-hidden="true"
+        autoComplete="off"
+        inputMode="none"
+        readOnly
+        tabIndex={-1}
+        className="fixed left-0 top-0 h-px w-px opacity-0"
+      />
+
       {backWarning ? (
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
           <p className="text-sm font-bold text-amber-800">{copy.backWarning.title}</p>
@@ -1709,234 +1120,66 @@ export function VoiceRoom({
             <p className="truncate text-sm font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
             <h1 className="mt-2 text-[28px] font-bold leading-tight text-ink">{title}</h1>
           </div>
-          {!isProcedureMode ? (
-            <span className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold ${statusTone.tone}`}>
-              <span className={`h-2 w-2 rounded-full ${statusTone.dot}`} />
-              {copy.statusLabels[room.status]}
-            </span>
-          ) : null}
         </div>
-        {!isProcedureMode ? (
-          <div className="mt-5 flex items-start gap-3 rounded-lg bg-slate-50 px-4 py-4 text-sm font-semibold leading-6 text-slate-700">
-            <MessageSquareText size={18} className="mt-0.5 shrink-0 text-trust" />
-            {room.status === "ready" ? consultationStatusDescription : copy.statusDescriptions[room.status]}
-          </div>
-        ) : null}
       </header>
 
       <section className="rounded-lg bg-white p-5 shadow-sm">
-        {!isProcedureMode ? (
-          <div className="flex items-center gap-2">
-            <MessageSquareText size={19} className="text-trust" />
-            <h2 className="text-base font-bold text-ink">{copy.transcript.title}</h2>
-          </div>
+        {isConnectingRealtime ? (
+          <article className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4">
+            <p className="text-xs font-bold text-trust">{copy.connecting.title}</p>
+            <p className="mt-2 text-lg font-bold leading-7 text-ink">{copy.connecting.body}</p>
+            <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">{copy.connecting.hint}</p>
+          </article>
         ) : null}
 
-        <div className={isProcedureMode ? "" : "mt-4"}>
-          {isConnectingRealtime ? (
-            <article className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4">
-              <p className="text-xs font-bold text-trust">{copy.connecting.title}</p>
-              <p className="mt-2 text-lg font-bold leading-7 text-ink">{copy.connecting.body}</p>
-              <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">{copy.connecting.hint}</p>
-            </article>
-          ) : null}
-
-          {latestMessage ? (
-            <article className="rounded-lg bg-blue-50 px-4 py-5">
-              {!isProcedureMode ? (
-                <p className="text-xs font-bold text-trust">
-                  {latestMessage.speaker === "staff" ? copy.transcript.staff : copy.transcript.patient}
-                </p>
-              ) : null}
-              <p className={`${isProcedureMode ? "text-2xl" : "mt-2 text-xl"} font-bold leading-8 text-ink`}>{latestMessage.text}</p>
-            </article>
-          ) : (
-            <p className="rounded-lg bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-500">
-              {isProcedureMode ? "번역 내용이 여기에 표시됩니다." : copy.transcript.empty}
-            </p>
-          )}
-
-          {!isProcedureMode && olderMessages.length ? (
-            <div className="mt-3 space-y-2">
-              {olderMessages.map((message) => (
-                <article key={message.id} className="rounded-lg bg-slate-50 px-4 py-3">
-                  <p className="text-xs font-bold text-slate-500">{message.speaker === "staff" ? copy.transcript.staff : copy.transcript.patient}</p>
-                  <p className="mt-1 text-sm font-semibold leading-6 text-slate-700">{message.text}</p>
-                </article>
-              ))}
-            </div>
-          ) : null}
-        </div>
+        {latestMessage ? (
+          <article className="rounded-lg bg-blue-50 px-4 py-5">
+            <p className="text-2xl font-bold leading-8 text-ink">{latestMessage.text}</p>
+          </article>
+        ) : (
+          <p className="rounded-lg bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-500">번역 내용이 여기에 표시됩니다.</p>
+        )}
       </section>
 
-      {!isProcedureMode ? (
-        <section className="rounded-lg bg-white p-5 shadow-soft">
-          <div className="flex items-center gap-2">
-            <MessageSquareText size={19} className="text-trust" />
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold text-ink">{role === "staff" ? "텍스트로 상담하기" : patientTextCopy.title}</h2>
-            </div>
-          </div>
-          {role === "patient" ? (
-            <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3">
-              <div className="grid grid-cols-3 gap-2">
-                {(Object.keys(patientExamples) as ConsultationExampleCategory[]).map((category) => {
-                  const active = category === activeExampleCategory;
-                  return (
-                    <button
-                      key={category}
-                      type="button"
-                      onClick={() => setActiveExampleCategory(category)}
-                      className={`min-h-11 rounded-lg px-2 text-sm font-bold transition ${
-                        active ? "bg-trust text-white" : "bg-white text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      {patientExamples[category].label}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="mt-3 grid gap-2">
-                {patientExamples[activeExampleCategory].examples.map((example) => (
-                  <button
-                    key={example}
-                    type="button"
-                    onClick={() => void submitTextMessage(example)}
-                    disabled={room.status !== "ready" || textSubmitting}
-                    className="min-h-12 rounded-lg bg-white px-3 py-3 text-left text-sm font-bold leading-6 text-ink transition hover:bg-slate-50 disabled:opacity-50 md:text-base"
-                  >
-                    {example}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          <textarea
-            value={textInput}
-            onChange={(event) => setTextInput(event.target.value)}
-            placeholder={role === "staff" ? "상담 내용을 한국어로 입력하세요." : patientTextCopy.placeholder}
-            disabled={room.status === "ended" || textSubmitting}
-            className="mt-4 min-h-[128px] w-full resize-none rounded-lg border border-line bg-slate-50 px-4 py-3 text-base font-semibold leading-7 text-ink outline-none transition focus:border-trust focus:bg-white disabled:opacity-60 md:min-h-[180px] md:text-lg md:leading-8"
-          />
-          <button
-            type="button"
-            onClick={() => void submitTextMessage()}
-            disabled={!textInput.trim() || room.status !== "ready" || textSubmitting}
-            className="mt-3 flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-trust px-4 text-base font-bold text-white transition hover:bg-blue-600 disabled:opacity-50 md:h-16 md:text-lg"
-          >
-            {textSubmitting ? <Loader2 size={20} className="animate-spin" /> : <Send size={19} />}
-            {role === "staff" ? "번역 보내기" : patientTextCopy.submit}
-          </button>
-          {realtimeStatus ? <p className="mt-3 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
-          {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
-        </section>
-      ) : null}
-
-      {isProcedureMode ? (
-        <section className="rounded-lg bg-white p-5 text-center shadow-soft">
-          <div className="mx-auto mb-5 max-w-sm">
-            <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust">2-device procedure</p>
-            <h2 className="mt-2 text-2xl font-bold text-ink">{role === "staff" ? "Doctor device" : "Patient device"}</h2>
-            <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-              {role === "staff" ? "Press, speak Korean, then press again." : "Press anytime to answer. The phone reads translated text aloud."}
-            </p>
-          </div>
-          <button
-            type="button"
-            disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
-            onClick={isSpeaking ? stopSpeaking : startSpeaking}
-            className={`tap-highlight-none mx-auto grid h-44 w-44 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 md:h-52 md:w-52 ${
-              isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
-            }`}
-            aria-label={isSpeaking ? copy.primary.speaking : copy.primary.ready}
-          >
-            {busy && !isSpeaking ? <Loader2 size={44} className="animate-spin" /> : <Mic size={56} />}
-          </button>
-          <p className="mt-4 text-xl font-bold text-ink">
-            {room.status === "ended" ? copy.primary.ended : isSpeaking ? copy.primary.speaking : micEnabled ? copy.primary.ready : copy.primary.waiting}
+      <section className="rounded-lg bg-white p-5 text-center shadow-soft">
+        <div className="mx-auto mb-5 max-w-sm">
+          <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust">2-device procedure</p>
+          <h2 className="mt-2 text-2xl font-bold text-ink">{role === "staff" ? "Doctor device" : "Patient device"}</h2>
+          <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+            {role === "staff" ? "Press, speak Korean, then press again." : "Press anytime to answer. The phone reads translated text aloud."}
           </p>
-          <p className="mt-2 text-sm font-semibold text-slate-500">↑ key toggles this button. Space / Enter are also supported.</p>
-          <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">{hardwareInputStatus}</p>
-          <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-trust">{ttsStatus}</p>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={openGoogleTtsInstall}
-              className="h-11 rounded-lg bg-trust px-4 text-sm font-bold text-white transition hover:bg-blue-700"
-            >
-              TTS 앱 설치/업데이트
-            </button>
-            <button
-              type="button"
-              onClick={openDeviceTtsSettings}
-              className="h-11 rounded-lg bg-slate-100 px-4 text-sm font-bold text-ink transition hover:bg-slate-200"
-            >
-              {currentSpeechLanguageLabel} TTS 설정 열기
-            </button>
-          </div>
-          {ttsSetupHint ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-3 text-left text-xs font-bold leading-5 text-amber-800">{ttsSetupHint}</p> : null}
-          {wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
-          {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
-          <p className="mt-2 text-sm font-semibold text-slate-500">{isSpeaking ? copy.helper.speaking : copy.helper.idle}</p>
-          <div className="hidden" aria-hidden="true">
-          {role === "staff" ? (
-            <>
-              <h2 className="text-xl font-bold text-ink">시술 모드</h2>
-              <button
-                type="button"
-                disabled={room.status === "ended" || procedureBusy}
-                onClick={procedureActive ? stopProcedureMode : startProcedureMode}
-                className={`mt-4 flex h-16 w-full items-center justify-center gap-2 rounded-lg px-4 text-lg font-bold text-white transition disabled:opacity-50 ${
-                  procedureActive ? "bg-coral hover:bg-rose-600" : "bg-ink hover:bg-slate-700"
-                }`}
-              >
-                {procedureBusy ? <Loader2 size={22} className="animate-spin" /> : <Headphones size={22} />}
-                {procedureActive ? "중지" : "시작"}
-              </button>
-            </>
-          ) : (
-            <>
-              <h2 className="text-xl font-bold text-ink">{isSpeaking ? "말하는 중" : "필요할 때 말씀하세요"}</h2>
-              <button
-                type="button"
-                disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
-                onClick={isSpeaking ? stopSpeaking : startSpeaking}
-                className={`mt-4 flex h-20 w-full items-center justify-center gap-2 rounded-lg px-4 text-xl font-bold text-white transition disabled:bg-slate-300 disabled:opacity-80 ${
-                  isSpeaking ? "bg-coral hover:bg-rose-600" : "bg-ink hover:bg-slate-700"
-                }`}
-              >
-                {busy && !isSpeaking ? <Loader2 size={22} className="animate-spin" /> : <Mic size={22} />}
-                {isSpeaking ? "끝" : micEnabled ? "말하기" : "대기"}
-              </button>
-            </>
-          )}
-          {!isProcedureMode && wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
-          {!isProcedureMode && realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
-          </div>
-          {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
-        </section>
-      ) : role === "patient" ? (
-        <section className="rounded-lg bg-white p-5 text-center shadow-soft">
-          <p className="mb-4 text-sm font-bold text-slate-500">{patientTextCopy.title}</p>
-          <button
-            type="button"
-            disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
-            onClick={isSpeaking ? stopSpeaking : startSpeaking}
-            className={`tap-highlight-none mx-auto grid h-40 w-40 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] md:h-48 md:w-48 ${
-              isSpeaking ? "bg-coral" : micEnabled ? "bg-trust" : "bg-slate-300"
-            }`}
-            aria-label={isSpeaking ? copy.primary.speaking : copy.primary.ready}
-          >
-            {busy && !isSpeaking ? <Loader2 size={44} className="animate-spin" /> : <Mic size={52} />}
+        </div>
+        <button
+          type="button"
+          disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
+          onClick={isSpeaking ? stopSpeaking : startSpeaking}
+          className={`tap-highlight-none mx-auto grid h-44 w-44 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 md:h-52 md:w-52 ${
+            isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
+          }`}
+          aria-label={isSpeaking ? copy.primary.speaking : copy.primary.ready}
+        >
+          {busy && !isSpeaking ? <Loader2 size={44} className="animate-spin" /> : <Mic size={56} />}
+        </button>
+        <p className="mt-4 text-xl font-bold text-ink">
+          {room.status === "ended" ? copy.primary.ended : isSpeaking ? copy.primary.speaking : micEnabled ? copy.primary.ready : copy.primary.waiting}
+        </p>
+        <p className="mt-2 text-sm font-semibold text-slate-500">↑ key toggles this button. Space / Enter are also supported.</p>
+        <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">{hardwareInputStatus}</p>
+        <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-trust">{ttsStatus}</p>
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <button type="button" onClick={openGoogleTtsInstall} className="h-11 rounded-lg bg-trust px-4 text-sm font-bold text-white transition hover:bg-blue-700">
+            TTS 앱 설치/업데이트
           </button>
-          <p className="mt-4 text-xl font-bold text-ink">
-            {room.status === "ended" ? copy.primary.ended : isSpeaking ? copy.primary.speaking : micEnabled ? copy.primary.ready : copy.primary.waiting}
-          </p>
-          {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
-          <p className="mt-2 text-sm font-semibold text-slate-500">{isSpeaking ? copy.helper.speaking : copy.helper.idle}</p>
-          {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
-        </section>
-      ) : null}
+          <button type="button" onClick={openDeviceTtsSettings} className="h-11 rounded-lg bg-slate-100 px-4 text-sm font-bold text-ink transition hover:bg-slate-200">
+            {currentSpeechLanguageLabel} TTS 설정 열기
+          </button>
+        </div>
+        {ttsSetupHint ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-3 text-left text-xs font-bold leading-5 text-amber-800">{ttsSetupHint}</p> : null}
+        {wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
+        {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
+        <p className="mt-2 text-sm font-semibold text-slate-500">{isSpeaking ? copy.helper.speaking : copy.helper.idle}</p>
+        {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
+      </section>
 
       {role === "staff" ? (
         <button

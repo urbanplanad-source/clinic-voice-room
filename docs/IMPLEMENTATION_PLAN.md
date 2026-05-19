@@ -1,8 +1,8 @@
 # IMPLEMENTATION_PLAN.md
 
-This repository implements the original Clinic Voice Room web MVP plan accepted by the user.
+This repository implements the Clinic Voice Room web field-test product.
 
-> Current direction: Android-first hospital-provisioned two-device interpretation. Keep this plan as the web MVP implementation record. Use [ANDROID_TRANSITION_ARCHITECTURE.md](ANDROID_TRANSITION_ARCHITECTURE.md) for the next product architecture.
+> Current direction: web-first pilot. Consultation mode is text-first translated chat. Procedure mode remains voice-first for short doctor prompts. Android documents remain as later architecture notes.
 
 ## Summary
 - Next.js App Router, React, TypeScript, Tailwind CSS
@@ -12,6 +12,7 @@ This repository implements the original Clinic Voice Room web MVP plan accepted 
 - Server-authoritative turn-taking room state
 - OpenAI Realtime session-token route with permanent API key kept server-side
 - Usage tracking and minimal admin dashboard
+- Text-first consultation room with patient examples, staff suggestions, risk chips, and summary draft
 
 ## Milestones
 1. Bootstrap and docs
@@ -20,7 +21,7 @@ This repository implements the original Clinic Voice Room web MVP plan accepted 
 4. Patient guest join
 5. Realtime room state synchronization
 6. OpenAI Realtime session token issuance
-7. Push-to-talk voice translation and playback
+7. Consultation chat translation and procedure push-to-talk voice translation
 8. Room termination and usage tracking
 9. Admin usage dashboard
 10. Hardening and pilot readiness
@@ -28,6 +29,7 @@ This repository implements the original Clinic Voice Room web MVP plan accepted 
 ## Important Defaults
 - Patient guest links are temporary and room-specific.
 - No raw audio or full transcript storage.
-- Tap-to-start/tap-to-stop is the initial push-to-talk model.
+- Consultation mode is chat-based and does not use the old voice-first room UI.
+- Tap-to-start/tap-to-stop is the procedure-mode push-to-talk model.
 - The current implementation uses lightweight polling for room state so the MVP can run anywhere; it is structured so Supabase Realtime or WebSocket transport can replace the polling hook later.
 - The current voice UI validates microphone access, turn-taking, usage events, and secure Realtime client-secret issuance. Production-grade opposite-device translated audio relay is the highest-priority follow-up integration step once OpenAI credentials are configured.
