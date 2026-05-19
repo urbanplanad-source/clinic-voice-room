@@ -547,11 +547,14 @@ export function VoiceRoom({
   const [procedureActive, setProcedureActive] = useState(false);
   const [procedureBusy, setProcedureBusy] = useState(false);
   const [wakeLockStatus, setWakeLockStatus] = useState("");
+  const [hardwareInputStatus, setHardwareInputStatus] = useState("키보드 입력 대기");
   const streamRef = useRef<MediaStream | null>(null);
+  const roomRootRef = useRef<HTMLDivElement | null>(null);
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
   const realtimePreconnectStartedRef = useRef(false);
   const spokenMessageIdsRef = useRef(new Set<string>());
   const procedureActiveRef = useRef(false);
+  const pressedHardwareKeysRef = useRef(new Set<string>());
   const roomRef = useRef(initialRoom);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
@@ -849,23 +852,55 @@ export function VoiceRoom({
   useEffect(() => {
     if (!isProcedureMode || room.status === "ended") return;
 
+    roomRootRef.current?.focus();
+
+    const isPttKey = (event: KeyboardEvent) =>
+      event.code === "Space" ||
+      event.key === " " ||
+      event.key === "Spacebar" ||
+      event.code === "Enter" ||
+      event.key === "Enter" ||
+      event.code === "NumpadEnter" ||
+      event.code === "MediaPlayPause" ||
+      event.key === "MediaPlayPause" ||
+      event.keyCode === 13 ||
+      event.keyCode === 32;
+
+    const keyId = (event: KeyboardEvent) => `${event.code || event.key || event.keyCode}`;
+    const pressedHardwareKeys = pressedHardwareKeysRef.current;
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      const isPttKey =
-        event.code === "Space" ||
-        event.code === "Enter" ||
-        event.code === "NumpadEnter" ||
-        event.code === "MediaPlayPause";
-      if (!isPttKey || event.repeat) return;
+      setHardwareInputStatus(`입력 감지: ${event.code || event.key || event.keyCode}`);
+      if (!isPttKey(event)) return;
+
+      const id = keyId(event);
+      if (event.repeat || pressedHardwareKeys.has(id)) return;
+      pressedHardwareKeys.add(id);
 
       event.preventDefault();
+      event.stopPropagation();
+      setHardwareInputStatus("스페이스/엔터 입력 적용됨");
       if (busy && !isSpeaking) return;
       if (!isSpeaking && !micEnabled) return;
       if (isSpeaking) void stopSpeakingRef.current();
       else void startSpeakingRef.current();
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    const handleKeyUp = (event: KeyboardEvent) => {
+      pressedHardwareKeys.delete(keyId(event));
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+    document.addEventListener("keyup", handleKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+      document.removeEventListener("keyup", handleKeyUp, true);
+      pressedHardwareKeys.clear();
+    };
   }, [busy, isProcedureMode, isSpeaking, micEnabled, room.status]);
 
   useEffect(() => {
@@ -1130,7 +1165,14 @@ export function VoiceRoom({
   });
 
   return (
-    <div className="space-y-4">
+    <div
+      ref={roomRootRef}
+      className="space-y-4 outline-none"
+      tabIndex={-1}
+      onPointerDown={() => {
+        if (isProcedureMode) roomRootRef.current?.focus();
+      }}
+    >
       {backWarning ? (
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
           <p className="text-sm font-bold text-amber-800">{copy.backWarning.title}</p>
@@ -1248,6 +1290,7 @@ export function VoiceRoom({
             {room.status === "ended" ? copy.primary.ended : isSpeaking ? copy.primary.speaking : micEnabled ? copy.primary.ready : copy.primary.waiting}
           </p>
           <p className="mt-2 text-sm font-semibold text-slate-500">Space / Enter / foot switch toggles the same button</p>
+          <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">{hardwareInputStatus}</p>
           {wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
           {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
           <p className="mt-2 text-sm font-semibold text-slate-500">{isSpeaking ? copy.helper.speaking : copy.helper.idle}</p>
