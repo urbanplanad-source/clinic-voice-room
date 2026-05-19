@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getCurrentStaff } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { createRealtimeSessionToken } from "@/lib/openai-realtime";
+import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const schema = z.object({
   roomId: z.string(),
@@ -15,6 +16,15 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid token request" }, { status: 400 });
+  }
+
+  const limited = rateLimit({
+    key: `realtime-token:${clientIp(request)}:${parsed.data.roomId}:${parsed.data.role}`,
+    limit: 40,
+    windowMs: 60 * 1000
+  });
+  if (!limited.ok) {
+    return rateLimitResponse(limited.retryAfter);
   }
 
   const room = await prisma.translationRoom.findUnique({ where: { id: parsed.data.roomId } });

@@ -4,40 +4,38 @@ import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
 async function main() {
-  const passwordHash = await bcrypt.hash("password1234", 10);
+  const seedPassword = process.env.SEED_STAFF_PASSWORD;
+  if (!seedPassword) {
+    console.log("Skipping seed staff users. Set SEED_STAFF_PASSWORD to create local seed accounts.");
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(seedPassword, 10);
+  const hospitalSlug = process.env.SEED_HOSPITAL_SLUG ?? "bellemon";
+  const hospitalName = process.env.SEED_HOSPITAL_NAME ?? "벨르몬성형외과";
+  const staffEmail = process.env.SEED_STAFF_EMAIL ?? "bellemon01@clinic.local";
+  const staffName = process.env.SEED_STAFF_NAME ?? "상담실장";
 
   const hospital = await prisma.hospital.upsert({
-    where: { slug: "urban-clinic" },
-    update: { name: "BTSKIN CLINIC" },
+    where: { slug: hospitalSlug },
+    update: { name: hospitalName },
     create: {
-      name: "BTSKIN CLINIC",
-      slug: "urban-clinic",
+      name: hospitalName,
+      slug: hospitalSlug,
       planType: "partner_free",
       status: "active"
     }
   });
 
   await prisma.staffUser.upsert({
-    where: { email: "staff@clinic.test" },
-    update: { passwordHash, hospitalId: hospital.id, name: "상담실장" },
+    where: { email: staffEmail },
+    update: { passwordHash, hospitalId: hospital.id, name: staffName },
     create: {
       hospitalId: hospital.id,
-      name: "상담실장",
-      email: "staff@clinic.test",
+      name: staffName,
+      email: staffEmail,
       passwordHash,
       role: "staff"
-    }
-  });
-
-  await prisma.staffUser.upsert({
-    where: { email: "admin@clinic.test" },
-    update: { passwordHash, hospitalId: hospital.id },
-    create: {
-      hospitalId: hospital.id,
-      name: "Internal Admin",
-      email: "admin@clinic.test",
-      passwordHash,
-      role: "internal_admin"
     }
   });
 }

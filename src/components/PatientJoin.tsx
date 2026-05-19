@@ -2,14 +2,19 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Mic, ShieldCheck } from "lucide-react";
+import { ArrowRight, Mic, ShieldCheck, Volume2 } from "lucide-react";
 import { languageLabels, type PatientLanguage } from "@/lib/languages";
 import { broadcastRoomUpdate } from "@/lib/supabase-realtime";
 
-const copy: Record<PatientLanguage, { title: string; body: string; button: string; denied: string; languageLabel: string }> = {
+const copy: Record<
+  PatientLanguage,
+  { title: string; body: string; procedureBody: string; consent: string; button: string; denied: string; languageLabel: string }
+> = {
   zh: {
     title: "医院翻译室",
     body: "请允许使用麦克风。不需要安装应用或注册账号。",
+    procedureBody: "治疗过程中会播放翻译语音。请保持屏幕开启，并将手机放在身边。",
+    consent: "为提供口译服务，您的语音可能会由外部 AI 服务处理。本服务不会保存原始语音或完整对话记录。",
     button: "进入房间",
     denied: "无法使用麦克风。请在浏览器设置中允许麦克风权限。",
     languageLabel: "中文翻译"
@@ -17,6 +22,8 @@ const copy: Record<PatientLanguage, { title: string; body: string; button: strin
   ja: {
     title: "病院通訳ルーム",
     body: "マイクの使用を許可してください。アプリのインストールやアカウント登録は不要です。",
+    procedureBody: "施術中に通訳音声が再生されます。画面をオンにしたまま、端末をそばに置いてください。",
+    consent: "通訳のため、音声が外部AIサービスで処理される場合があります。元の音声や会話全文は保存しません。",
     button: "入室する",
     denied: "マイクを使用できません。ブラウザ設定でマイクの使用を許可してください。",
     languageLabel: "日本語通訳"
@@ -24,6 +31,8 @@ const copy: Record<PatientLanguage, { title: string; body: string; button: strin
   en: {
     title: "Hospital Interpretation Room",
     body: "Please allow microphone access. No app installation or account is required.",
+    procedureBody: "Translated audio may play during the procedure. Please keep this screen on and place the phone nearby.",
+    consent: "To provide interpretation, your voice may be processed by an external AI service. We do not store raw audio or full conversation transcripts.",
     button: "Enter room",
     denied: "Microphone is unavailable. Please allow microphone access in your browser settings.",
     languageLabel: "English interpretation"
@@ -31,6 +40,8 @@ const copy: Record<PatientLanguage, { title: string; body: string; button: strin
   ru: {
     title: "Кабинет перевода в клинике",
     body: "Разрешите доступ к микрофону. Установка приложения и регистрация не требуются.",
+    procedureBody: "Во время процедуры может воспроизводиться перевод. Оставьте экран включенным и положите телефон рядом.",
+    consent: "Для перевода ваш голос может обрабатываться внешним AI-сервисом. Мы не сохраняем исходную аудиозапись или полный текст разговора.",
     button: "Войти",
     denied: "Микрофон недоступен. Разрешите доступ к микрофону в настройках браузера.",
     languageLabel: "Перевод на русский"
@@ -38,6 +49,8 @@ const copy: Record<PatientLanguage, { title: string; body: string; button: strin
   vi: {
     title: "Phòng phiên dịch bệnh viện",
     body: "Vui lòng cho phép truy cập micro. Không cần cài ứng dụng hoặc tạo tài khoản.",
+    procedureBody: "Âm thanh phiên dịch có thể được phát trong quá trình thực hiện thủ thuật. Vui lòng để màn hình bật và đặt điện thoại gần bạn.",
+    consent: "Để cung cấp phiên dịch, giọng nói của bạn có thể được xử lý bởi dịch vụ AI bên ngoài. Chúng tôi không lưu âm thanh gốc hoặc toàn bộ nội dung cuộc trò chuyện.",
     button: "Vào phòng",
     denied: "Không thể sử dụng micro. Vui lòng cho phép quyền micro trong cài đặt trình duyệt.",
     languageLabel: "Phiên dịch tiếng Việt"
@@ -45,6 +58,8 @@ const copy: Record<PatientLanguage, { title: string; body: string; button: strin
   id: {
     title: "Ruang Interpretasi Klinik",
     body: "Izinkan akses mikrofon. Tidak perlu memasang aplikasi atau membuat akun.",
+    procedureBody: "Audio terjemahan dapat diputar selama prosedur. Tetap nyalakan layar dan letakkan ponsel di dekat Anda.",
+    consent: "Untuk menyediakan interpretasi, suara Anda dapat diproses oleh layanan AI eksternal. Kami tidak menyimpan audio mentah atau transkrip percakapan lengkap.",
     button: "Masuk",
     denied: "Mikrofon tidak tersedia. Izinkan akses mikrofon di pengaturan browser.",
     languageLabel: "Interpretasi Bahasa Indonesia"
@@ -99,8 +114,15 @@ export function PatientJoin({
           </span>
         </div>
         <p className="mt-3 text-base font-semibold leading-7 text-slate-300">
-          {roomMode === "procedure" ? "시술 중 통역 음성이 재생됩니다. 화면을 켜둔 상태로 침대 옆에 놓아주세요." : text.body}
+          {roomMode === "procedure" ? text.procedureBody : text.body}
         </p>
+      </div>
+
+      <div className="mx-6 mt-6 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 text-sm font-semibold leading-6 text-slate-700 sm:mx-7">
+        <div className="flex gap-3">
+          <Volume2 size={20} className="mt-0.5 shrink-0 text-trust" />
+          <p>{text.consent}</p>
+        </div>
       </div>
 
       <div className="m-6 flex items-center justify-between rounded-lg bg-slate-50 px-4 py-4 sm:m-7">

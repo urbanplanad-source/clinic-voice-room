@@ -28,13 +28,21 @@ pnpm run dev
 - `ROOM_AUTO_END_MINUTES` controls when old non-ended rooms are automatically marked ended.
 - `CRON_SECRET` can protect `POST /api/rooms/cleanup-stale` if you later call it from a scheduled job.
 
-Seed login:
-- Email: `staff@clinic.test`
-- Password: `password1234`
+## Production Staff Accounts
+Production staff accounts are stored in the `StaffUser` table, not in Supabase Auth.
+Create one account per employee so room ownership and usage tracking remain clear.
 
-Admin seed login:
-- Email: `admin@clinic.test`
-- Password: `password1234`
+Example for Bellemon:
+```bash
+pnpm staff:create -- --hospital-slug bellemon --hospital-name "벨르몬성형외과" --name "상담실장" --email "bellemon01@clinic.local"
+```
+
+If `--password` or `STAFF_PASSWORD` is not provided, the script prints one generated temporary password.
+Do not use public test credentials in a real hospital deployment.
+Create one real `internal_admin` account first, then use `/admin/staff` in the web app to add or update hospital staff accounts.
+
+The Prisma seed script no longer creates public test accounts by default. For local development only, set
+`SEED_STAFF_PASSWORD` and optional `SEED_*` values before running `pnpm prisma:seed`.
 
 ## Docs
 See the `docs/` folder for product, architecture, data model, business model, UX, and implementation planning. Android notes are kept for later app exploration in `docs/ANDROID_TRANSITION_ARCHITECTURE.md`, `docs/ANDROID_SPIKE_PLAN.md`, and `docs/ANDROID_2_DEVICE_SPIKE_RESULT.md`.

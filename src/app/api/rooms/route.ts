@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { isPatientLanguage } from "@/lib/languages";
 import { getHospitalActiveRoomLimit } from "@/lib/room-limits";
 import { endStaleRooms } from "@/lib/stale-rooms";
+import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const schema = z.object({
   patientLanguage: z.string().refine(isPatientLanguage)
@@ -29,6 +30,15 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json({ error: "Unsupported patient language" }, { status: 400 });
+  }
+
+  const limited = rateLimit({
+    key: `room-create:${staff.id}:${clientIp(request)}`,
+    limit: 30,
+    windowMs: 60 * 1000
+  });
+  if (!limited.ok) {
+    return rateLimitResponse(limited.retryAfter);
   }
 
   await endStaleRooms({ hospitalId: staff.hospitalId });

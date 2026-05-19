@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, BarChart3, Languages, Loader2, LogOut, Mic, Stethoscope } from "lucide-react";
+import { ArrowRight, BarChart3, Languages, Loader2, LogOut, Mic, Stethoscope, Users } from "lucide-react";
 import { languageLabels, patientLanguages, type PatientLanguage } from "@/lib/languages";
 
 export function StaffHome({
@@ -109,16 +109,28 @@ export function StaffHome({
       </section>
 
       {staff.role === "internal_admin" ? (
-        <button
-          onClick={() => router.push("/admin/usage")}
-          className="flex w-full items-center justify-between rounded-lg bg-white px-5 py-4 font-bold text-ink shadow-sm transition hover:bg-slate-50"
-        >
-          <span className="inline-flex items-center gap-2">
-            <BarChart3 size={19} className="text-trust" />
-            관리자 사용량 보기
-          </span>
-          <ArrowRight size={18} className="text-slate-400" />
-        </button>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            onClick={() => router.push("/admin/staff")}
+            className="flex w-full items-center justify-between rounded-lg bg-white px-5 py-4 font-bold text-ink shadow-sm transition hover:bg-slate-50"
+          >
+            <span className="inline-flex items-center gap-2">
+              <Users size={19} className="text-trust" />
+              직원 계정 관리
+            </span>
+            <ArrowRight size={18} className="text-slate-400" />
+          </button>
+          <button
+            onClick={() => router.push("/admin/usage")}
+            className="flex w-full items-center justify-between rounded-lg bg-white px-5 py-4 font-bold text-ink shadow-sm transition hover:bg-slate-50"
+          >
+            <span className="inline-flex items-center gap-2">
+              <BarChart3 size={19} className="text-trust" />
+              관리자 사용량 보기
+            </span>
+            <ArrowRight size={18} className="text-slate-400" />
+          </button>
+        </div>
       ) : null}
     </div>
   );

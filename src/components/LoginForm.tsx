@@ -6,8 +6,8 @@ import { ArrowRight } from "lucide-react";
 
 export function LoginForm() {
   const router = useRouter();
-  const [email, setEmail] = useState("staff@clinic.test");
-  const [password, setPassword] = useState("password1234");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -47,6 +47,8 @@ export function LoginForm() {
             onChange={(event) => setEmail(event.target.value)}
             type="email"
             autoComplete="email"
+            placeholder="staff@bellemon.kr"
+            required
           />
         </label>
         <label className="block">
@@ -57,6 +59,8 @@ export function LoginForm() {
             onChange={(event) => setPassword(event.target.value)}
             type="password"
             autoComplete="current-password"
+            placeholder="발급받은 비밀번호"
+            required
           />
         </label>
       </div>

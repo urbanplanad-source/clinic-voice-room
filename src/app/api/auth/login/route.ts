@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { setStaffSession } from "@/lib/session";
+import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 const schema = z.object({
   email: z.string().email(),
@@ -15,8 +16,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid login payload" }, { status: 400 });
   }
 
+  const ip = clientIp(request);
+  const emailKey = parsed.data.email.trim().toLowerCase();
+  const limited = rateLimit({ key: `login:${ip}:${emailKey}`, limit: 8, windowMs: 10 * 60 * 1000 });
+  if (!limited.ok) {
+    return rateLimitResponse(limited.retryAfter);
+  }
+
   const staff = await prisma.staffUser.findUnique({
-    where: { email: parsed.data.email },
+    where: { email: emailKey },
     include: { hospital: true }
   });
 
