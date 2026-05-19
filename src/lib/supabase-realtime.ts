@@ -132,7 +132,7 @@ export async function broadcastRoomUpdate(room: {
 
 export async function broadcastTranslationMessage(roomId: string, message: RealtimeTranslationMessage) {
   const supabase = getRealtimeClient();
-  if (!supabase) return;
+  if (!supabase) return false;
 
   const channel = supabase.channel(`clinic-room:${roomId}:translations`);
   await new Promise<void>((resolve) => {
@@ -145,10 +145,16 @@ export async function broadcastTranslationMessage(roomId: string, message: Realt
     });
   });
 
-  await channel.send({
-    type: "broadcast",
-    event: "translation:new",
-    payload: { message }
-  });
-  await supabase.removeChannel(channel);
+  try {
+    const status = await channel.send({
+      type: "broadcast",
+      event: "translation:new",
+      payload: { message }
+    });
+    return status === "ok";
+  } catch {
+    return false;
+  } finally {
+    await supabase.removeChannel(channel);
+  }
 }

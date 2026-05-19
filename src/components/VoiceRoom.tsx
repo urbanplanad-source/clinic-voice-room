@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Headphones, Loader2, Mic, MessageSquareText, PhoneOff, Send } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
@@ -51,6 +51,20 @@ const consultationTextCopy: Record<PatientLanguage, { placeholder: string; submi
   de: { title: "Nachricht eingeben", placeholder: "Geben Sie hier ein, was Sie sagen möchten.", submit: "Übersetzung senden", voice: "Sie können auch sprechen" },
   it: { title: "Scrivi il messaggio", placeholder: "Scrivi qui ciò che vuoi dire.", submit: "Invia traduzione", voice: "Puoi anche parlare" },
   pt: { title: "Digite sua mensagem", placeholder: "Digite aqui o que você quer dizer.", submit: "Enviar tradução", voice: "Você também pode falar" }
+};
+
+const consultationDeliveryStatusCopy: Record<PatientLanguage, { sending: string; failed: string }> = {
+  zh: { sending: "正在发送", failed: "发送失败" },
+  ja: { sending: "送信中", failed: "送信に失敗しました" },
+  en: { sending: "Sending", failed: "Send failed" },
+  ru: { sending: "Отправка", failed: "Не удалось отправить" },
+  vi: { sending: "Đang gửi", failed: "Gửi thất bại" },
+  id: { sending: "Mengirim", failed: "Gagal mengirim" },
+  fr: { sending: "Envoi", failed: "Échec de l'envoi" },
+  es: { sending: "Enviando", failed: "Error al enviar" },
+  de: { sending: "Wird gesendet", failed: "Senden fehlgeschlagen" },
+  it: { sending: "Invio", failed: "Invio non riuscito" },
+  pt: { sending: "Enviando", failed: "Falha ao enviar" }
 };
 
 type ConsultationExampleCategory = "reservation" | "procedure" | "price";
@@ -225,6 +239,7 @@ type TranslationMessage = {
   id: string;
   speaker: ParticipantRole;
   text: string;
+  deliveryStatus?: "sending" | "failed";
 };
 
 type VoiceRoomCopy = {
@@ -719,9 +734,11 @@ export function VoiceRoom({
   const [ttsSetupHint, setTtsSetupHint] = useState("");
   const streamRef = useRef<MediaStream | null>(null);
   const roomRootRef = useRef<HTMLDivElement | null>(null);
+  const chatScrollRef = useRef<HTMLElement | null>(null);
   const hardwareCaptureRef = useRef<HTMLInputElement | null>(null);
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
   const realtimePreconnectStartedRef = useRef(false);
+  const isComposingTextRef = useRef(false);
   const spokenMessageIdsRef = useRef(new Set<string>());
   const procedureActiveRef = useRef(false);
   const pressedHardwareKeysRef = useRef(new Set<string>());
@@ -747,6 +764,7 @@ export function VoiceRoom({
   const currentSpeechLanguage = role === "staff" ? speechLanguageByPatientLanguage.ko : speechLanguageByPatientLanguage[room.patientLanguage];
   const currentSpeechLanguageLabel = role === "staff" ? "한국어" : languageLabels[room.patientLanguage].native;
   const patientTextCopy = consultationTextCopy[room.patientLanguage];
+  const deliveryStatusCopy = role === "staff" ? { sending: "전송 중", failed: "전송 실패" } : consultationDeliveryStatusCopy[room.patientLanguage];
   const patientExamples = consultationExampleCategories[room.patientLanguage];
   const consultationStatusDescription = role === "staff" ? "상담 내용을 텍스트로 입력해 번역을 보내세요." : patientTextCopy.placeholder;
   const chatMessages = [...messages].reverse();
@@ -761,6 +779,20 @@ export function VoiceRoom({
     if (isProcedureMode) return role === "staff" ? `${language.ko} 시술 통역` : `${language.native} Procedure`;
     return role === "staff" ? `${language.ko} 통역` : `${language.native} Interpretation`;
   }, [isProcedureMode, role, room.patientLanguage]);
+
+  useEffect(() => {
+    if (isProcedureMode) return;
+    const chatScroll = chatScrollRef.current;
+    if (!chatScroll) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      chatScroll.scrollTo({
+        top: chatScroll.scrollHeight,
+        behavior: chatMessages.length > 1 ? "smooth" : "auto"
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [chatMessages.length, isProcedureMode, textSubmitting]);
 
   const transition = useCallback(async (status: RoomStatus) => {
     const response = await fetch(`/api/rooms/${room.id}/state`, {
@@ -812,11 +844,21 @@ export function VoiceRoom({
     }
   }, [isProcedureMode, role, room.id, roomToken, transition]);
 
-  const appendMessage = useCallback((message: RealtimeTranslationMessage) => {
+  const appendMessage = useCallback((message: TranslationMessage) => {
     setMessages((current) => {
       if (current.some((item) => item.id === message.id)) return current;
-      return [message, ...current].slice(0, 3);
+      return [message, ...current].slice(0, 50);
     });
+  }, []);
+
+  const updateMessageDeliveryStatus = useCallback((messageId: string, deliveryStatus?: TranslationMessage["deliveryStatus"]) => {
+    setMessages((current) =>
+      current.map((message) => {
+        if (message.id !== messageId) return message;
+        if (!deliveryStatus) return { id: message.id, speaker: message.speaker, text: message.text };
+        return { ...message, deliveryStatus };
+      })
+    );
   }, []);
 
   const stopPlayback = useCallback(() => {
@@ -931,9 +973,7 @@ export function VoiceRoom({
 
   useEffect(() => {
     return subscribeToTranslationMessages(room.id, (message) => {
-      if (message.speaker !== role) {
-        appendMessage(message);
-      }
+      if (message.speaker !== role) appendMessage(message);
       markActivity();
     }) ?? undefined;
   }, [appendMessage, markActivity, role, room.id]);
@@ -1156,9 +1196,19 @@ export function VoiceRoom({
 
     const translatingStatus = role === "staff" ? "translating_to_patient" : "translating_to_staff";
     const readyRoom = { ...room, status: "ready" as const };
+    const messageId = `${role}-text-${Date.now()}`;
+    const localMessage = {
+      id: `${messageId}-local`,
+      speaker: role,
+      text: sourceText,
+      deliveryStatus: "sending"
+    } satisfies TranslationMessage;
 
     try {
-      void transition(translatingStatus);
+      const turnAcquired = await transition(translatingStatus);
+      if (!turnAcquired) throw new Error(copy.errors.busy);
+      appendMessage(localMessage);
+
       const response = await fetch("/api/translate-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1176,14 +1226,19 @@ export function VoiceRoom({
       }
 
       const message = {
-        id: `${role}-text-${Date.now()}`,
+        id: messageId,
         speaker: role,
         text: data.translatedText
       } satisfies RealtimeTranslationMessage;
 
-      void broadcastTranslationMessage(room.id, message);
+      const delivered = await broadcastTranslationMessage(room.id, message);
+      if (!delivered) {
+        throw new Error(role === "staff" ? "메시지를 전송하지 못했습니다. 네트워크 연결을 확인해주세요." : deliveryStatusCopy.failed);
+      }
+      updateMessageDeliveryStatus(localMessage.id);
       if (!textOverride) setTextInput("");
     } catch (caught) {
+      updateMessageDeliveryStatus(localMessage.id, "failed");
       setError(caught instanceof Error ? caught.message : "Text translation failed.");
     } finally {
       setRoom(readyRoom);
@@ -1191,6 +1246,14 @@ export function VoiceRoom({
       await transition("ready");
       setTextSubmitting(false);
     }
+  }
+
+  function handleTextInputKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey) return;
+    if (isComposingTextRef.current || event.nativeEvent.isComposing) return;
+
+    event.preventDefault();
+    void submitTextMessage();
   }
 
   function sleep(ms: number) {
@@ -1452,11 +1515,12 @@ export function VoiceRoom({
           </div>
         </header>
 
-        <section className="flex-1 overflow-y-auto bg-mist px-4 py-4 md:px-6">
+        <section ref={chatScrollRef} className="flex-1 overflow-y-auto bg-mist px-4 py-4 md:px-6" aria-live="polite">
           {chatMessages.length ? (
             <div className="space-y-3">
               {chatMessages.map((message) => {
                 const mine = message.speaker === role;
+                const failed = message.deliveryStatus === "failed";
                 return (
                   <article key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                     {!mine ? (
@@ -1466,10 +1530,19 @@ export function VoiceRoom({
                     ) : null}
                     <div
                       className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm font-semibold leading-6 shadow-sm md:max-w-[70%] md:text-base ${
-                        mine ? "rounded-br-md bg-trust text-white" : "rounded-bl-md bg-white text-ink"
+                        mine
+                          ? failed
+                            ? "rounded-br-md bg-rose-500 text-white"
+                            : "rounded-br-md bg-trust text-white"
+                          : "rounded-bl-md bg-white text-ink"
                       }`}
                     >
                       {message.text}
+                      {message.deliveryStatus ? (
+                        <span className={`mt-1 block text-[11px] font-bold ${mine ? "text-white/80" : "text-slate-400"}`}>
+                          {message.deliveryStatus === "sending" ? deliveryStatusCopy.sending : deliveryStatusCopy.failed}
+                        </span>
+                      ) : null}
                     </div>
                   </article>
                 );
@@ -1547,6 +1620,13 @@ export function VoiceRoom({
             <textarea
               value={textInput}
               onChange={(event) => setTextInput(event.target.value)}
+              onCompositionStart={() => {
+                isComposingTextRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                isComposingTextRef.current = false;
+              }}
+              onKeyDown={handleTextInputKeyDown}
               placeholder={role === "staff" ? "상담 내용을 입력하세요." : patientTextCopy.placeholder}
               disabled={room.status === "ended" || textSubmitting}
               rows={1}
