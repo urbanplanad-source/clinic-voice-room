@@ -1,6 +1,5 @@
 import type { ParticipantRole, PatientLanguage } from "./languages";
 import { createHash } from "crypto";
-import { buildClinicGlossaryInstructions, buildClinicTranscriptionPrompt } from "./clinic-glossary";
 
 export type TranslationDirection = "staff_to_patient" | "patient_to_staff";
 
@@ -42,13 +41,6 @@ export async function createRealtimeSessionToken(params: {
     : params.role === "staff"
       ? params.patientLanguage
       : "ko";
-  const inputLanguage = params.direction
-    ? params.direction === "staff_to_patient"
-      ? "ko"
-      : params.patientLanguage
-    : params.role === "staff"
-      ? "ko"
-      : params.patientLanguage;
   const model = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-translate";
   const safetyIdentifier = params.safetyIdentifier
     ? `clinic-voice-room-${createHash("sha256").update(params.safetyIdentifier).digest("hex").slice(0, 32)}`
@@ -67,14 +59,9 @@ export async function createRealtimeSessionToken(params: {
       },
       session: {
         model,
-        instructions: buildClinicGlossaryInstructions(params.patientLanguage),
         audio: {
           input: {
-            transcription: {
-              model: "gpt-realtime-whisper",
-              language: realtimeTranslationOutputLanguages[inputLanguage],
-              prompt: buildClinicTranscriptionPrompt(inputLanguage)
-            },
+            transcription: { model: "gpt-realtime-whisper" },
             noise_reduction: { type: "near_field" }
           },
           output: { language: realtimeTranslationOutputLanguages[outputLanguage] }
