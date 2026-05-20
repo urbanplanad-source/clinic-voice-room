@@ -1,3 +1,0 @@
-ALTER TYPE "PatientLanguage" ADD VALUE IF NOT EXISTS 'ru';
-ALTER TYPE "PatientLanguage" ADD VALUE IF NOT EXISTS 'vi';
-ALTER TYPE "PatientLanguage" ADD VALUE IF NOT EXISTS 'id';
