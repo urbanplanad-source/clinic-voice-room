@@ -45,7 +45,9 @@ function textField(formData: FormData, key: string) {
 }
 
 function transcriptionLanguageFor(role: ParticipantRole, patientLanguage: PatientLanguage) {
-  return role === "staff" ? "ko" : patientLanguage;
+  if (role === "staff") return "ko";
+  if (patientLanguage === "zh_tw") return "zh";
+  return patientLanguage;
 }
 
 export async function POST(request: Request) {

@@ -33,6 +33,7 @@ export default async function PatientRoomPage({
           id: room.id,
           status: room.status,
           patientLanguage: room.patientLanguage,
+          patientJoinedAt: room.patientJoinedAt?.toISOString() ?? null,
           hospital: { name: room.hospital.name }
         }}
       />

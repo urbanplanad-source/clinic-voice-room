@@ -37,6 +37,7 @@ export default async function StaffRoomPage({
           roomToken: room.roomToken,
           status: room.status,
           patientLanguage: room.patientLanguage,
+          patientJoinedAt: room.patientJoinedAt?.toISOString() ?? null,
           hospital: { name: room.hospital.name }
         }}
         joinUrl={joinUrl}

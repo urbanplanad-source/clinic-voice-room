@@ -22,6 +22,16 @@ export async function GET(request: Request, context: { params: Promise<{ roomId:
   if (!staffAllowed && !patientAllowed) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const viewerRole = staffAllowed ? "staff" : "patient";
+
+  await prisma.consultationMessage.updateMany({
+    where: {
+      roomId: room.id,
+      speaker: viewerRole === "staff" ? "patient" : "staff",
+      readAt: null
+    },
+    data: { readAt: new Date() }
+  });
 
   const afterDate = after ? new Date(after) : null;
   const messages = await prisma.consultationMessage.findMany({
@@ -39,7 +49,8 @@ export async function GET(request: Request, context: { params: Promise<{ roomId:
       id: message.id,
       speaker: message.speaker,
       text: message.text,
-      createdAt: message.createdAt.toISOString()
+      createdAt: message.createdAt.toISOString(),
+      readAt: message.readAt?.toISOString() ?? null
     }))
   });
 }

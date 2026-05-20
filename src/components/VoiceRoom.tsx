@@ -41,6 +41,24 @@ const speechLanguageByPatientLanguage: Record<PatientLanguage | "ko", string> = 
   pt: "pt-PT"
 };
 
+const procedureIntroCopies: Record<PatientLanguage, string> = {
+  zh: "我们正在准备治疗。如果您有不舒服或想说的话，请按屏幕上的按钮。按钮变成红色后请说话，说完后再按一次按钮结束。",
+  zh_tw: "我們正在準備療程。如果您有不舒服或想說的話，請按螢幕上的按鈕。按鈕變成紅色後請說話，說完後再按一次按鈕結束。",
+  ja: "施術の準備をしています。ご不便なことや伝えたいことがあれば、画面のボタンを押してください。ボタンが赤くなったら話し、終わったらもう一度ボタンを押してください。",
+  en: "We are preparing for your procedure. If you feel uncomfortable or want to say something, please press the button on the screen. When the button turns red, speak, then press it again when you are finished.",
+  th: "เรากำลังเตรียมทำหัตถการ หากรู้สึกไม่สบายหรือมีเรื่องที่อยากบอก กรุณากดปุ่มบนหน้าจอ เมื่อปุ่มเปลี่ยนเป็นสีแดงให้พูด แล้วกดปุ่มอีกครั้งเมื่อพูดจบ",
+  ms: "Kami sedang menyediakan prosedur anda. Jika anda rasa tidak selesa atau ingin berkata sesuatu, sila tekan butang pada skrin. Apabila butang menjadi merah, bercakaplah, kemudian tekan sekali lagi apabila selesai.",
+  mn: "Ажилбарт бэлдэж байна. Танд таагүй зүйл байвал эсвэл хэлэх зүйл байвал дэлгэц дээрх товчийг дарна уу. Товч улаан болмогц яриад, дууссаны дараа дахин дарна уу.",
+  ru: "Мы готовимся к процедуре. Если вам неудобно или вы хотите что-то сказать, нажмите кнопку на экране. Когда кнопка станет красной, говорите, а когда закончите, нажмите кнопку еще раз.",
+  vi: "Chúng tôi đang chuẩn bị cho liệu trình. Nếu quý khách thấy khó chịu hoặc muốn nói điều gì, vui lòng nhấn nút trên màn hình. Khi nút chuyển sang màu đỏ, hãy nói, rồi nhấn lại nút khi đã nói xong.",
+  id: "Kami sedang menyiapkan prosedur Anda. Jika Anda merasa tidak nyaman atau ingin mengatakan sesuatu, tekan tombol di layar. Saat tombol berubah merah, silakan bicara, lalu tekan lagi setelah selesai.",
+  fr: "Nous préparons votre intervention. Si vous ressentez une gêne ou souhaitez dire quelque chose, appuyez sur le bouton à l'écran. Quand le bouton devient rouge, parlez, puis appuyez de nouveau lorsque vous avez terminé.",
+  es: "Estamos preparando el procedimiento. Si siente alguna molestia o quiere decir algo, pulse el botón en la pantalla. Cuando el botón se ponga rojo, hable y vuelva a pulsarlo cuando haya terminado.",
+  de: "Wir bereiten die Behandlung vor. Wenn Sie sich unwohl fühlen oder etwas sagen möchten, drücken Sie bitte die Taste auf dem Bildschirm. Wenn die Taste rot wird, sprechen Sie, und drücken Sie sie erneut, wenn Sie fertig sind.",
+  it: "Stiamo preparando la procedura. Se avverte fastidio o vuole dire qualcosa, prema il pulsante sullo schermo. Quando il pulsante diventa rosso, parli, poi lo prema di nuovo quando ha finito.",
+  pt: "Estamos preparando o procedimento. Se sentir algum desconforto ou quiser dizer algo, toque no botão na tela. Quando o botão ficar vermelho, fale e toque novamente quando terminar."
+};
+
 type RoomMode = "consultation" | "procedure";
 
 type WakeLockSentinelLike = {
@@ -58,6 +76,7 @@ type RoomSnapshot = {
   id: string;
   status: RoomStatus;
   patientLanguage: PatientLanguage;
+  patientJoinedAt?: string | null;
   hospital?: { name: string };
   usageSession?: { totalRoomSeconds: number; roomStartedAt: string; roomEndedAt?: string | null } | null;
 };
@@ -693,6 +712,7 @@ function ProcedureVoiceRoom({
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
   const realtimePreconnectStartedRef = useRef(false);
   const spokenMessageIdsRef = useRef(new Set<string>());
+  const playedIntroKeyRef = useRef<string | null>(null);
   const pressedHardwareKeysRef = useRef(new Set<string>());
   const lastHardwareToggleAtRef = useRef(0);
   const roomRef = useRef(initialRoom);
@@ -857,6 +877,21 @@ function ProcedureVoiceRoom({
         playBrowserTranslatedSpeech(message.text, targetLanguage);
       });
   }, [playBrowserTranslatedSpeech, room.patientLanguage]);
+
+  useEffect(() => {
+    if (!isStaffAudioHub || !isProcedureMode || !room.patientJoinedAt || room.status === "ended") return;
+
+    const introKey = `clinic-procedure-intro:${room.id}:${room.patientJoinedAt}`;
+    if (playedIntroKeyRef.current === introKey || window.sessionStorage.getItem(introKey)) return;
+
+    playedIntroKeyRef.current = introKey;
+    window.sessionStorage.setItem(introKey, "played");
+    const timer = window.setTimeout(() => {
+      playBrowserTranslatedSpeech(procedureIntroCopies[room.patientLanguage], room.patientLanguage);
+    }, 900);
+
+    return () => window.clearTimeout(timer);
+  }, [isProcedureMode, isStaffAudioHub, playBrowserTranslatedSpeech, room.id, room.patientJoinedAt, room.patientLanguage, room.status]);
 
   const flushUsage = useCallback(async () => {
     const durationSeconds = pendingUsageSecondsRef.current;

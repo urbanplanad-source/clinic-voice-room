@@ -34,6 +34,7 @@ type TranslationMessage = {
   speaker: ParticipantRole;
   text: string;
   createdAt?: string;
+  readAt?: string | null;
   deliveryStatus?: "sending" | "failed";
 };
 
@@ -59,7 +60,7 @@ export function ConsultationChatRoom({
   const messagePollInFlightRef = useRef(false);
 
   const copy = consultationTextCopy[room.patientLanguage];
-  const deliveryStatusCopy = role === "staff" ? { sending: "전송 중", failed: "전송 실패" } : consultationDeliveryStatusCopy[room.patientLanguage];
+  const deliveryStatusCopy = role === "staff" ? { sending: "전송 중", failed: "전송 실패", read: "읽음" } : consultationDeliveryStatusCopy[room.patientLanguage];
   const chatMessages = [...messages].reverse();
   const latestPatientMessage = messages.find((message) => message.speaker === "patient");
   const latestPatientText = latestPatientMessage?.text;
@@ -76,28 +77,39 @@ export function ConsultationChatRoom({
     return role === "staff" ? `${language.ko} 번역상담` : `${language.native} Consultation`;
   }, [role, room.patientLanguage]);
 
-  const appendMessage = useCallback((message: TranslationMessage) => {
+  const mergeMessages = useCallback((incomingMessages: TranslationMessage[]) => {
     setMessages((current) => {
-      if (current.some((item) => item.id === message.id)) return current;
-      return [message, ...current].slice(0, 80);
+      const merged = new Map<string, TranslationMessage>();
+      for (const message of current) merged.set(message.id, message);
+      for (const message of incomingMessages) {
+        const existing = merged.get(message.id);
+        merged.set(message.id, existing ? { ...existing, ...message, deliveryStatus: existing.deliveryStatus } : message);
+      }
+      return [...merged.values()]
+        .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
+        .slice(0, 80);
     });
   }, []);
+
+  const appendMessage = useCallback((message: TranslationMessage) => {
+    mergeMessages([message]);
+  }, [mergeMessages]);
 
   const updateMessageDeliveryStatus = useCallback((messageId: string, deliveryStatus?: TranslationMessage["deliveryStatus"]) => {
     setMessages((current) =>
       current.map((message) => {
         if (message.id !== messageId) return message;
-        if (!deliveryStatus) return { id: message.id, speaker: message.speaker, text: message.text };
+        if (!deliveryStatus) return { ...message, deliveryStatus: undefined };
         return { ...message, deliveryStatus };
       })
     );
   }, []);
 
-  const confirmLocalMessage = useCallback((localMessageId: string, serverMessageId: string) => {
+  const confirmLocalMessage = useCallback((localMessageId: string, serverMessage: TranslationMessage) => {
     setMessages((current) =>
       current.map((message) => {
         if (message.id !== localMessageId) return message;
-        return { id: serverMessageId, speaker: message.speaker, text: message.text };
+        return { ...message, ...serverMessage, deliveryStatus: undefined };
       })
     );
   }, []);
@@ -162,8 +174,6 @@ export function ConsultationChatRoom({
       try {
         const params = new URLSearchParams();
         if (role === "patient" && roomToken) params.set("roomToken", roomToken);
-        if (lastFetchedMessageAtRef.current) params.set("after", lastFetchedMessageAtRef.current);
-
         const query = params.toString();
         const response = await fetch(`/api/rooms/${room.id}/messages${query ? `?${query}` : ""}`, { cache: "no-store" });
         if (!response.ok) return;
@@ -176,8 +186,8 @@ export function ConsultationChatRoom({
           if (message.createdAt && (!latestCreatedAt || message.createdAt > latestCreatedAt)) {
             latestCreatedAt = message.createdAt;
           }
-          appendMessage(message);
         }
+        mergeMessages(fetchedMessages);
 
         if (latestCreatedAt) lastFetchedMessageAtRef.current = latestCreatedAt;
         if (fetchedMessages.length) markActivity();
@@ -192,7 +202,7 @@ export function ConsultationChatRoom({
     }, 1500);
 
     return () => window.clearInterval(interval);
-  }, [appendMessage, markActivity, role, room.id, roomToken]);
+  }, [markActivity, mergeMessages, role, room.id, roomToken]);
 
   useEffect(() => {
     const interval = window.setInterval(async () => {
@@ -229,6 +239,7 @@ export function ConsultationChatRoom({
       id: `${messageId}-local`,
       speaker: role,
       text: sourceText,
+      createdAt: new Date().toISOString(),
       deliveryStatus: "sending"
     } satisfies TranslationMessage;
 
@@ -259,12 +270,13 @@ export function ConsultationChatRoom({
       const message = data.message ?? {
         id: messageId,
         speaker: role,
-        text: data.translatedText
+        text: data.translatedText,
+        createdAt: new Date().toISOString()
       } satisfies RealtimeTranslationMessage;
 
       void broadcastTranslationMessage(room.id, message);
 
-      confirmLocalMessage(localMessage.id, message.id);
+      confirmLocalMessage(localMessage.id, message);
       if (!textOverride) setTextInput("");
     } catch (caught) {
       updateMessageDeliveryStatus(localMessage.id, "failed");
@@ -326,6 +338,16 @@ export function ConsultationChatRoom({
             {chatMessages.map((message) => {
               const mine = message.speaker === role;
               const failed = message.deliveryStatus === "failed";
+              const sentAt = message.createdAt
+                ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(message.createdAt))
+                : "";
+              const metaText = message.deliveryStatus
+                ? message.deliveryStatus === "sending"
+                  ? deliveryStatusCopy.sending
+                  : deliveryStatusCopy.failed
+                : mine && message.readAt
+                  ? deliveryStatusCopy.read
+                  : "";
               return (
                 <article key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                   {!mine ? (
@@ -339,9 +361,9 @@ export function ConsultationChatRoom({
                     }`}
                   >
                     {message.text}
-                    {message.deliveryStatus ? (
+                    {sentAt || metaText ? (
                       <span className={`mt-1 block text-[11px] font-bold ${mine ? "text-white/80" : "text-slate-400"}`}>
-                        {message.deliveryStatus === "sending" ? deliveryStatusCopy.sending : deliveryStatusCopy.failed}
+                        {[sentAt, metaText].filter(Boolean).join(" · ")}
                       </span>
                     ) : null}
                   </div>

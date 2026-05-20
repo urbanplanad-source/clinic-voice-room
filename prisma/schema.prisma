@@ -157,6 +157,7 @@ model ConsultationMessage {
   speaker   ParticipantRole
   text      String
   createdAt DateTime        @default(now())
+  readAt    DateTime?
 
   @@index([roomId, createdAt])
 }

@@ -88,7 +88,8 @@ export async function POST(request: Request) {
           id: existingMessage.id,
           speaker: existingMessage.speaker,
           text: existingMessage.text,
-          createdAt: existingMessage.createdAt.toISOString()
+          createdAt: existingMessage.createdAt.toISOString(),
+          readAt: existingMessage.readAt?.toISOString() ?? null
         },
         model: "cached"
       });
@@ -190,7 +191,8 @@ export async function POST(request: Request) {
       id: message.id,
       speaker: message.speaker,
       text: message.text,
-      createdAt: message.createdAt.toISOString()
+      createdAt: message.createdAt.toISOString(),
+      readAt: message.readAt?.toISOString() ?? null
     },
     model
   });

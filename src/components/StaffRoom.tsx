@@ -14,6 +14,7 @@ type StaffRoomProps = {
     roomToken: string;
     status: RoomStatus;
     patientLanguage: PatientLanguage;
+    patientJoinedAt?: string | null;
     hospital: { name: string };
   };
   joinUrl: string;

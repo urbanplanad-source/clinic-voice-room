@@ -213,22 +213,22 @@ export const consultationTextCopy: Record<
   }
 };
 
-export const consultationDeliveryStatusCopy: Record<PatientLanguage, { sending: string; failed: string }> = {
-  zh: { sending: "正在发送", failed: "发送失败" },
-  zh_tw: { sending: "正在傳送", failed: "傳送失敗" },
-  ja: { sending: "送信中", failed: "送信に失敗しました" },
-  en: { sending: "Sending", failed: "Send failed" },
-  th: { sending: "กำลังส่ง", failed: "ส่งไม่สำเร็จ" },
-  ms: { sending: "Menghantar", failed: "Gagal dihantar" },
-  mn: { sending: "Илгээж байна", failed: "Илгээж чадсангүй" },
-  ru: { sending: "Отправка", failed: "Не удалось отправить" },
-  vi: { sending: "Đang gửi", failed: "Gửi thất bại" },
-  id: { sending: "Mengirim", failed: "Gagal mengirim" },
-  fr: { sending: "Envoi", failed: "Échec de l'envoi" },
-  es: { sending: "Enviando", failed: "Error al enviar" },
-  de: { sending: "Wird gesendet", failed: "Senden fehlgeschlagen" },
-  it: { sending: "Invio", failed: "Invio non riuscito" },
-  pt: { sending: "Enviando", failed: "Falha ao enviar" }
+export const consultationDeliveryStatusCopy: Record<PatientLanguage, { sending: string; failed: string; read: string }> = {
+  zh: { sending: "正在发送", failed: "发送失败", read: "已读" },
+  zh_tw: { sending: "正在傳送", failed: "傳送失敗", read: "已讀" },
+  ja: { sending: "送信中", failed: "送信に失敗しました", read: "既読" },
+  en: { sending: "Sending", failed: "Send failed", read: "Read" },
+  th: { sending: "กำลังส่ง", failed: "ส่งไม่สำเร็จ", read: "อ่านแล้ว" },
+  ms: { sending: "Menghantar", failed: "Gagal dihantar", read: "Dibaca" },
+  mn: { sending: "Илгээж байна", failed: "Илгээж чадсангүй", read: "Уншсан" },
+  ru: { sending: "Отправка", failed: "Не удалось отправить", read: "Прочитано" },
+  vi: { sending: "Đang gửi", failed: "Gửi thất bại", read: "Đã đọc" },
+  id: { sending: "Mengirim", failed: "Gagal mengirim", read: "Dibaca" },
+  fr: { sending: "Envoi", failed: "Échec de l'envoi", read: "Lu" },
+  es: { sending: "Enviando", failed: "Error al enviar", read: "Leído" },
+  de: { sending: "Wird gesendet", failed: "Senden fehlgeschlagen", read: "Gelesen" },
+  it: { sending: "Invio", failed: "Invio non riuscito", read: "Letto" },
+  pt: { sending: "Enviando", failed: "Falha ao enviar", read: "Lido" }
 };
 
 export const stageByExampleCategory: Record<ConsultationExampleCategory, ConsultationStage> = {

@@ -23,6 +23,7 @@ export type RealtimeTranslationMessage = {
   text: string;
   targetLanguage?: PatientLanguage | "ko";
   createdAt?: string;
+  readAt?: string | null;
 };
 
 type TranslationMessagePayload = {
@@ -70,6 +71,7 @@ function parseTranslationMessage(value: unknown): RealtimeTranslationMessage | n
   if (message.sourceText !== undefined && typeof message.sourceText !== "string") return null;
   if (message.targetLanguage !== undefined && message.targetLanguage !== "ko" && !isPatientLanguage(message.targetLanguage)) return null;
   if (message.createdAt !== undefined && typeof message.createdAt !== "string") return null;
+  if (message.readAt !== undefined && message.readAt !== null && typeof message.readAt !== "string") return null;
   return message;
 }
 
