@@ -68,7 +68,10 @@ type VoiceRoomProps = {
 type TranslationMessage = {
   id: string;
   speaker: ParticipantRole;
+  sourceText?: string;
   text: string;
+  targetLanguage?: PatientLanguage | "ko";
+  createdAt?: string;
 };
 
 type VoiceRoomCopy = {
@@ -539,14 +542,16 @@ function ProcedureVoiceRoom({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [realtimeStatus, setRealtimeStatus] = useState("");
-  const [, setTranslationDraft] = useState("");
+  const [translationDraft, setTranslationDraft] = useState("");
+  const [inputTranscriptDraft, setInputTranscriptDraft] = useState("");
   const [backWarning, setBackWarning] = useState(false);
-  const [audioPlaybackEnabled, setAudioPlaybackEnabled] = useState(false);
   const [wakeLockStatus, setWakeLockStatus] = useState("");
   const [hardwareInputStatus, setHardwareInputStatus] = useState("키보드 입력 대기");
   const [ttsStatus, setTtsStatus] = useState(`TTS ${TTS_DEBUG_VERSION}`);
   const [ttsSetupHint, setTtsSetupHint] = useState("");
   const streamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaChunksRef = useRef<Blob[]>([]);
   const roomRootRef = useRef<HTMLDivElement | null>(null);
   const hardwareCaptureRef = useRef<HTMLInputElement | null>(null);
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
@@ -569,9 +574,31 @@ function ProcedureVoiceRoom({
   const micEnabled = isMicEnabled(room.status, role);
   const isSpeaking = speakingStartedAt !== null;
   const latestMessage = messages[0];
-  const isConnectingRealtime = busy && !isSpeaking && realtimeStatus.includes("준비");
-  const currentSpeechLanguage = role === "staff" ? speechLanguageByPatientLanguage.ko : speechLanguageByPatientLanguage[room.patientLanguage];
-  const currentSpeechLanguageLabel = role === "staff" ? "한국어" : languageLabels[room.patientLanguage].native;
+  const isStaffAudioHub = role === "staff";
+  const isConnectingRealtime = busy && !isSpeaking && /preparing|준비/i.test(realtimeStatus);
+  const latestTargetLanguage = latestMessage?.targetLanguage ?? (latestMessage?.speaker === "staff" ? room.patientLanguage : "ko");
+  const currentSpeechLanguage = speechLanguageByPatientLanguage[latestTargetLanguage];
+  const currentSpeechLanguageLabel = latestTargetLanguage === "ko" ? "한국어" : languageLabels[latestTargetLanguage].native;
+  const displayText = latestMessage
+    ? role === "staff"
+      ? latestMessage.speaker === "staff"
+        ? latestMessage.sourceText || latestMessage.text
+        : latestMessage.text
+      : latestMessage.speaker === "staff"
+        ? latestMessage.text
+        : latestMessage.sourceText || latestMessage.text
+    : inputTranscriptDraft || translationDraft;
+  const displayLabel = latestMessage
+    ? role === "staff"
+      ? latestMessage.speaker === "staff"
+        ? "병원 발화 원문"
+        : "고객 발화 한국어 번역"
+      : latestMessage.speaker === "staff"
+        ? "병원 안내 번역"
+        : "내 발화 원문"
+    : role === "staff"
+      ? "실시간 인식"
+      : "시술 통역";
 
   useEffect(() => {
     roomRef.current = room;
@@ -613,6 +640,7 @@ function ProcedureVoiceRoom({
       }, {
         onStatus: setRealtimeStatus,
         onTranscriptDelta: setTranslationDraft,
+        onInputTranscriptDelta: setInputTranscriptDraft,
         onFirstOutputDelta: () => {
           if (isProcedureMode) {
             void transition(role === "staff" ? "patient_listening" : "staff_listening");
@@ -656,14 +684,15 @@ function ProcedureVoiceRoom({
     );
   }, []);
 
-  const playBrowserTranslatedSpeech = useCallback((text: string) => {
+  const playBrowserTranslatedSpeech = useCallback((text: string, targetLanguage: PatientLanguage | "ko") => {
     if (!("speechSynthesis" in window)) {
       setError("This browser does not support device TTS.");
       setTtsStatus(`Device TTS unavailable / ${TTS_DEBUG_VERSION}`);
       return;
     }
 
-    const lang = currentSpeechLanguage;
+    const lang = speechLanguageByPatientLanguage[targetLanguage];
+    const languageLabel = targetLanguage === "ko" ? "한국어" : languageLabels[targetLanguage].native;
     const voice = findBrowserVoice(lang);
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = lang;
@@ -671,7 +700,7 @@ function ProcedureVoiceRoom({
     if (voice) utterance.voice = voice;
 
     utterance.onerror = () => {
-      setError(`${languageLabels[room.patientLanguage].native} TTS voice could not be played on this device.`);
+      setError(`${languageLabel} TTS voice could not be played on this device.`);
       setTtsStatus(`Device TTS error / ${lang} / ${TTS_DEBUG_VERSION}`);
     };
 
@@ -682,15 +711,16 @@ function ProcedureVoiceRoom({
         ? `Device TTS / ${lang} / ${voice.name} / ${TTS_DEBUG_VERSION}`
         : `Device TTS / ${lang} / no matching voice listed / ${TTS_DEBUG_VERSION}`
     );
-  }, [currentSpeechLanguage, findBrowserVoice, room.patientLanguage]);
+  }, [findBrowserVoice]);
 
   const playQueuedTranslatedSpeech = useCallback((message: TranslationMessage) => {
+    const targetLanguage = message.targetLanguage ?? (message.speaker === "staff" ? room.patientLanguage : "ko");
     speechQueueRef.current = speechQueueRef.current
       .catch(() => undefined)
       .then(async () => {
-        playBrowserTranslatedSpeech(message.text);
+        playBrowserTranslatedSpeech(message.text, targetLanguage);
       });
-  }, [playBrowserTranslatedSpeech]);
+  }, [playBrowserTranslatedSpeech, room.patientLanguage]);
 
   const flushUsage = useCallback(async () => {
     const durationSeconds = pendingUsageSecondsRef.current;
@@ -762,6 +792,11 @@ function ProcedureVoiceRoom({
       stopPlayback();
       realtimeClientRef.current?.close();
       realtimeClientRef.current = null;
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+      mediaRecorderRef.current = null;
+      mediaChunksRef.current = [];
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
@@ -779,15 +814,14 @@ function ProcedureVoiceRoom({
   }, []);
 
   useEffect(() => {
-    if (!audioPlaybackEnabled || !latestMessage || spokenMessageIdsRef.current.has(latestMessage.id)) return;
+    if (!isStaffAudioHub || !latestMessage || spokenMessageIdsRef.current.has(latestMessage.id)) return;
 
     spokenMessageIdsRef.current.add(latestMessage.id);
     playQueuedTranslatedSpeech(latestMessage);
-  }, [audioPlaybackEnabled, latestMessage, playQueuedTranslatedSpeech]);
+  }, [isStaffAudioHub, latestMessage, playQueuedTranslatedSpeech]);
 
   useEffect(() => {
     if (!isProcedureMode) return;
-    setAudioPlaybackEnabled(true);
     void requestScreenWakeLock();
     return () => {
       void releaseScreenWakeLock();
@@ -820,7 +854,7 @@ function ProcedureVoiceRoom({
   }, [role, room.status]);
 
   useEffect(() => {
-    if (!isProcedureMode || room.status === "ended") return;
+    if (!isProcedureMode || role !== "staff" || room.status === "ended") return;
 
     roomRootRef.current?.focus();
     hardwareCaptureRef.current?.focus({ preventScroll: true });
@@ -907,15 +941,16 @@ function ProcedureVoiceRoom({
       document.removeEventListener("keyup", handleKeyUp, true);
       pressedHardwareKeys.clear();
     };
-  }, [busy, isProcedureMode, isSpeaking, micEnabled, room.status]);
+  }, [busy, isProcedureMode, isSpeaking, micEnabled, role, room.status]);
 
   useEffect(() => {
+    if (role !== "staff") return;
     if (room.status !== "ready" || realtimePreconnectStartedRef.current || realtimeClientRef.current || !streamRef.current) return;
     realtimePreconnectStartedRef.current = true;
     void ensureRealtimeSession(streamRef.current).catch(() => {
       realtimePreconnectStartedRef.current = false;
     });
-  }, [ensureRealtimeSession, room.status]);
+  }, [ensureRealtimeSession, role, room.status]);
 
   useEffect(() => {
     const interval = window.setInterval(async () => {
@@ -1004,13 +1039,101 @@ function ProcedureVoiceRoom({
     }, 700);
   }
 
+  function preferredRecordingMimeType() {
+    if (!("MediaRecorder" in window)) return "";
+    if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) return "audio/webm;codecs=opus";
+    if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
+    return "";
+  }
+
+  function createPatientAudioRecorder(stream: MediaStream) {
+    if (!("MediaRecorder" in window)) {
+      throw new Error("This browser does not support audio recording.");
+    }
+
+    const mimeType = preferredRecordingMimeType();
+    return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  }
+
+  async function startPatientRecording() {
+    const acquiredTurn = await transition("patient_speaking");
+    if (!acquiredTurn) {
+      setError(copy.errors.busy);
+      return;
+    }
+
+    const stream = await ensureMicStream();
+    const recorder = createPatientAudioRecorder(stream);
+    mediaChunksRef.current = [];
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data.size > 0) mediaChunksRef.current.push(event.data);
+    });
+    recorder.start();
+    mediaRecorderRef.current = recorder;
+    setMicEnabled(true);
+    setSpeakingStartedAt(Date.now());
+    setRealtimeStatus("Recording patient turn");
+  }
+
+  function stopPatientRecorder() {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") {
+      return Promise.resolve(new Blob(mediaChunksRef.current, { type: "audio/webm" }));
+    }
+
+    return new Promise<Blob>((resolve, reject) => {
+      const mimeType = recorder.mimeType || "audio/webm";
+      recorder.addEventListener(
+        "stop",
+        () => {
+          resolve(new Blob(mediaChunksRef.current, { type: mimeType }));
+        },
+        { once: true }
+      );
+      recorder.addEventListener(
+        "error",
+        () => {
+          reject(new Error("Audio recording failed."));
+        },
+        { once: true }
+      );
+      recorder.stop();
+    });
+  }
+
+  async function uploadPatientProcedureTurn(audio: Blob) {
+    const clientTurnId = `${Date.now()}`;
+    const formData = new FormData();
+    formData.set("roomId", room.id);
+    formData.set("role", "patient");
+    formData.set("roomToken", roomToken ?? "");
+    formData.set("clientTurnId", clientTurnId);
+    formData.set("patientLanguage", room.patientLanguage);
+    formData.set("audio", audio, `patient-${clientTurnId}.webm`);
+
+    const response = await fetch("/api/procedure-turns", {
+      method: "POST",
+      body: formData
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.error ?? "Procedure turn translation failed.");
+    }
+    return data.message as RealtimeTranslationMessage;
+  }
+
   async function startSpeaking() {
     setError("");
     setTranslationDraft("");
+    setInputTranscriptDraft("");
     markActivity();
     setBusy(true);
     try {
       if (isProcedureMode) stopPlayback();
+      if (role === "patient") {
+        await startPatientRecording();
+        return;
+      }
       const nextStatus = role === "staff" ? "staff_speaking" : "patient_speaking";
       const acquiredTurn = await transition(nextStatus);
       if (!acquiredTurn) {
@@ -1045,24 +1168,54 @@ function ProcedureVoiceRoom({
     setMicEnabled(false);
     queueUsage(durationSeconds);
 
+    if (role === "patient") {
+      try {
+        await transition("translating_to_staff");
+        setRealtimeStatus("Uploading patient turn");
+        const audio = await stopPatientRecorder();
+        mediaRecorderRef.current = null;
+        if (audio.size <= 0) throw new Error("No audio was recorded.");
+        const message = await uploadPatientProcedureTurn(audio);
+        appendMessage(message);
+        void broadcastTranslationMessage(room.id, message);
+        setInputTranscriptDraft(message.sourceText ?? "");
+        setTranslationDraft("");
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Translation failed.");
+      } finally {
+        mediaChunksRef.current = [];
+        const readyRoom = { ...room, status: "ready" as const };
+        setRoom(readyRoom);
+        void broadcastRoomUpdate(readyRoom);
+        await transition("ready");
+        setBusy(false);
+      }
+      return;
+    }
+
     const translatingStatus = role === "staff" ? "translating_to_patient" : "translating_to_staff";
     const readyRoom = { ...room, status: "ready" as const };
 
     try {
-      void transition(translatingStatus);
+      await transition(translatingStatus);
       const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
         quietMs: PROCEDURE_TRANSLATION_QUIET_MS,
         maxMs: PROCEDURE_TRANSLATION_MAX_MS
       });
       if (!translatedText) throw new Error("No translated text was returned.");
       const normalizedText = normalizeClinicTranslation(translatedText, role === "staff" ? room.patientLanguage : "ko");
+      const sourceText = realtimeClientRef.current?.getInputTranscript() || inputTranscriptDraft || "한국어 원문을 표시하지 못했습니다.";
 
       const message = {
         id: `${role}-${Date.now()}`,
         speaker: role,
-        text: normalizedText
+        sourceText,
+        text: normalizedText,
+        targetLanguage: room.patientLanguage,
+        createdAt: new Date().toISOString()
       } satisfies RealtimeTranslationMessage;
 
+      appendMessage(message);
       void broadcastTranslationMessage(room.id, message);
       setTranslationDraft("");
     } catch (caught) {
@@ -1132,21 +1285,26 @@ function ProcedureVoiceRoom({
           </article>
         ) : null}
 
-        {latestMessage ? (
+        {displayText ? (
           <article className="rounded-lg bg-blue-50 px-4 py-5">
-            <p className="text-2xl font-bold leading-8 text-ink">{latestMessage.text}</p>
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust">{displayLabel}</p>
+            <p className="mt-2 text-2xl font-bold leading-8 text-ink">{displayText}</p>
           </article>
         ) : (
-          <p className="rounded-lg bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-500">번역 내용이 여기에 표시됩니다.</p>
+          <p className="rounded-lg bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-500">
+            {role === "staff" ? "병원폰에는 한국어 원문과 고객 발화의 한국어 번역이 표시됩니다." : "고객/보조 기기에는 고객 언어 텍스트만 표시됩니다."}
+          </p>
         )}
       </section>
 
       <section className="rounded-lg bg-white p-5 text-center shadow-soft">
         <div className="mx-auto mb-5 max-w-sm">
-          <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust">2-device procedure</p>
-          <h2 className="mt-2 text-2xl font-bold text-ink">{role === "staff" ? "Doctor device" : "Patient device"}</h2>
+          <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust">procedure audio hub</p>
+          <h2 className="mt-2 text-2xl font-bold text-ink">{role === "staff" ? "병원 오디오 허브" : "고객/보조 기기"}</h2>
           <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-            {role === "staff" ? "Press, speak Korean, then press again." : "Press anytime to answer. The phone reads translated text aloud."}
+            {role === "staff"
+              ? "풋패드나 버튼을 한 번 누르고 한국어로 말한 뒤, 다시 눌러 종료하세요. 번역 음성은 이 병원폰에서 재생됩니다."
+              : "버튼을 한 번 누르고 답변한 뒤, 다시 눌러 종료하세요. 이 기기에는 텍스트만 표시됩니다."}
           </p>
         </div>
         <button
@@ -1163,18 +1321,20 @@ function ProcedureVoiceRoom({
         <p className="mt-4 text-xl font-bold text-ink">
           {room.status === "ended" ? copy.primary.ended : isSpeaking ? copy.primary.speaking : micEnabled ? copy.primary.ready : copy.primary.waiting}
         </p>
-        <p className="mt-2 text-sm font-semibold text-slate-500">↑ key toggles this button. Space / Enter are also supported.</p>
-        <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">{hardwareInputStatus}</p>
-        <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-trust">{ttsStatus}</p>
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <button type="button" onClick={openGoogleTtsInstall} className="h-11 rounded-lg bg-trust px-4 text-sm font-bold text-white transition hover:bg-blue-700">
-            TTS 앱 설치/업데이트
-          </button>
-          <button type="button" onClick={openDeviceTtsSettings} className="h-11 rounded-lg bg-slate-100 px-4 text-sm font-bold text-ink transition hover:bg-slate-200">
-            {currentSpeechLanguageLabel} TTS 설정 열기
-          </button>
-        </div>
-        {ttsSetupHint ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-3 text-left text-xs font-bold leading-5 text-amber-800">{ttsSetupHint}</p> : null}
+        {role === "staff" ? <p className="mt-2 text-sm font-semibold text-slate-500">풋패드 토글: 한 번 누르면 시작, 다시 누르면 종료. ↑ / Space / Enter 지원.</p> : null}
+        {role === "staff" ? <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">{hardwareInputStatus}</p> : null}
+        {role === "staff" ? <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-trust">{ttsStatus}</p> : null}
+        {role === "staff" ? (
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button type="button" onClick={openGoogleTtsInstall} className="h-11 rounded-lg bg-trust px-4 text-sm font-bold text-white transition hover:bg-blue-700">
+              TTS 앱 설치/업데이트
+            </button>
+            <button type="button" onClick={openDeviceTtsSettings} className="h-11 rounded-lg bg-slate-100 px-4 text-sm font-bold text-ink transition hover:bg-slate-200">
+              {currentSpeechLanguageLabel} TTS 설정 열기
+            </button>
+          </div>
+        ) : null}
+        {role === "staff" && ttsSetupHint ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-3 text-left text-xs font-bold leading-5 text-amber-800">{ttsSetupHint}</p> : null}
         {wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
         {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
         <p className="mt-2 text-sm font-semibold text-slate-500">{isSpeaking ? copy.helper.speaking : copy.helper.idle}</p>

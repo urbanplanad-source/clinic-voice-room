@@ -19,7 +19,10 @@ type RoomUpdatePayload = {
 export type RealtimeTranslationMessage = {
   id: string;
   speaker: ParticipantRole;
+  sourceText?: string;
   text: string;
+  targetLanguage?: PatientLanguage | "ko";
+  createdAt?: string;
 };
 
 type TranslationMessagePayload = {
@@ -64,6 +67,9 @@ function parseTranslationMessage(value: unknown): RealtimeTranslationMessage | n
   const message = (value as TranslationMessagePayload).message;
   if (!message || typeof message.id !== "string" || typeof message.text !== "string") return null;
   if (message.speaker !== "staff" && message.speaker !== "patient") return null;
+  if (message.sourceText !== undefined && typeof message.sourceText !== "string") return null;
+  if (message.targetLanguage !== undefined && message.targetLanguage !== "ko" && typeof message.targetLanguage !== "string") return null;
+  if (message.createdAt !== undefined && typeof message.createdAt !== "string") return null;
   return message;
 }
 

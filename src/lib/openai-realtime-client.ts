@@ -76,6 +76,10 @@ export class OpenAIRealtimeClient {
     this.callbacks.onStatus?.("Listening");
   }
 
+  getInputTranscript() {
+    return this.currentInputText.trim();
+  }
+
   async stopTurnAndTranslate(options: StopTurnOptions = {}) {
     await this.waitUntilOpen();
     const quietMs = options.quietMs ?? 900;
