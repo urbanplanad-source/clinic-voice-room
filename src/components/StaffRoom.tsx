@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { QRCodeCanvas } from "qrcode.react";
-import { Check, Copy, Link2, QrCode, Smartphone, Stethoscope } from "lucide-react";
+import { ArrowLeft, Check, Copy, Link2, QrCode, Smartphone, Stethoscope } from "lucide-react";
 import { VoiceRoom } from "./VoiceRoom";
 import { languageLabels, type PatientLanguage } from "@/lib/languages";
 import type { RoomStatus } from "@/lib/room-state";
@@ -185,10 +186,19 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
             </h1>
             <p className="mt-1 text-sm font-bold text-slate-300">{languageLabels[snapshot.patientLanguage].native}</p>
           </div>
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-xs font-bold text-white">
-            {isProcedureMode ? <Stethoscope size={15} /> : <QrCode size={15} />}
-            {isProcedureMode ? "시술" : "상담"}
-          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="hidden items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-xs font-bold text-white sm:inline-flex">
+              {isProcedureMode ? <Stethoscope size={15} /> : <QrCode size={15} />}
+              {isProcedureMode ? "시술" : "상담"}
+            </span>
+            <Link
+              href="/staff"
+              className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-white px-3 text-xs font-bold text-ink transition hover:bg-slate-100"
+            >
+              <ArrowLeft size={15} className="text-trust" />
+              직원 화면으로
+            </Link>
+          </div>
         </div>
       </header>
 

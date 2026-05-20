@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Loader2, PhoneOff, Send, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Loader2, PhoneOff, Send, Sparkles } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { type RoomStatus } from "@/lib/room-state";
 import {
@@ -306,23 +307,25 @@ export function ConsultationChatRoom({
             <p className="truncate text-xs font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
             <h1 className="mt-0.5 truncate text-base font-bold text-ink md:text-lg">{title}</h1>
           </div>
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1.5 text-[11px] font-bold text-trust md:gap-2 md:px-3 md:py-1.5 md:text-xs">
-            <span className="h-2 w-2 rounded-full bg-trust" />
-            {room.status === "ended" ? (role === "staff" ? "종료" : copy.statusEnded) : role === "staff" ? "채팅" : copy.statusChat}
-          </span>
+          {role === "staff" ? (
+            <Link
+              href="/staff"
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-slate-50 px-3 text-xs font-bold text-ink transition hover:bg-slate-100 md:h-10 md:px-3.5 md:text-sm"
+            >
+              <ArrowLeft size={16} className="text-trust" />
+              직원 화면으로
+            </Link>
+          ) : (
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1.5 text-[11px] font-bold text-trust md:gap-2 md:px-3 md:py-1.5 md:text-xs">
+              <span className="h-2 w-2 rounded-full bg-trust" />
+              {room.status === "ended" ? copy.statusEnded : copy.statusChat}
+            </span>
+          )}
         </div>
 
-        {role === "staff" ? (
-          <div className="mt-1.5 flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 md:mt-2 md:gap-2.5 md:px-3 md:py-1.5">
-            <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-green-100 text-[10px] font-bold text-mint md:h-7 md:w-7 md:text-[11px]">AI</div>
-            <div className="min-w-0">
-              <p className="truncate text-xs font-bold text-ink md:text-sm">텍스트 번역 상담이 시작되었습니다.</p>
-              <p className="hidden text-xs font-semibold leading-5 text-slate-500 xl:mt-0.5 xl:block">상담 단계와 추천문구로 흐름을 정리하세요.</p>
-            </div>
-          </div>
-        ) : (
+        {role === "patient" ? (
           <p className="mt-1 truncate text-xs font-semibold text-slate-500">{copy.chatStarted}</p>
-        )}
+        ) : null}
 
         {role === "staff" ? (
           <div className="mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-lg bg-green-50 px-2.5 py-1.5 text-[11px] font-bold text-mint md:mt-1.5 md:gap-2 md:px-3 md:py-1.5 md:text-xs">

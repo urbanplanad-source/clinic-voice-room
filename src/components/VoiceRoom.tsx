@@ -1,7 +1,8 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Mic, PhoneOff } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Loader2, Mic, PhoneOff } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
 import { normalizeClinicTranslation } from "@/lib/clinic-glossary";
@@ -1447,6 +1448,15 @@ function ProcedureVoiceRoom({
             <p className="truncate text-sm font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
             <h1 className="mt-2 text-[28px] font-bold leading-tight text-ink">{title}</h1>
           </div>
+          {role === "staff" ? (
+            <Link
+              href="/staff"
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-slate-50 px-3 text-xs font-bold text-ink transition hover:bg-slate-100 md:text-sm"
+            >
+              <ArrowLeft size={16} className="text-trust" />
+              직원 화면으로
+            </Link>
+          ) : null}
         </div>
       </header>
 
