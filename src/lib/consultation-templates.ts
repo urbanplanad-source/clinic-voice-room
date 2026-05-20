@@ -85,6 +85,15 @@ export const consultationTextCopy: Record<
     statusChat: "咨询中",
     statusEnded: "已结束"
   },
+  zh_tw: {
+    title: "請輸入文字",
+    placeholder: "請在這裡輸入您想說的內容。",
+    submit: "送出翻譯",
+    chatStarted: "AI 翻譯諮詢已開始。",
+    empty: "請選擇下方範例或輸入您的問題。",
+    statusChat: "諮詢中",
+    statusEnded: "已結束"
+  },
   ja: {
     title: "テキストで入力してください",
     placeholder: "伝えたい内容をここに入力してください。",
@@ -102,6 +111,33 @@ export const consultationTextCopy: Record<
     empty: "Choose a sample message below or type your question.",
     statusChat: "Chat",
     statusEnded: "Ended"
+  },
+  th: {
+    title: "พิมพ์ข้อความของคุณ",
+    placeholder: "พิมพ์สิ่งที่ต้องการบอกที่นี่",
+    submit: "ส่งคำแปล",
+    chatStarted: "เริ่มการปรึกษาพร้อมแปลด้วย AI แล้ว",
+    empty: "เลือกข้อความตัวอย่างด้านล่างหรือพิมพ์คำถามของคุณ",
+    statusChat: "แชท",
+    statusEnded: "สิ้นสุด"
+  },
+  ms: {
+    title: "Taip mesej anda",
+    placeholder: "Taip perkara yang ingin anda sampaikan di sini.",
+    submit: "Hantar terjemahan",
+    chatStarted: "Konsultasi terjemahan AI telah bermula.",
+    empty: "Pilih contoh di bawah atau taip soalan anda.",
+    statusChat: "Chat",
+    statusEnded: "Tamat"
+  },
+  mn: {
+    title: "Зурвасаа бичнэ үү",
+    placeholder: "Хэлэхийг хүссэн зүйлээ энд бичнэ үү.",
+    submit: "Орчуулга илгээх",
+    chatStarted: "AI орчуулгатай зөвлөгөө эхэллээ.",
+    empty: "Доорх жишээнээс сонгох эсвэл асуултаа бичнэ үү.",
+    statusChat: "Чат",
+    statusEnded: "Дууссан"
   },
   ru: {
     title: "Введите сообщение",
@@ -179,8 +215,12 @@ export const consultationTextCopy: Record<
 
 export const consultationDeliveryStatusCopy: Record<PatientLanguage, { sending: string; failed: string }> = {
   zh: { sending: "正在发送", failed: "发送失败" },
+  zh_tw: { sending: "正在傳送", failed: "傳送失敗" },
   ja: { sending: "送信中", failed: "送信に失敗しました" },
   en: { sending: "Sending", failed: "Send failed" },
+  th: { sending: "กำลังส่ง", failed: "ส่งไม่สำเร็จ" },
+  ms: { sending: "Menghantar", failed: "Gagal dihantar" },
+  mn: { sending: "Илгээж байна", failed: "Илгээж чадсангүй" },
   ru: { sending: "Отправка", failed: "Не удалось отправить" },
   vi: { sending: "Đang gửi", failed: "Gửi thất bại" },
   id: { sending: "Mengirim", failed: "Gagal mengirim" },
@@ -204,6 +244,10 @@ export const initialPatientSuggestionSet: Record<PatientLanguage, PatientFollowU
     label: "AI 推荐咨询",
     suggestions: ["我没有预约。今天可以咨询吗？", "我想咨询适合我的治疗。", "我想看完整价目表。", "可以刷卡付款吗？"]
   },
+  zh_tw: {
+    label: "AI 推薦諮詢",
+    suggestions: ["我沒有預約。今天可以諮詢嗎？", "我想諮詢適合我的療程。", "我想看完整價目表。", "可以刷卡付款嗎？"]
+  },
   ja: {
     label: "AIおすすめ質問",
     suggestions: ["予約していません。今日カウンセリングできますか？", "自分に合う施術を相談したいです。", "全体の料金表を見たいです。", "カードで支払えますか？"]
@@ -216,6 +260,18 @@ export const initialPatientSuggestionSet: Record<PatientLanguage, PatientFollowU
       "I would like to see the full price list.",
       "Can I pay by card?"
     ]
+  },
+  th: {
+    label: "คำถามแนะนำโดย AI",
+    suggestions: ["ฉันยังไม่ได้นัด วันนี้ปรึกษาได้ไหม?", "ฉันอยากถามว่าหัตถการแบบไหนเหมาะกับฉัน", "ฉันอยากดูรายการราคาทั้งหมด", "ชำระด้วยบัตรได้ไหม?"]
+  },
+  ms: {
+    label: "Soalan cadangan AI",
+    suggestions: ["Saya belum membuat janji temu. Boleh konsultasi hari ini?", "Saya ingin tahu rawatan apa yang sesuai untuk saya.", "Saya ingin melihat senarai harga penuh.", "Boleh bayar dengan kad?"]
+  },
+  mn: {
+    label: "AI санал болгосон асуултууд",
+    suggestions: ["Би цаг аваагүй. Өнөөдөр зөвлөгөө авч болох уу?", "Надад ямар ажилбар тохирохыг асуумаар байна.", "Бүрэн үнийн жагсаалтыг хармаар байна.", "Картаар төлж болох уу?"]
   },
   ru: {
     label: "AI рекомендует вопросы",
@@ -262,6 +318,13 @@ export const consultationExampleCategories: Record<
     price: { label: "价格/预约", examples: ["我想看完整价目表。", "可以刷卡付款吗？"] },
     safety: { label: "安全确认", examples: ["我正在服药或有过敏史。", "我想知道恢复期，因为我有旅行计划。"] }
   },
+  zh_tw: {
+    visit: { label: "來院目的", examples: ["我沒有預約。今天可以諮詢嗎？", "如果可以的話，我今天也想做療程。"] },
+    concern: { label: "症狀/困擾", examples: ["我想諮詢適合我的療程。", "我有泛紅、搔癢或疼痛。"] },
+    procedure: { label: "療程諮詢", examples: ["我想諮詢皮膚營養針。", "我想諮詢拉提療程。"] },
+    price: { label: "價格/預約", examples: ["我想看完整價目表。", "可以刷卡付款嗎？"] },
+    safety: { label: "安全確認", examples: ["我正在服藥或有過敏史。", "因為有旅行計畫，我想知道恢復期。"] }
+  },
   ja: {
     visit: { label: "来院目的", examples: ["予約していません。今日カウンセリングできますか？", "可能であれば今日施術も受けたいです。"] },
     concern: { label: "症状/悩み", examples: ["自分に合う施術を相談したいです。", "赤み、かゆみ、痛みがあります。"] },
@@ -275,6 +338,27 @@ export const consultationExampleCategories: Record<
     procedure: { label: "Procedure", examples: ["I would like to ask about skin booster treatment.", "I would like to ask about lifting treatment."] },
     price: { label: "Price", examples: ["I would like to see the full price list.", "Can I pay by card?"] },
     safety: { label: "Safety", examples: ["I am taking medication or have allergies.", "I need to know the recovery time because of my travel schedule."] }
+  },
+  th: {
+    visit: { label: "การมาเยือน", examples: ["ฉันยังไม่ได้นัด วันนี้ปรึกษาได้ไหม?", "ถ้าเป็นไปได้ ฉันอยากทำหัตถการวันนี้ด้วย"] },
+    concern: { label: "ความกังวล", examples: ["ฉันอยากถามว่าหัตถการแบบไหนเหมาะกับฉัน", "ฉันมีผื่นแดง คัน หรือปวด"] },
+    procedure: { label: "หัตถการ", examples: ["ฉันอยากปรึกษาเรื่อง skin booster", "ฉันอยากปรึกษาเรื่องการยกกระชับ"] },
+    price: { label: "ราคา", examples: ["ฉันอยากดูรายการราคาทั้งหมด", "ชำระด้วยบัตรได้ไหม?"] },
+    safety: { label: "ความปลอดภัย", examples: ["ฉันกำลังทานยาอยู่หรือมีประวัติแพ้", "ฉันอยากทราบระยะพักฟื้นเพราะมีแผนเดินทาง"] }
+  },
+  ms: {
+    visit: { label: "Lawatan", examples: ["Saya belum membuat janji temu. Boleh konsultasi hari ini?", "Jika boleh, saya juga ingin rawatan hari ini."] },
+    concern: { label: "Kebimbangan", examples: ["Saya ingin tahu rawatan apa yang sesuai untuk saya.", "Saya mengalami kemerahan, gatal atau sakit."] },
+    procedure: { label: "Rawatan", examples: ["Saya ingin bertanya tentang rawatan skin booster.", "Saya ingin bertanya tentang rawatan lifting."] },
+    price: { label: "Harga", examples: ["Saya ingin melihat senarai harga penuh.", "Boleh bayar dengan kad?"] },
+    safety: { label: "Keselamatan", examples: ["Saya sedang mengambil ubat atau mempunyai alahan.", "Saya perlu tahu tempoh pemulihan kerana jadual perjalanan saya."] }
+  },
+  mn: {
+    visit: { label: "Ирсэн зорилго", examples: ["Би цаг аваагүй. Өнөөдөр зөвлөгөө авч болох уу?", "Боломжтой бол өнөөдөр ажилбар хийлгэмээр байна."] },
+    concern: { label: "Асуудал", examples: ["Надад ямар ажилбар тохирохыг асуумаар байна.", "Улайх, загатнах эсвэл өвдөх шинж байна."] },
+    procedure: { label: "Ажилбар", examples: ["Skin booster ажилбарын талаар зөвлөгөө авмаар байна.", "Лифтинг ажилбарын талаар зөвлөгөө авмаар байна."] },
+    price: { label: "Үнэ", examples: ["Бүрэн үнийн жагсаалтыг хармаар байна.", "Картаар төлж болох уу?"] },
+    safety: { label: "Аюулгүй байдал", examples: ["Би эм ууж байгаа эсвэл харшилтай.", "Аяллын төлөвлөгөөтэй тул эдгэрэх хугацааг мэдмээр байна."] }
   },
   ru: {
     visit: { label: "Визит", examples: ["У меня нет записи. Можно пройти консультацию сегодня?", "Если возможно, я хочу пройти процедуру сегодня."] },
@@ -644,6 +728,13 @@ export function getPatientFollowUpSuggestionSet(staffMessageText: string | undef
       price_schedule: { label: "价格和预约问题", suggestions: ["请告诉我大概费用。", "可以刷卡付款吗？", "今天可以预约吗？", "治疗后我需要再次来院吗？"] },
       summary: { label: "结束前确认", suggestions: ["请再简单总结一下。", "我想现在预约。", "我想再考虑一下。", "请告诉我注意事项。"] }
     },
+    zh_tw: {
+      intake: { label: "下一步可以這樣回答", suggestions: ["我今天只想先諮詢。", "如果可以，我今天也想做療程。", "我想預約其他日期。", "這是我第一次來這家醫院。"] },
+      medical: { label: "安全資訊確認", suggestions: ["我有正在服用的藥。", "我沒有藥物過敏。", "我有過敏史。", "我想確認是否可以做療程。"] },
+      procedure: { label: "療程諮詢問題", suggestions: ["我想知道哪種療程適合我。", "我擔心疼痛。", "我想知道恢復期。", "我想要自然的效果。"] },
+      price_schedule: { label: "價格和預約問題", suggestions: ["請告訴我大概費用。", "可以刷卡付款嗎？", "今天可以預約嗎？", "療程後我需要再次來院嗎？"] },
+      summary: { label: "結束前確認", suggestions: ["請再簡單總結一下。", "我想現在預約。", "我想再考慮一下。", "請告訴我注意事項。"] }
+    },
     ja: {
       intake: { label: "次にこう答えられます", suggestions: ["今日はまず相談だけしたいです。", "可能であれば今日施術も受けたいです。", "別の日に予約したいです。", "この病院は初めてです。"] },
       medical: { label: "安全情報の確認", suggestions: ["服用中の薬があります。", "薬のアレルギーはありません。", "アレルギーがあります。", "施術を受けられるか確認したいです。"] },
@@ -657,6 +748,27 @@ export function getPatientFollowUpSuggestionSet(staffMessageText: string | undef
       procedure: { label: "Treatment questions", suggestions: ["I want to know which treatment suits me.", "I am worried about pain.", "I want to know the recovery time.", "I want a natural-looking result."] },
       price_schedule: { label: "Price and booking questions", suggestions: ["Please tell me the approximate cost.", "Can I pay by card?", "Can I book today?", "Do I need to visit again after treatment?"] },
       summary: { label: "Before finishing", suggestions: ["Please summarize it again simply.", "I would like to book now.", "I would like to think about it.", "Please tell me the precautions."] }
+    },
+    th: {
+      intake: { label: "คุณสามารถตอบได้", suggestions: ["วันนี้ฉันอยากปรึกษาก่อนเท่านั้น", "ถ้าเป็นไปได้ ฉันอยากทำหัตถการวันนี้ด้วย", "ฉันอยากจองวันอื่น", "นี่เป็นครั้งแรกที่มาคลินิกนี้"] },
+      medical: { label: "ข้อมูลความปลอดภัย", suggestions: ["ฉันกำลังทานยาอยู่", "ฉันไม่มีอาการแพ้ยา", "ฉันมีประวัติแพ้", "ฉันอยากตรวจสอบว่าหัตถการนี้ปลอดภัยสำหรับฉันไหม"] },
+      procedure: { label: "คำถามเกี่ยวกับหัตถการ", suggestions: ["ฉันอยากรู้ว่าหัตถการแบบไหนเหมาะกับฉัน", "ฉันกังวลเรื่องความเจ็บ", "ฉันอยากรู้ระยะพักฟื้น", "ฉันต้องการผลลัพธ์ที่เป็นธรรมชาติ"] },
+      price_schedule: { label: "ราคาและการจอง", suggestions: ["กรุณาบอกค่าใช้จ่ายโดยประมาณ", "ชำระด้วยบัตรได้ไหม?", "วันนี้จองได้ไหม?", "หลังทำต้องกลับมาที่คลินิกอีกไหม?"] },
+      summary: { label: "ก่อนจบ", suggestions: ["กรุณาสรุปให้อีกครั้งแบบง่ายๆ", "ฉันอยากจองตอนนี้", "ฉันอยากคิดดูก่อน", "กรุณาบอกข้อควรระวัง"] }
+    },
+    ms: {
+      intake: { label: "Anda boleh menjawab", suggestions: ["Hari ini saya hanya mahu konsultasi dahulu.", "Jika boleh, saya juga mahu rawatan hari ini.", "Saya ingin menempah tarikh lain.", "Ini lawatan pertama saya ke klinik ini."] },
+      medical: { label: "Maklumat keselamatan", suggestions: ["Saya sedang mengambil ubat.", "Saya tiada alahan ubat.", "Saya mempunyai alahan.", "Saya ingin pastikan sama ada rawatan ini selamat untuk saya."] },
+      procedure: { label: "Soalan rawatan", suggestions: ["Saya ingin tahu rawatan apa yang sesuai untuk saya.", "Saya risau tentang kesakitan.", "Saya ingin tahu tempoh pemulihan.", "Saya mahukan hasil yang natural."] },
+      price_schedule: { label: "Harga dan tempahan", suggestions: ["Sila beritahu anggaran kos.", "Boleh bayar dengan kad?", "Boleh buat tempahan hari ini?", "Adakah saya perlu datang semula selepas rawatan?"] },
+      summary: { label: "Sebelum tamat", suggestions: ["Sila ringkaskan sekali lagi dengan mudah.", "Saya ingin menempah sekarang.", "Saya ingin fikir dahulu.", "Sila beritahu perkara yang perlu diberi perhatian."] }
+    },
+    mn: {
+      intake: { label: "Та ингэж хариулж болно", suggestions: ["Өнөөдөр зөвхөн зөвлөгөө авмаар байна.", "Боломжтой бол өнөөдөр ажилбар хийлгэмээр байна.", "Өөр өдөр цаг авмаар байна.", "Энэ эмнэлэгт анх удаа ирж байна."] },
+      medical: { label: "Аюулгүй байдлын мэдээлэл", suggestions: ["Би эм ууж байгаа.", "Би эмийн харшилгүй.", "Би харшилтай.", "Энэ ажилбар надад аюулгүй эсэхийг шалгамаар байна."] },
+      procedure: { label: "Ажилбарын асуулт", suggestions: ["Надад ямар ажилбар тохирохыг мэдмээр байна.", "Өвдөлтөөс санаа зовж байна.", "Эдгэрэх хугацааг мэдмээр байна.", "Байгалийн үр дүн хүсэж байна."] },
+      price_schedule: { label: "Үнэ ба цаг авах", suggestions: ["Ойролцоогоор зардлыг хэлж өгнө үү.", "Картаар төлж болох уу?", "Өнөөдөр цаг авч болох уу?", "Ажилбарын дараа дахин ирэх шаардлагатай юу?"] },
+      summary: { label: "Дуусахаас өмнө", suggestions: ["Дахин энгийнээр товчлоод хэлнэ үү.", "Одоо цаг авмаар байна.", "Би жаахан бодмоор байна.", "Анхаарах зүйлсийг хэлж өгнө үү."] }
     },
     ru: {
       intake: { label: "Можно ответить так", suggestions: ["Сегодня я хочу только консультацию.", "Если возможно, я хочу процедуру сегодня.", "Я хочу записаться на другую дату.", "Я впервые в этой клинике."] },

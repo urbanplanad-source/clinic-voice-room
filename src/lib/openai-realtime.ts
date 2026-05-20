@@ -6,8 +6,12 @@ export type TranslationDirection = "staff_to_patient" | "patient_to_staff";
 const realtimeTranslationOutputLanguages: Record<PatientLanguage | "ko", string> = {
   ko: "ko",
   zh: "zh",
+  zh_tw: "zh",
   ja: "ja",
   en: "en",
+  th: "th",
+  ms: "ms",
+  mn: "mn",
   ru: "ru",
   vi: "vi",
   id: "id",

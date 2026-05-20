@@ -1,4 +1,5 @@
-type PatientLanguage = "zh" | "ja" | "en" | "ru" | "vi" | "id" | "fr" | "es" | "de" | "it" | "pt";
+import type { PatientLanguage } from "./languages";
+
 type GlossaryTargetLanguage = PatientLanguage | "ko";
 type CriticalShortPhrase = {
   spoken: string[];
@@ -191,8 +192,12 @@ const criticalShortPhrases: CriticalShortPhrase[] = [
     translations: {
       ko: "아프지 않으세요?",
       zh: "疼吗？",
+      zh_tw: "會痛嗎？",
       ja: "痛くないですか？",
       en: "Does it hurt?",
+      th: "เจ็บไหม?",
+      ms: "Sakit tak?",
+      mn: "Өвдөж байна уу?",
       ru: "Больно?",
       vi: "Có đau không?",
       id: "Apakah sakit?",
@@ -209,8 +214,12 @@ const criticalShortPhrases: CriticalShortPhrase[] = [
     translations: {
       ko: "통증은 어떠세요?",
       zh: "疼痛怎么样？",
+      zh_tw: "疼痛感覺怎麼樣？",
       ja: "痛みはどうですか？",
       en: "How is the pain?",
+      th: "อาการปวดเป็นอย่างไรบ้าง?",
+      ms: "Bagaimana rasa sakitnya?",
+      mn: "Өвдөлт ямар байна?",
       ru: "Как боль?",
       vi: "Cơn đau thế nào?",
       id: "Bagaimana rasa sakitnya?",
@@ -227,8 +236,12 @@ const criticalShortPhrases: CriticalShortPhrase[] = [
     translations: {
       ko: "괜찮으세요?",
       zh: "还好吗？",
+      zh_tw: "還好嗎？",
       ja: "大丈夫ですか？",
       en: "Are you okay?",
+      th: "คุณโอเคไหม?",
+      ms: "Anda okey?",
+      mn: "Та зүгээр үү?",
       ru: "Вы в порядке?",
       vi: "Bạn ổn chứ?",
       id: "Apakah Anda baik-baik saja?",
@@ -245,8 +258,12 @@ const criticalShortPhrases: CriticalShortPhrase[] = [
     translations: {
       ko: "아프면 말씀해주세요.",
       zh: "如果疼请告诉我。",
+      zh_tw: "如果會痛請告訴我。",
       ja: "痛かったら教えてください。",
       en: "Please let me know if it hurts.",
+      th: "ถ้าเจ็บกรุณาบอกฉันนะคะ",
+      ms: "Jika sakit, sila beritahu saya.",
+      mn: "Өвдвөл надад хэлээрэй.",
       ru: "Если больно скажите мне.",
       vi: "Nếu đau hãy nói với tôi.",
       id: "Kalau sakit beri tahu saya.",
@@ -263,8 +280,12 @@ const criticalShortPhrases: CriticalShortPhrase[] = [
     translations: {
       ko: "움직이지 마세요.",
       zh: "请不要动。",
+      zh_tw: "請不要動。",
       ja: "動かないでください。",
       en: "Please don't move.",
+      th: "กรุณาอย่าขยับ",
+      ms: "Tolong jangan bergerak.",
+      mn: "Битгий хөдлөөрэй.",
       ru: "Пожалуйста не двигайтесь.",
       vi: "Vui lòng đừng cử động.",
       id: "Tolong jangan bergerak.",
@@ -281,8 +302,12 @@ const criticalShortPhrases: CriticalShortPhrase[] = [
     translations: {
       ko: "눈 감고 계세요.",
       zh: "请闭上眼睛。",
+      zh_tw: "請閉上眼睛。",
       ja: "目を閉じたままにしてください。",
       en: "Please keep your eyes closed.",
+      th: "กรุณาหลับตาไว้",
+      ms: "Sila tutup mata.",
+      mn: "Нүдээ аниад байгаарай.",
       ru: "Пожалуйста держите глаза закрытыми.",
       vi: "Vui lòng nhắm mắt lại.",
       id: "Tolong tetap tutup mata.",
@@ -299,8 +324,12 @@ const criticalShortPhrases: CriticalShortPhrase[] = [
     translations: {
       ko: "눈 뜨지 마세요.",
       zh: "请不要睁眼。",
+      zh_tw: "請不要睜開眼睛。",
       ja: "目を開けないでください。",
       en: "Please don't open your eyes.",
+      th: "กรุณาอย่าลืมตา",
+      ms: "Sila jangan buka mata.",
+      mn: "Нүдээ битгий нээгээрэй.",
       ru: "Пожалуйста не открывайте глаза.",
       vi: "Vui lòng đừng mở mắt.",
       id: "Tolong jangan buka mata.",
@@ -317,8 +346,12 @@ const criticalShortPhrases: CriticalShortPhrase[] = [
     translations: {
       ko: "조금 아플 수 있어요.",
       zh: "可能会有一点疼。",
+      zh_tw: "可能會有一點痛。",
       ja: "少し痛みを感じることがあります。",
       en: "It may hurt a little.",
+      th: "อาจเจ็บเล็กน้อย",
+      ms: "Mungkin sakit sedikit.",
+      mn: "Бага зэрэг өвдөж магадгүй.",
       ru: "Может быть немного больно.",
       vi: "Có thể hơi đau một chút.",
       id: "Mungkin terasa sedikit sakit.",
@@ -344,6 +377,9 @@ const targetMisrecognitionCorrections: Partial<Record<GlossaryTargetLanguage, Ar
   zh: [
     [/^(?:你不困吗|不困吗|困吗|你困吗)[?？。.\s]*$/i, "疼吗？"]
   ],
+  zh_tw: [
+    [/^(?:你不睏嗎|不睏嗎|睏嗎|你睏嗎)[?？。.\s]*$/i, "會痛嗎？"]
+  ],
   ja: [
     [/^(?:眠くないですか|眠いですか|眠くありませんか)[?？。.\s]*$/i, "痛くないですか？"]
   ],
@@ -359,6 +395,15 @@ const targetMisrecognitionCorrections: Partial<Record<GlossaryTargetLanguage, Ar
   ],
   id: [
     [/^(?:apakah\s+anda\s+mengantuk|anda\s+tidak\s+mengantuk|mengantuk)[?？。.\s]*$/i, "Apakah sakit?"]
+  ],
+  th: [
+    [/^(?:ง่วงไหม|คุณง่วงไหม|ไม่ง่วงหรือ)[?？。.\s]*$/i, "เจ็บไหม?"]
+  ],
+  ms: [
+    [/^(?:anda\s+mengantuk|mengantuk\s+tak|tidak\s+mengantuk)[?？。.\s]*$/i, "Sakit tak?"]
+  ],
+  mn: [
+    [/^(?:нойр\s+хүрч\s+байна\s+уу|та\s+нойрмог\s+байна\s+уу)[?？。.\s]*$/i, "Өвдөж байна уу?"]
   ],
   fr: [
     [/^(?:vous\s+n'avez\s+pas\s+sommeil|avez-vous\s+sommeil|vous\s+avez\s+sommeil)[?？。.\s]*$/i, "Est-ce que cela fait mal ?"]
@@ -397,12 +442,12 @@ function cleanRepeatedPunctuation(text: string) {
 
 function targetFor(entry: ClinicGlossaryEntry, targetLanguage: GlossaryTargetLanguage) {
   if (targetLanguage === "ko") return entry.standardKo;
-  if (targetLanguage === "zh") return entry.zh;
+  if (targetLanguage === "zh" || targetLanguage === "zh_tw") return entry.zh;
   if (targetLanguage === "ja") return entry.ja;
   if (targetLanguage === "en") return entry.en;
   if (targetLanguage === "ru") return entry.ru;
   if (targetLanguage === "vi") return entry.vi;
-  if (targetLanguage === "id") return entry.id;
+  if (targetLanguage === "id" || targetLanguage === "ms") return entry.id;
   return entry.en;
 }
 
@@ -458,7 +503,8 @@ export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage
     "- Short Korean procedure phrases are often spoken quickly. In a procedure room, prefer the pain and safety meaning over casual meanings like sleepiness or device setup.",
     "- Critical short phrase mappings:",
     ...criticalShortPhrases.map((entry) => `  - ${entry.spoken.join(" / ")} => ${targetForCritical(entry, patientLanguage)} (${entry.note})`),
-    "- For French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names.",
+    "- For Traditional Chinese, use Traditional Chinese characters even when a glossary source term is shown in Simplified Chinese.",
+    "- For Thai, Malay, Mongolian, French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names.",
     "- Do not expand brand names into generic explanations unless the staff explains them.",
     ...(rawGlossaryTargetLanguages.has(patientLanguage)
       ? clinicGlossary.map((entry) => `- ${entry.standardKo}: ${targetFor(entry, patientLanguage)}`)

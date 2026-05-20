@@ -19,6 +19,15 @@ const copy: Record<
     denied: "无法使用麦克风。请在浏览器设置中允许麦克风权限。",
     languageLabel: "中文翻译"
   },
+  zh_tw: {
+    title: "醫院翻譯室",
+    body: "請允許使用麥克風。不需要安裝 App 或註冊帳號。",
+    procedureBody: "療程中會播放翻譯語音。請保持螢幕開啟，並將手機放在身邊。",
+    consent: "為提供口譯服務，您的語音可能會由外部 AI 服務處理。本服務不會保存原始語音或完整對話紀錄。",
+    button: "進入房間",
+    denied: "無法使用麥克風。請在瀏覽器設定中允許麥克風權限。",
+    languageLabel: "繁體中文翻譯"
+  },
   ja: {
     title: "病院通訳ルーム",
     body: "マイクの使用を許可してください。アプリのインストールやアカウント登録は不要です。",
@@ -36,6 +45,33 @@ const copy: Record<
     button: "Enter room",
     denied: "Microphone is unavailable. Please allow microphone access in your browser settings.",
     languageLabel: "English interpretation"
+  },
+  th: {
+    title: "ห้องล่ามของโรงพยาบาล",
+    body: "กรุณาอนุญาตให้ใช้ไมโครโฟน ไม่ต้องติดตั้งแอปหรือสมัครบัญชี",
+    procedureBody: "ระหว่างทำหัตถการอาจมีเสียงแปล กรุณาเปิดหน้าจอไว้และวางโทรศัพท์ไว้ใกล้ตัว",
+    consent: "เพื่อให้บริการล่าม เสียงของคุณอาจถูกประมวลผลโดยบริการ AI ภายนอก เราจะไม่บันทึกเสียงต้นฉบับหรือบทสนทนาทั้งหมด",
+    button: "เข้าห้อง",
+    denied: "ไม่สามารถใช้ไมโครโฟนได้ กรุณาอนุญาตไมโครโฟนในการตั้งค่าเบราว์เซอร์",
+    languageLabel: "ล่ามภาษาไทย"
+  },
+  ms: {
+    title: "Bilik Interpretasi Klinik",
+    body: "Sila benarkan akses mikrofon. Tidak perlu memasang aplikasi atau membuat akaun.",
+    procedureBody: "Audio terjemahan mungkin dimainkan semasa prosedur. Pastikan skrin kekal hidup dan letakkan telefon berhampiran anda.",
+    consent: "Untuk menyediakan interpretasi, suara anda mungkin diproses oleh perkhidmatan AI luaran. Kami tidak menyimpan audio mentah atau transkrip perbualan penuh.",
+    button: "Masuk",
+    denied: "Mikrofon tidak tersedia. Sila benarkan akses mikrofon dalam tetapan pelayar.",
+    languageLabel: "Interpretasi Bahasa Melayu"
+  },
+  mn: {
+    title: "Эмнэлгийн орчуулгын өрөө",
+    body: "Микрофон ашиглахыг зөвшөөрнө үү. Апп суулгах эсвэл бүртгэл үүсгэх шаардлагагүй.",
+    procedureBody: "Ажилбарын үед орчуулсан дуу тоглож болно. Дэлгэцээ асаалттай байлгаж, утсаа ойрхон тавина уу.",
+    consent: "Орчуулга хийхийн тулд таны дуу хоолой гадаад AI үйлчилгээээр боловсруулагдаж болно. Бид эх аудио эсвэл бүтэн ярианы бичвэрийг хадгалахгүй.",
+    button: "Өрөөнд орох",
+    denied: "Микрофон ашиглах боломжгүй байна. Хөтчийн тохиргооноос микрофоны зөвшөөрлийг нээнэ үү.",
+    languageLabel: "Монгол орчуулга"
   },
   ru: {
     title: "Кабинет перевода в клинике",

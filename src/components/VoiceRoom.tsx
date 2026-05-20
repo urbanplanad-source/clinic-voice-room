@@ -25,8 +25,12 @@ const GOOGLE_TTS_WEB_URL = "https://play.google.com/store/apps/details?id=com.go
 const speechLanguageByPatientLanguage: Record<PatientLanguage | "ko", string> = {
   ko: "ko-KR",
   zh: "zh-CN",
+  zh_tw: "zh-TW",
   ja: "ja-JP",
   en: "en-US",
+  th: "th-TH",
+  ms: "ms-MY",
+  mn: "mn-MN",
   ru: "ru-RU",
   vi: "vi-VN",
   id: "id-ID",
@@ -186,6 +190,39 @@ const patientCopies: Record<PatientLanguage, VoiceRoomCopy> = {
     backWarning: { title: "翻译过程中请停留在此页面。", body: "如果语音无法继续使用，请让工作人员创建新的房间。" },
     connecting: { title: "正在连接实时翻译", body: "首次连接中，请稍候。", hint: "按钮变红后即可讲话。" }
   },
+  zh_tw: {
+    statusLabels: {
+      waiting_for_patient: "等待",
+      ready: "準備好了",
+      staff_speaking: "工作人員正在說話",
+      translating_to_patient: "正在翻譯",
+      patient_listening: "已顯示翻譯",
+      patient_speaking: "您正在說話",
+      translating_to_staff: "正在翻譯",
+      staff_listening: "已顯示翻譯",
+      ended: "已結束",
+      error: "錯誤"
+    },
+    statusDescriptions: {
+      waiting_for_patient: "正在等待翻譯室開啟。",
+      ready: "請點擊麥克風並說話。",
+      staff_speaking: "工作人員正在說話。",
+      translating_to_patient: "正在為您翻譯。",
+      patient_listening: "翻譯內容已顯示。",
+      patient_speaking: "正在聽您說話。",
+      translating_to_staff: "正在為工作人員翻譯。",
+      staff_listening: "翻譯內容已顯示。",
+      ended: "本次翻譯已結束。",
+      error: "發生連線錯誤。"
+    },
+    primary: { ended: "會話已結束", speaking: "再次點擊結束", ready: "點擊並說話", waiting: "請稍候" },
+    helper: { speaking: "說完後請再次點擊", idle: "請一次一人說話" },
+    errors: { mic: "無法使用麥克風。", busy: "對方正在說話。請稍後再試。" },
+    transcript: { title: "最近翻譯", empty: "對方的翻譯文字將顯示在這裡。", staff: "工作人員說話翻譯", patient: "患者說話翻譯" },
+    end: "結束翻譯",
+    backWarning: { title: "翻譯過程中請停留在此頁面。", body: "如果語音無法繼續使用，請讓工作人員建立新的房間。" },
+    connecting: { title: "正在連接即時翻譯", body: "首次連線中，請稍候。", hint: "按鈕變紅後即可說話。" }
+  },
   ja: {
     statusLabels: {
       waiting_for_patient: "待機中",
@@ -251,6 +288,105 @@ const patientCopies: Record<PatientLanguage, VoiceRoomCopy> = {
     end: "End interpretation",
     backWarning: { title: "Please stay on this screen during interpretation.", body: "If speaking no longer works, keep this room open and ask the staff to create a new room." },
     connecting: { title: "Connecting realtime interpretation", body: "Connecting for the first time. Please wait a moment.", hint: "Please speak when the button turns red." }
+  },
+  th: {
+    statusLabels: {
+      waiting_for_patient: "รอ",
+      ready: "พร้อม",
+      staff_speaking: "เจ้าหน้าที่กำลังพูด",
+      translating_to_patient: "กำลังแปล",
+      patient_listening: "แสดงข้อความแล้ว",
+      patient_speaking: "คุณกำลังพูด",
+      translating_to_staff: "กำลังแปล",
+      staff_listening: "แสดงข้อความแล้ว",
+      ended: "สิ้นสุด",
+      error: "ข้อผิดพลาด"
+    },
+    statusDescriptions: {
+      waiting_for_patient: "กำลังรอให้ห้องล่ามเปิด",
+      ready: "แตะไมโครโฟนแล้วพูด",
+      staff_speaking: "เจ้าหน้าที่กำลังพูด",
+      translating_to_patient: "กำลังแปลให้คุณ",
+      patient_listening: "แสดงข้อความแปลแล้ว",
+      patient_speaking: "กำลังฟังคุณพูด",
+      translating_to_staff: "กำลังแปลให้เจ้าหน้าที่",
+      staff_listening: "แสดงข้อความแปลแล้ว",
+      ended: "สิ้นสุดเซสชันล่ามแล้ว",
+      error: "เกิดข้อผิดพลาดในการเชื่อมต่อ"
+    },
+    primary: { ended: "เซสชันสิ้นสุด", speaking: "แตะอีกครั้งเพื่อจบ", ready: "แตะแล้วพูด", waiting: "กรุณารอสักครู่" },
+    helper: { speaking: "พูดจบแล้วแตะอีกครั้ง", idle: "กรุณาพูดทีละคน" },
+    errors: { mic: "ไม่สามารถใช้ไมโครโฟนได้", busy: "อีกฝ่ายกำลังพูด กรุณาลองใหม่อีกครั้ง" },
+    transcript: { title: "คำแปลล่าสุด", empty: "ข้อความแปลของอีกฝ่ายจะแสดงที่นี่", staff: "แปลคำพูดเจ้าหน้าที่", patient: "แปลคำพูดผู้ป่วย" },
+    end: "จบการล่าม",
+    backWarning: { title: "กรุณาอยู่ที่หน้าจอนี้ระหว่างการล่าม", body: "หากเสียงใช้ไม่ได้ กรุณาขอให้เจ้าหน้าที่สร้างห้องใหม่" },
+    connecting: { title: "กำลังเชื่อมต่อล่ามแบบเรียลไทม์", body: "กำลังเชื่อมต่อครั้งแรก กรุณารอสักครู่", hint: "กรุณาพูดเมื่อปุ่มเปลี่ยนเป็นสีแดง" }
+  },
+  ms: {
+    statusLabels: {
+      waiting_for_patient: "Menunggu",
+      ready: "Sedia",
+      staff_speaking: "Staf sedang bercakap",
+      translating_to_patient: "Menterjemah",
+      patient_listening: "Teks dipaparkan",
+      patient_speaking: "Anda sedang bercakap",
+      translating_to_staff: "Menterjemah",
+      staff_listening: "Teks dipaparkan",
+      ended: "Tamat",
+      error: "Ralat"
+    },
+    statusDescriptions: {
+      waiting_for_patient: "Menunggu bilik interpretasi dibuka.",
+      ready: "Ketik mikrofon dan bercakap.",
+      staff_speaking: "Staf sedang bercakap.",
+      translating_to_patient: "Menterjemah untuk anda.",
+      patient_listening: "Teks terjemahan telah dipaparkan.",
+      patient_speaking: "Sedang mendengar anda.",
+      translating_to_staff: "Menterjemah untuk staf.",
+      staff_listening: "Teks terjemahan telah dipaparkan.",
+      ended: "Sesi interpretasi telah tamat.",
+      error: "Ralat sambungan berlaku."
+    },
+    primary: { ended: "Sesi tamat", speaking: "Ketik lagi untuk tamat", ready: "Ketik dan bercakap", waiting: "Sila tunggu" },
+    helper: { speaking: "Ketik lagi selepas selesai bercakap", idle: "Sila bercakap seorang demi seorang" },
+    errors: { mic: "Mikrofon tidak tersedia.", busy: "Orang lain sedang bercakap. Cuba lagi sebentar lagi." },
+    transcript: { title: "Interpretasi terkini", empty: "Terjemahan orang lain akan muncul di sini.", staff: "Terjemahan ucapan staf", patient: "Terjemahan ucapan pesakit" },
+    end: "Tamatkan interpretasi",
+    backWarning: { title: "Sila kekal di skrin ini semasa interpretasi.", body: "Jika suara tidak berfungsi lagi, minta staf membuat bilik baharu." },
+    connecting: { title: "Menyambung interpretasi langsung", body: "Sambungan pertama sedang dibuat. Sila tunggu sebentar.", hint: "Sila bercakap apabila butang bertukar merah." }
+  },
+  mn: {
+    statusLabels: {
+      waiting_for_patient: "Хүлээж байна",
+      ready: "Бэлэн",
+      staff_speaking: "Ажилтан ярьж байна",
+      translating_to_patient: "Орчуулж байна",
+      patient_listening: "Текст харагдлаа",
+      patient_speaking: "Та ярьж байна",
+      translating_to_staff: "Орчуулж байна",
+      staff_listening: "Текст харагдлаа",
+      ended: "Дууссан",
+      error: "Алдаа"
+    },
+    statusDescriptions: {
+      waiting_for_patient: "Орчуулгын өрөө нээгдэхийг хүлээж байна.",
+      ready: "Микрофон дээр дараад ярина уу.",
+      staff_speaking: "Ажилтан ярьж байна.",
+      translating_to_patient: "Танд зориулж орчуулж байна.",
+      patient_listening: "Орчуулсан текст харагдлаа.",
+      patient_speaking: "Таны яриаг сонсож байна.",
+      translating_to_staff: "Ажилтанд зориулж орчуулж байна.",
+      staff_listening: "Орчуулсан текст харагдлаа.",
+      ended: "Орчуулгын сеанс дууссан.",
+      error: "Холболтын алдаа гарлаа."
+    },
+    primary: { ended: "Сеанс дууссан", speaking: "Дахин дарж дуусгах", ready: "Дарж ярих", waiting: "Түр хүлээнэ үү" },
+    helper: { speaking: "Ярьж дуусаад дахин дарна уу", idle: "Нэг нэгээрээ ярина уу" },
+    errors: { mic: "Микрофон ашиглах боломжгүй.", busy: "Нөгөө хүн ярьж байна. Түр хүлээгээд дахин оролдоно уу." },
+    transcript: { title: "Сүүлийн орчуулга", empty: "Нөгөө хүний орчуулсан текст энд гарна.", staff: "Ажилтны ярианы орчуулга", patient: "Өвчтөний ярианы орчуулга" },
+    end: "Орчуулгыг дуусгах",
+    backWarning: { title: "Орчуулгын үеэр энэ дэлгэц дээрээ байгаарай.", body: "Дуу ажиллахгүй бол ажилтнаас шинэ өрөө үүсгэхийг хүснэ үү." },
+    connecting: { title: "Шууд орчуулгад холбогдож байна", body: "Анхны холболт хийгдэж байна. Түр хүлээнэ үү.", hint: "Товч улаан болох үед ярина уу." }
   },
   ru: {
     statusLabels: {

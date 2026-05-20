@@ -122,7 +122,7 @@ export function StaffHome({
           </button>
         </section>
       ) : (
-        <section className="rounded-lg bg-white p-3 shadow-soft sm:p-4 md:p-5">
+        <section className="rounded-lg bg-white p-2.5 shadow-soft sm:p-3 md:p-4">
           <div className="flex items-center justify-between gap-3">
             <button
               type="button"
@@ -142,12 +142,12 @@ export function StaffHome({
             </span>
           </div>
 
-          <div className="mt-3">
-            <h2 className="text-xl font-bold leading-tight text-ink md:text-2xl">{modeCopy[selectedMode].title}</h2>
-            <p className="mt-1 text-sm font-semibold leading-5 text-slate-500 md:text-base">{modeCopy[selectedMode].body}</p>
+          <div className="mt-2 md:mt-3">
+            <h2 className="text-lg font-bold leading-tight text-ink md:text-2xl">{modeCopy[selectedMode].title}</h2>
+            <p className="mt-1 hidden text-sm font-semibold leading-5 text-slate-500 sm:block md:text-base">{modeCopy[selectedMode].body}</p>
           </div>
 
-          <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 md:gap-3" role="radiogroup" aria-label="Choose your language">
+          <div className="mt-3 grid grid-cols-3 gap-1.5 sm:grid-cols-5 md:gap-2 lg:gap-3" role="radiogroup" aria-label="Choose your language">
           {patientLanguages.map((language) => {
             const active = language === patientLanguage;
             return (
@@ -155,13 +155,13 @@ export function StaffHome({
                 key={language}
                 type="button"
                 onClick={() => setPatientLanguage(language)}
-                className={`min-h-[72px] rounded-lg border px-2 py-2 text-center transition md:min-h-[84px] ${
+                className={`min-h-[58px] rounded-lg border px-1.5 py-1.5 text-center transition sm:min-h-[62px] md:min-h-[70px] md:px-2 md:py-2 ${
                   active ? "border-trust bg-blue-50 text-trust" : "border-line bg-white text-slate-600 hover:bg-slate-50"
                 }`}
                 aria-pressed={active}
               >
-                <span className="block text-base font-bold leading-5 md:text-lg">{languageLabels[language].native}</span>
-                <span className="mt-1 block text-[11px] font-semibold leading-4 md:text-xs">{languageLabels[language].english}</span>
+                <span className="block break-keep text-sm font-bold leading-5 md:text-base">{languageLabels[language].native}</span>
+                <span className="mt-0.5 block truncate text-[10px] font-semibold leading-4 md:text-[11px]">{languageLabels[language].english}</span>
               </button>
             );
           })}
@@ -170,7 +170,7 @@ export function StaffHome({
           <button
             onClick={() => createRoom(selectedMode)}
             disabled={loadingMode !== null}
-            className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-trust px-5 text-lg font-bold text-white transition hover:bg-blue-600 disabled:opacity-50 md:h-16 md:text-xl"
+            className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-trust px-5 text-base font-bold text-white transition hover:bg-blue-600 disabled:opacity-50 md:h-14 md:text-lg"
           >
             {loadingMode === selectedMode ? <Loader2 size={24} className="animate-spin" /> : <Languages size={24} />}
             {modeCopy[selectedMode].button}

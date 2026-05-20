@@ -26,11 +26,15 @@ enum StaffRole {
 
 enum PatientLanguage {
   zh
+  zh_tw
   ja
   en
   ru
   vi
   id
+  th
+  ms
+  mn
   fr
   es
   de
