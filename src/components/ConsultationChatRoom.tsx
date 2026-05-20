@@ -300,24 +300,24 @@ export function ConsultationChatRoom({
 
   return (
     <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col overflow-hidden rounded-lg bg-white shadow-soft md:min-h-[720px]">
-      <header className="shrink-0 border-b border-line bg-white px-3 py-2.5 md:px-6 md:py-4">
+      <header className="shrink-0 border-b border-line bg-white px-3 py-2 md:px-6 md:py-2.5">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate text-xs font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
-            <h1 className="mt-0.5 truncate text-base font-bold text-ink md:mt-1 md:text-lg">{title}</h1>
+            <h1 className="mt-0.5 truncate text-base font-bold text-ink md:text-lg">{title}</h1>
           </div>
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1.5 text-[11px] font-bold text-trust md:gap-2 md:px-3 md:py-2 md:text-xs">
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1.5 text-[11px] font-bold text-trust md:gap-2 md:px-3 md:py-1.5 md:text-xs">
             <span className="h-2 w-2 rounded-full bg-trust" />
             {room.status === "ended" ? (role === "staff" ? "종료" : copy.statusEnded) : role === "staff" ? "채팅" : copy.statusChat}
           </span>
         </div>
 
         {role === "staff" ? (
-          <div className="mt-1.5 flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 md:mt-2 md:items-start md:gap-3 md:px-3 md:py-2.5">
-            <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-green-100 text-[10px] font-bold text-mint md:h-8 md:w-8 md:text-xs">AI</div>
+          <div className="mt-1.5 flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 md:mt-2 md:gap-2.5 md:px-3 md:py-1.5">
+            <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-green-100 text-[10px] font-bold text-mint md:h-7 md:w-7 md:text-[11px]">AI</div>
             <div className="min-w-0">
               <p className="truncate text-xs font-bold text-ink md:text-sm">텍스트 번역 상담이 시작되었습니다.</p>
-              <p className="hidden text-xs font-semibold leading-5 text-slate-500 md:mt-0.5 md:block">상담 단계와 추천문구로 흐름을 정리하세요.</p>
+              <p className="hidden text-xs font-semibold leading-5 text-slate-500 xl:mt-0.5 xl:block">상담 단계와 추천문구로 흐름을 정리하세요.</p>
             </div>
           </div>
         ) : (
@@ -325,8 +325,8 @@ export function ConsultationChatRoom({
         )}
 
         {role === "staff" ? (
-          <div className="mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-lg bg-green-50 px-2.5 py-1.5 text-[11px] font-bold text-mint md:mt-2 md:gap-2 md:px-3 md:py-2 md:text-xs">
-            <Sparkles size={14} />
+          <div className="mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-lg bg-green-50 px-2.5 py-1.5 text-[11px] font-bold text-mint md:mt-1.5 md:gap-2 md:px-3 md:py-1.5 md:text-xs">
+            <Sparkles size={13} />
             <span className="truncate">AI가 고객 메시지에 맞춰 다음 질문을 추천합니다.</span>
           </div>
         ) : null}
