@@ -1,0 +1,158 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlanType {
+  partner_free
+  external_trial
+  external_paid
+}
+
+enum HospitalStatus {
+  active
+  suspended
+}
+
+enum StaffRole {
+  hospital_admin
+  staff
+  internal_admin
+}
+
+enum PatientLanguage {
+  zh
+  ja
+  en
+  ru
+  vi
+  id
+  fr
+  es
+  de
+  it
+  pt
+}
+
+enum RoomStatus {
+  waiting_for_patient
+  ready
+  staff_speaking
+  translating_to_patient
+  patient_listening
+  patient_speaking
+  translating_to_staff
+  staff_listening
+  ended
+  error
+}
+
+enum RoomMode {
+  consultation
+  procedure
+}
+
+enum ParticipantRole {
+  staff
+  patient
+}
+
+enum ConnectionState {
+  connected
+  disconnected
+}
+
+model Hospital {
+  id                     String            @id @default(cuid())
+  name                   String
+  slug                   String            @unique
+  planType               PlanType          @default(partner_free)
+  status                 HospitalStatus    @default(active)
+  monthlyIncludedMinutes Int?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  staffUsers             StaffUser[]
+  rooms                  TranslationRoom[]
+  usageSessions          UsageSession[]
+}
+
+model StaffUser {
+  id            String            @id @default(cuid())
+  hospitalId    String
+  hospital      Hospital          @relation(fields: [hospitalId], references: [id])
+  name          String
+  email         String            @unique
+  passwordHash  String
+  role          StaffRole         @default(staff)
+  isActive      Boolean           @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  rooms         TranslationRoom[] @relation("RoomHost")
+  usageSessions UsageSession[]
+}
+
+model TranslationRoom {
+  id                   String                @id @default(cuid())
+  hospitalId           String
+  hospital             Hospital              @relation(fields: [hospitalId], references: [id])
+  hostStaffId          String
+  hostStaff            StaffUser             @relation("RoomHost", fields: [hostStaffId], references: [id])
+  patientLanguage      PatientLanguage
+  roomMode             RoomMode              @default(consultation)
+  roomToken            String                @unique
+  status               RoomStatus            @default(waiting_for_patient)
+  createdAt            DateTime              @default(now())
+  lastActiveAt         DateTime              @default(now())
+  patientJoinedAt      DateTime?
+  endedAt              DateTime?
+  participants         RoomParticipant[]
+  usageSession         UsageSession?
+  consultationMessages ConsultationMessage[]
+}
+
+model RoomParticipant {
+  id              String          @id @default(cuid())
+  roomId          String
+  room            TranslationRoom @relation(fields: [roomId], references: [id])
+  role            ParticipantRole
+  joinedAt        DateTime        @default(now())
+  leftAt          DateTime?
+  connectionState ConnectionState @default(connected)
+
+  @@index([roomId, role])
+}
+
+model UsageSession {
+  id                     String          @id @default(cuid())
+  hospitalId             String
+  hospital               Hospital        @relation(fields: [hospitalId], references: [id])
+  staffId                String
+  staff                  StaffUser       @relation(fields: [staffId], references: [id])
+  roomId                 String          @unique
+  room                   TranslationRoom @relation(fields: [roomId], references: [id])
+  patientLanguage        PatientLanguage
+  roomStartedAt          DateTime
+  roomEndedAt            DateTime?
+  totalRoomSeconds       Int             @default(0)
+  staffSpeakingSeconds   Int?
+  patientSpeakingSeconds Int?
+  translatedAudioSeconds Int?
+  estimatedApiCostUsd    Decimal?        @db.Decimal(10, 4)
+  createdAt              DateTime        @default(now())
+}
+
+model ConsultationMessage {
+  id        String          @id @default(cuid())
+  roomId    String
+  room      TranslationRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  speaker   ParticipantRole
+  text      String
+  createdAt DateTime        @default(now())
+
+  @@index([roomId, createdAt])
+}
