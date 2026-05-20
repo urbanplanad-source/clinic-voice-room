@@ -19,9 +19,6 @@ import {
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCEDURE_TRANSLATION_QUIET_MS = 700;
 const PROCEDURE_TRANSLATION_MAX_MS = 5500;
-const TTS_DEBUG_VERSION = "device-tts-only-2026-05-19.1";
-const GOOGLE_TTS_MARKET_URL = "market://details?id=com.google.android.tts";
-const GOOGLE_TTS_WEB_URL = "https://play.google.com/store/apps/details?id=com.google.android.tts";
 
 const speechLanguageByPatientLanguage: Record<PatientLanguage | "ko", string> = {
   ko: "ko-KR",
@@ -703,8 +700,6 @@ function ProcedureVoiceRoom({
   const [backWarning, setBackWarning] = useState(false);
   const [wakeLockStatus, setWakeLockStatus] = useState("");
   const [hardwareInputStatus, setHardwareInputStatus] = useState("키보드 입력 대기");
-  const [ttsStatus, setTtsStatus] = useState(`TTS ${TTS_DEBUG_VERSION}`);
-  const [ttsSetupHint, setTtsSetupHint] = useState("");
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
@@ -733,9 +728,6 @@ function ProcedureVoiceRoom({
   const latestMessage = messages[0];
   const isStaffAudioHub = role === "staff";
   const isConnectingRealtime = busy && !isSpeaking && /preparing|준비/i.test(realtimeStatus);
-  const latestTargetLanguage = latestMessage?.targetLanguage ?? (latestMessage?.speaker === "staff" ? room.patientLanguage : "ko");
-  const currentSpeechLanguage = speechLanguageByPatientLanguage[latestTargetLanguage];
-  const currentSpeechLanguageLabel = latestTargetLanguage === "ko" ? "한국어" : languageLabels[latestTargetLanguage].native;
   const displayText = latestMessage
     ? role === "staff"
       ? latestMessage.speaker === "staff"
@@ -844,7 +836,6 @@ function ProcedureVoiceRoom({
   const playBrowserTranslatedSpeech = useCallback((text: string, targetLanguage: PatientLanguage | "ko") => {
     if (!("speechSynthesis" in window)) {
       setError("This browser does not support device TTS.");
-      setTtsStatus(`Device TTS unavailable / ${TTS_DEBUG_VERSION}`);
       return;
     }
 
@@ -858,16 +849,10 @@ function ProcedureVoiceRoom({
 
     utterance.onerror = () => {
       setError(`${languageLabel} TTS voice could not be played on this device.`);
-      setTtsStatus(`Device TTS error / ${lang} / ${TTS_DEBUG_VERSION}`);
     };
 
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
-    setTtsStatus(
-      voice
-        ? `Device TTS / ${lang} / ${voice.name} / ${TTS_DEBUG_VERSION}`
-        : `Device TTS / ${lang} / no matching voice listed / ${TTS_DEBUG_VERSION}`
-    );
   }, [findBrowserVoice]);
 
   const playQueuedTranslatedSpeech = useCallback((message: TranslationMessage) => {
@@ -1192,25 +1177,6 @@ function ProcedureVoiceRoom({
     setWakeLockStatus("");
   }
 
-  function openDeviceTtsSettings() {
-    setTtsStatus(`Android TTS settings requested / ${currentSpeechLanguage} / ${TTS_DEBUG_VERSION}`);
-    setTtsSetupHint(
-      `브라우저가 설정 앱 열기를 막을 수 있습니다. 안 열리면 Android 설정 > 일반 관리 > 글자 읽어주기 또는 텍스트 음성 변환 > ${currentSpeechLanguageLabel} 음성을 설치해주세요.`
-    );
-    window.location.href = "intent:#Intent;action=android.settings.TTS_SETTINGS;package=com.android.settings;end";
-  }
-
-  function openGoogleTtsInstall() {
-    setTtsStatus(`Open Google Speech Services / ${currentSpeechLanguage} / ${TTS_DEBUG_VERSION}`);
-    setTtsSetupHint(
-      `스토어가 열리면 Speech Services by Google을 설치 또는 업데이트한 뒤, Android TTS 설정에서 ${currentSpeechLanguageLabel} 음성 데이터를 선택해주세요.`
-    );
-    window.location.href = GOOGLE_TTS_MARKET_URL;
-    window.setTimeout(() => {
-      if (document.visibilityState === "visible") window.location.href = GOOGLE_TTS_WEB_URL;
-    }, 700);
-  }
-
   function preferredRecordingMimeType() {
     if (!("MediaRecorder" in window)) return "";
     if (MediaRecorder.isTypeSupported("audio/mp4;codecs=mp4a.40.2")) return "audio/mp4;codecs=mp4a.40.2";
@@ -1507,18 +1473,6 @@ function ProcedureVoiceRoom({
         </p>
         {role === "staff" ? <p className="mt-2 text-sm font-semibold text-slate-500">풋패드 토글: 한 번 누르면 시작, 다시 누르면 종료. ↑ / Space / Enter 지원.</p> : null}
         {role === "staff" ? <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">{hardwareInputStatus}</p> : null}
-        {role === "staff" ? <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-trust">{ttsStatus}</p> : null}
-        {role === "staff" ? (
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <button type="button" onClick={openGoogleTtsInstall} className="h-11 rounded-lg bg-trust px-4 text-sm font-bold text-white transition hover:bg-blue-700">
-              TTS 앱 설치/업데이트
-            </button>
-            <button type="button" onClick={openDeviceTtsSettings} className="h-11 rounded-lg bg-slate-100 px-4 text-sm font-bold text-ink transition hover:bg-slate-200">
-              {currentSpeechLanguageLabel} TTS 설정 열기
-            </button>
-          </div>
-        ) : null}
-        {role === "staff" && ttsSetupHint ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-3 text-left text-xs font-bold leading-5 text-amber-800">{ttsSetupHint}</p> : null}
         {wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
         {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
         <p className="mt-2 text-sm font-semibold text-slate-500">{isSpeaking ? copy.helper.speaking : copy.helper.idle}</p>
