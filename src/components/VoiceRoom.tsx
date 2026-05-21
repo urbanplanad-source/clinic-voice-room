@@ -708,6 +708,10 @@ function ProcedureVoiceRoom({
   const latestMessage = messages[0];
   const isStaffAudioHub = role === "staff";
   const isConnectingRealtime = busy && !isSpeaking && /preparing|준비/i.test(realtimeStatus);
+  const procedureGuideText =
+    role === "staff"
+      ? "버튼 또는 풋패드를 눌러 말하고, 끝나면 다시 눌러 종료하세요."
+      : procedureIntroCopies[room.patientLanguage];
   const displayText = latestMessage
     ? role === "staff"
       ? latestMessage.speaker === "staff"
@@ -1406,6 +1410,9 @@ function ProcedureVoiceRoom({
       ) : null}
 
       <section className="rounded-lg bg-white p-5 text-center shadow-soft">
+        <div className="mx-auto mb-5 max-w-md rounded-lg bg-slate-50 px-4 py-3">
+          <p className="text-base font-semibold leading-7 text-slate-700 md:text-lg md:leading-8">{procedureGuideText}</p>
+        </div>
         <button
           type="button"
           disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
