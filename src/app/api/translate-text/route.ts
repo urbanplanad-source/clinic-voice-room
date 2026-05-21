@@ -87,7 +87,9 @@ export async function POST(request: Request) {
         message: {
           id: existingMessage.id,
           speaker: existingMessage.speaker,
+          sourceText: existingMessage.sourceText,
           text: existingMessage.text,
+          targetLanguage: existingMessage.targetLanguage,
           createdAt: existingMessage.createdAt.toISOString(),
           readAt: existingMessage.readAt?.toISOString() ?? null
         },
@@ -166,7 +168,9 @@ export async function POST(request: Request) {
           id: parsed.data.messageId,
           roomId: room.id,
           speaker: parsed.data.role,
-          text: normalizedText
+          sourceText: parsed.data.text,
+          text: normalizedText,
+          targetLanguage
         }
       });
     });
@@ -190,7 +194,9 @@ export async function POST(request: Request) {
     message: {
       id: message.id,
       speaker: message.speaker,
+      sourceText: message.sourceText,
       text: message.text,
+      targetLanguage: message.targetLanguage,
       createdAt: message.createdAt.toISOString(),
       readAt: message.readAt?.toISOString() ?? null
     },

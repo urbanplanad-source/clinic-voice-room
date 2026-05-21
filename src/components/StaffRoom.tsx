@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { QRCodeCanvas } from "qrcode.react";
-import { ArrowLeft, Check, Copy, Link2, QrCode, Smartphone, Stethoscope } from "lucide-react";
+import { ArrowLeft, Check, Copy, Link2, QrCode, Smartphone } from "lucide-react";
 import { VoiceRoom } from "./VoiceRoom";
-import { languageLabels, type PatientLanguage } from "@/lib/languages";
+import { type PatientLanguage } from "@/lib/languages";
 import type { RoomStatus } from "@/lib/room-state";
 import { subscribeToRoomUpdates } from "@/lib/supabase-realtime";
 
@@ -175,34 +175,21 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
 
   return (
     <div className="space-y-3 md:space-y-4">
-      <header className="overflow-hidden rounded-lg bg-ink px-4 py-3 text-white shadow-soft">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-xs font-bold text-blue-200 md:text-sm">{snapshot.hospital.name}</p>
-            <h1 className="mt-1 text-xl font-bold leading-tight md:text-2xl">
-              {isProcedureMode
-                ? `${languageLabels[snapshot.patientLanguage].ko} 시술 통역 대기`
-                : `${languageLabels[snapshot.patientLanguage].ko} 상담 통역 대기`}
-            </h1>
-            <p className="mt-1 text-sm font-bold text-slate-300">{languageLabels[snapshot.patientLanguage].native}</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="hidden items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-xs font-bold text-white sm:inline-flex">
-              {isProcedureMode ? <Stethoscope size={15} /> : <QrCode size={15} />}
-              {isProcedureMode ? "시술" : "상담"}
-            </span>
-            <Link
-              href="/staff"
-              className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-white px-3 text-xs font-bold text-ink transition hover:bg-slate-100"
-            >
-              <ArrowLeft size={15} className="text-trust" />
-              직원 화면으로
-            </Link>
-          </div>
-        </div>
-      </header>
-
       <section className="rounded-lg bg-white px-4 py-4 text-center shadow-soft md:px-6">
+        <div className="mb-3 flex items-center justify-between gap-3 text-left">
+          <div className="min-w-0">
+            <p className="truncate text-xs font-bold text-trust md:text-sm">{snapshot.hospital.name}</p>
+            <h1 className="mt-1 text-2xl font-bold leading-tight text-ink md:text-3xl">{copy.heading}</h1>
+            <p className="mt-1 text-sm font-bold text-slate-500">{copy.instruction}</p>
+          </div>
+          <Link
+            href="/staff"
+            className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-slate-50 px-3 text-xs font-bold text-ink transition hover:bg-slate-100"
+          >
+            <ArrowLeft size={15} className="text-trust" />
+            직원 화면으로
+          </Link>
+        </div>
         <div
           className="mx-auto inline-block rounded-lg border border-line bg-white p-3 md:p-4"
           style={{
@@ -234,7 +221,7 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
         <div className="mx-auto mt-3 grid h-9 w-9 place-items-center rounded-lg bg-blue-50 text-trust">
           <PrimaryIcon size={20} />
         </div>
-        <h2 className="mt-2 text-xl font-bold text-ink md:text-2xl">{isProcedureMode ? "Procedure patient device QR" : primaryQrCopy.title}</h2>
+        <h2 className="mt-2 text-xl font-bold text-ink md:text-2xl">{copy.waiting}</h2>
         {isProcedureMode ? (
           <p className="mx-auto mt-1 max-w-sm rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold leading-5 text-trust md:text-sm">
             Two-device web procedure mode: scan this QR on the patient device.

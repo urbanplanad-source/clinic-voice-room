@@ -151,13 +151,15 @@ model UsageSession {
 }
 
 model ConsultationMessage {
-  id        String          @id @default(cuid())
-  roomId    String
-  room      TranslationRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  speaker   ParticipantRole
-  text      String
-  createdAt DateTime        @default(now())
-  readAt    DateTime?
+  id             String          @id @default(cuid())
+  roomId         String
+  room           TranslationRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  speaker        ParticipantRole
+  sourceText     String?
+  text           String
+  targetLanguage String?
+  createdAt      DateTime        @default(now())
+  readAt         DateTime?
 
   @@index([roomId, createdAt])
 }

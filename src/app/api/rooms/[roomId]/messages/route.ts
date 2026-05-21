@@ -48,7 +48,9 @@ export async function GET(request: Request, context: { params: Promise<{ roomId:
     messages: orderedMessages.map((message) => ({
       id: message.id,
       speaker: message.speaker,
+      sourceText: message.sourceText,
       text: message.text,
+      targetLanguage: message.targetLanguage,
       createdAt: message.createdAt.toISOString(),
       readAt: message.readAt?.toISOString() ?? null
     }))

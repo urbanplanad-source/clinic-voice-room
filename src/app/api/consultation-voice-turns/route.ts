@@ -66,7 +66,9 @@ async function createMessage(params: {
   roomId: string;
   messageId: string;
   role: ParticipantRole;
+  sourceText: string;
   text: string;
+  targetLanguage: TargetLanguage;
 }) {
   try {
     return await prisma.$transaction(async (tx) => {
@@ -80,7 +82,9 @@ async function createMessage(params: {
           id: params.messageId,
           roomId: params.roomId,
           speaker: params.role,
-          text: params.text
+          sourceText: params.sourceText,
+          text: params.text,
+          targetLanguage: params.targetLanguage
         }
       });
     });
@@ -212,16 +216,18 @@ async function handleRealtimeStaffMessage(request: Request) {
     roomId: parsed.data.roomId,
     messageId: parsed.data.messageId,
     role: parsed.data.role,
-    text: normalizedText
+    sourceText: parsed.data.sourceText,
+    text: normalizedText,
+    targetLanguage: parsed.data.patientLanguage
   });
 
   return NextResponse.json({
     message: {
       id: message.id,
       speaker: message.speaker,
-      sourceText: parsed.data.sourceText,
+      sourceText: message.sourceText,
       text: message.text,
-      targetLanguage: parsed.data.patientLanguage,
+      targetLanguage: message.targetLanguage,
       createdAt: message.createdAt.toISOString(),
       readAt: message.readAt?.toISOString() ?? null
     },
@@ -272,8 +278,9 @@ async function handleAudioTurn(request: Request) {
       message: {
         id: existingMessage.id,
         speaker: existingMessage.speaker,
+        sourceText: existingMessage.sourceText,
         text: existingMessage.text,
-        targetLanguage: role === "staff" ? patientLanguage : "ko",
+        targetLanguage: existingMessage.targetLanguage ?? (role === "staff" ? patientLanguage : "ko"),
         createdAt: existingMessage.createdAt.toISOString(),
         readAt: existingMessage.readAt?.toISOString() ?? null
       },
@@ -321,16 +328,18 @@ async function handleAudioTurn(request: Request) {
     roomId,
     messageId,
     role,
-    text: translation.translatedText
+    sourceText,
+    text: translation.translatedText,
+    targetLanguage: translation.targetLanguage
   });
 
   return NextResponse.json({
     message: {
       id: message.id,
       speaker: message.speaker,
-      sourceText,
+      sourceText: message.sourceText,
       text: message.text,
-      targetLanguage: translation.targetLanguage,
+      targetLanguage: message.targetLanguage,
       createdAt: message.createdAt.toISOString(),
       readAt: message.readAt?.toISOString() ?? null
     },

@@ -106,6 +106,10 @@ export function ConsultationChatRoom({
     return role === "staff" ? `${language.ko} 번역상담` : `${language.native} Consultation`;
   }, [role, room.patientLanguage]);
 
+  const visibleMessageText = useCallback((message: TranslationMessage) => {
+    return message.speaker === role ? (message.sourceText ?? message.text) : message.text;
+  }, [role]);
+
   const transition = useCallback(async (status: RoomStatus) => {
     const response = await fetch(`/api/rooms/${room.id}/state`, {
       method: "POST",
@@ -609,7 +613,9 @@ export function ConsultationChatRoom({
     const localMessage = {
       id: `${messageId}-local`,
       speaker: role,
+      sourceText,
       text: sourceText,
+      targetLanguage: role === "staff" ? room.patientLanguage : "ko",
       createdAt: new Date().toISOString(),
       deliveryStatus: "sending"
     } satisfies TranslationMessage;
@@ -641,7 +647,9 @@ export function ConsultationChatRoom({
       const message = data.message ?? {
         id: messageId,
         speaker: role,
+        sourceText,
         text: data.translatedText,
+        targetLanguage: role === "staff" ? room.patientLanguage : "ko",
         createdAt: new Date().toISOString()
       } satisfies RealtimeTranslationMessage;
 
@@ -723,7 +731,7 @@ export function ConsultationChatRoom({
                       mine ? (failed ? "rounded-br-md bg-rose-500 text-white" : "rounded-br-md bg-trust text-white") : "rounded-bl-md bg-white text-ink"
                     }`}
                   >
-                    {message.text}
+                    {visibleMessageText(message)}
                     {sentAt || metaText ? (
                       <span className={`mt-1 block text-[11px] font-bold ${mine ? "text-white/80" : "text-slate-400"}`}>
                         {[sentAt, metaText].filter(Boolean).join(" · ")}

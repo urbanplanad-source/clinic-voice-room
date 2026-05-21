@@ -138,7 +138,7 @@ const staffCopy: VoiceRoomCopy = {
     error: "연결 오류가 발생했습니다."
   },
   primary: { ended: "세션 종료", speaking: "다시 누르면 종료", ready: "누르고 말씀하세요", waiting: "잠시 기다려주세요" },
-  helper: { speaking: "말이 끝나면 버튼을 다시 눌러주세요", idle: "한 번에 한 사람씩 말합니다" },
+  helper: { speaking: "말이 끝나면 버튼을 다시 눌러주세요", idle: "" },
   errors: { mic: "마이크를 사용할 수 없습니다.", busy: "상대방이 말하는 중입니다. 잠시 후 다시 눌러주세요." },
   transcript: {
     title: "최근 통역",
@@ -680,8 +680,6 @@ function ProcedureVoiceRoom({
   const [translationDraft, setTranslationDraft] = useState("");
   const [inputTranscriptDraft, setInputTranscriptDraft] = useState("");
   const [backWarning, setBackWarning] = useState(false);
-  const [wakeLockStatus, setWakeLockStatus] = useState("");
-  const [hardwareInputStatus, setHardwareInputStatus] = useState("키보드 입력 대기");
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
@@ -722,14 +720,14 @@ function ProcedureVoiceRoom({
   const displayLabel = latestMessage
     ? role === "staff"
       ? latestMessage.speaker === "staff"
-        ? "병원 발화 원문"
-        : "고객 발화 한국어 번역"
+        ? "병원 발화"
+        : "고객 발화"
       : latestMessage.speaker === "staff"
-        ? "병원 안내 번역"
-        : "내 발화 원문"
+        ? copy.transcript.staff
+        : copy.transcript.patient
     : role === "staff"
       ? "실시간 인식"
-      : "시술 통역";
+      : copy.transcript.title;
 
   useEffect(() => {
     roomRef.current = room;
@@ -817,21 +815,15 @@ function ProcedureVoiceRoom({
 
   const playBrowserTranslatedSpeech = useCallback((text: string, targetLanguage: PatientLanguage | "ko") => {
     if (!("speechSynthesis" in window)) {
-      setError("This browser does not support device TTS.");
       return;
     }
 
     const lang = speechLanguageByPatientLanguage[targetLanguage];
-    const languageLabel = targetLanguage === "ko" ? "한국어" : languageLabels[targetLanguage].native;
     const voice = findBrowserVoice(lang);
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = lang;
     utterance.rate = 0.9;
     if (voice) utterance.voice = voice;
-
-    utterance.onerror = () => {
-      setError(`${languageLabel} TTS voice could not be played on this device.`);
-    };
 
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
@@ -998,15 +990,6 @@ function ProcedureVoiceRoom({
     roomRootRef.current?.focus();
     hardwareCaptureRef.current?.focus({ preventScroll: true });
 
-    const isArrowUpKey = (event: KeyboardEvent) =>
-      event.code === "ArrowUp" ||
-      event.key === "ArrowUp" ||
-      event.key === "Up" ||
-      event.code === "PageUp" ||
-      event.key === "PageUp" ||
-      event.keyCode === 33 ||
-      event.keyCode === 38;
-
     const isPttKey = (event: KeyboardEvent) =>
       event.code === "Space" ||
       event.key === " " ||
@@ -1032,7 +1015,6 @@ function ProcedureVoiceRoom({
     const pressedHardwareKeys = pressedHardwareKeysRef.current;
 
     const toggleFromHardwareInput = (event: KeyboardEvent, source: "keydown" | "keypress" | "keyup") => {
-      setHardwareInputStatus(`입력 감지: ${event.code || event.key || event.keyCode}`);
       if (!isPttKey(event)) return;
 
       const id = keyId(event);
@@ -1045,7 +1027,6 @@ function ProcedureVoiceRoom({
       if (now - lastHardwareToggleAtRef.current < 350) return;
       lastHardwareToggleAtRef.current = now;
 
-      setHardwareInputStatus(`${isArrowUpKey(event) ? "↑" : "키보드"} 입력 적용됨 (${source})`);
       if (busy && !isSpeaking) return;
       if (!isSpeaking && !micEnabled) return;
       if (isSpeaking) void stopSpeakingRef.current();
@@ -1141,13 +1122,11 @@ function ProcedureVoiceRoom({
     try {
       const sentinel = await wakeLock.request("screen");
       wakeLockRef.current = sentinel;
-      setWakeLockStatus("화면 켜짐 유지 중");
       sentinel.addEventListener("release", () => {
         wakeLockRef.current = null;
-        setWakeLockStatus("");
       });
     } catch {
-      setWakeLockStatus("화면 자동 꺼짐 설정을 확인해주세요");
+      // Wake lock is a convenience only; interpretation should continue without showing setup text.
     }
   }
 
@@ -1156,7 +1135,6 @@ function ProcedureVoiceRoom({
     wakeLockRef.current = null;
     if (!sentinel) return;
     await sentinel.release().catch(() => undefined);
-    setWakeLockStatus("");
   }
 
   function preferredRecordingMimeType() {
@@ -1278,7 +1256,7 @@ function ProcedureVoiceRoom({
       setSpeakingStartedAt(Date.now());
     } catch (caught) {
       setSpeakingStartedAt(null);
-      setError(caught instanceof Error ? caught.message : copy.errors.mic);
+      setError(role === "patient" ? copy.errors.mic : caught instanceof Error ? caught.message : copy.errors.mic);
       setMicEnabled(false);
       realtimeClientRef.current?.close();
       realtimeClientRef.current = null;
@@ -1311,7 +1289,7 @@ function ProcedureVoiceRoom({
         setInputTranscriptDraft(message.sourceText ?? "");
         setTranslationDraft("");
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Translation failed.");
+        setError(role === "patient" ? copy.statusDescriptions.error : caught instanceof Error ? caught.message : "Translation failed.");
       } finally {
         mediaChunksRef.current = [];
         await transition("ready");
@@ -1390,13 +1368,13 @@ function ProcedureVoiceRoom({
         </section>
       ) : null}
 
-      <header className="rounded-lg bg-white p-5 shadow-sm">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
-            <h1 className="mt-2 text-[28px] font-bold leading-tight text-ink">{title}</h1>
-          </div>
-          {role === "staff" ? (
+      {role === "staff" ? (
+        <header className="rounded-lg bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
+              <h1 className="mt-2 text-[28px] font-bold leading-tight text-ink">{title}</h1>
+            </div>
             <Link
               href="/staff"
               className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-slate-50 px-3 text-xs font-bold text-ink transition hover:bg-slate-100 md:text-sm"
@@ -1404,11 +1382,12 @@ function ProcedureVoiceRoom({
               <ArrowLeft size={16} className="text-trust" />
               직원 화면으로
             </Link>
-          ) : null}
-        </div>
-      </header>
+          </div>
+        </header>
+      ) : null}
 
-      <section className="rounded-lg bg-white p-5 shadow-sm">
+      {isConnectingRealtime || displayText ? (
+        <section className="rounded-lg bg-white p-5 shadow-sm">
         {isConnectingRealtime ? (
           <article className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4">
             <p className="text-xs font-bold text-trust">{copy.connecting.title}</p>
@@ -1422,23 +1401,11 @@ function ProcedureVoiceRoom({
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust">{displayLabel}</p>
             <p className="mt-2 text-2xl font-bold leading-8 text-ink">{displayText}</p>
           </article>
-        ) : (
-          <p className="rounded-lg bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-500">
-            {role === "staff" ? "병원폰에는 한국어 원문과 고객 발화의 한국어 번역이 표시됩니다." : "고객/보조 기기에는 고객 언어 텍스트만 표시됩니다."}
-          </p>
-        )}
-      </section>
+        ) : null}
+        </section>
+      ) : null}
 
       <section className="rounded-lg bg-white p-5 text-center shadow-soft">
-        <div className="mx-auto mb-5 max-w-sm">
-          <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust">{role === "staff" ? "browser tts audio hub" : "procedure text view"}</p>
-          <h2 className="mt-2 text-2xl font-bold text-ink">{role === "staff" ? "병원 오디오 허브" : "고객/보조 기기"}</h2>
-          <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
-            {role === "staff"
-              ? "풋패드나 버튼을 한 번 누르고 한국어로 말한 뒤, 다시 눌러 종료하세요. 번역 음성은 이 병원폰에서 재생됩니다."
-              : "버튼을 한 번 누르고 답변한 뒤, 다시 눌러 종료하세요. 이 기기에는 텍스트만 표시됩니다."}
-          </p>
-        </div>
         <button
           type="button"
           disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
@@ -1453,11 +1420,7 @@ function ProcedureVoiceRoom({
         <p className="mt-4 text-xl font-bold text-ink">
           {room.status === "ended" ? copy.primary.ended : isSpeaking ? copy.primary.speaking : micEnabled ? copy.primary.ready : copy.primary.waiting}
         </p>
-        {role === "staff" ? <p className="mt-2 text-sm font-semibold text-slate-500">풋패드 토글: 한 번 누르면 시작, 다시 누르면 종료. ↑ / Space / Enter 지원.</p> : null}
-        {role === "staff" ? <p className="mt-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">{hardwareInputStatus}</p> : null}
-        {wakeLockStatus ? <p className="mt-3 text-xs font-bold text-trust">{wakeLockStatus}</p> : null}
-        {realtimeStatus ? <p className="mt-2 text-xs font-bold text-trust">{realtimeStatus}</p> : null}
-        <p className="mt-2 text-sm font-semibold text-slate-500">{isSpeaking ? copy.helper.speaking : copy.helper.idle}</p>
+        {isSpeaking ? <p className="mt-2 text-sm font-semibold text-slate-500">{copy.helper.speaking}</p> : null}
         {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
       </section>
 
