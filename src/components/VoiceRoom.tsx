@@ -8,7 +8,7 @@ import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
 import { normalizeClinicTranslation } from "@/lib/clinic-glossary";
 import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
 import { speechLanguageByPatientLanguage } from "@/lib/speech";
-import { ConsultationChatRoom } from "./ConsultationChatRoom";
+import { ConsultationChatRoom } from "@/components/ConsultationChatRoom";
 import {
   broadcastRoomUpdate,
   broadcastTranslationMessage,
