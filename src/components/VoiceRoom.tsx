@@ -7,6 +7,7 @@ import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/li
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
 import { normalizeClinicTranslation } from "@/lib/clinic-glossary";
 import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
+import { speechLanguageByPatientLanguage } from "@/lib/speech";
 import { ConsultationChatRoom } from "./ConsultationChatRoom";
 import {
   broadcastRoomUpdate,
@@ -19,25 +20,6 @@ import {
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCEDURE_TRANSLATION_QUIET_MS = 700;
 const PROCEDURE_TRANSLATION_MAX_MS = 5500;
-
-const speechLanguageByPatientLanguage: Record<PatientLanguage | "ko", string> = {
-  ko: "ko-KR",
-  zh: "zh-CN",
-  zh_tw: "zh-TW",
-  ja: "ja-JP",
-  en: "en-US",
-  th: "th-TH",
-  ms: "ms-MY",
-  mn: "mn-MN",
-  ru: "ru-RU",
-  vi: "vi-VN",
-  id: "id-ID",
-  fr: "fr-FR",
-  es: "es-ES",
-  de: "de-DE",
-  it: "it-IT",
-  pt: "pt-PT"
-};
 
 const procedureIntroCopies: Record<PatientLanguage, string> = {
   zh: "我们正在准备治疗。如果您有不舒服或想说的话，请按屏幕上的按钮。按钮变成红色后请说话，说完后再按一次按钮结束。",

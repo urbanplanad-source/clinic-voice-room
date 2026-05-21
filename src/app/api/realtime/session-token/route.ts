@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   if (!room || room.status === "ended") {
     return NextResponse.json({ error: "Room not available" }, { status: 404 });
   }
-  if (room.roomMode !== "procedure") {
+  if (room.roomMode !== "procedure" && room.roomMode !== "consultation") {
     return NextResponse.json({ error: "Room not available" }, { status: 404 });
   }
 

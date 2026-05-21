@@ -2,9 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import Link from "next/link";
-import { ArrowLeft, Loader2, PhoneOff, Send, Sparkles } from "lucide-react";
+import { ArrowLeft, Loader2, Mic, PhoneOff, Send } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
-import { type RoomStatus } from "@/lib/room-state";
+import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
+import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
+import { normalizeClinicTranslation } from "@/lib/clinic-glossary";
+import { speechLanguageByPatientLanguage } from "@/lib/speech";
 import {
   broadcastRoomUpdate,
   broadcastTranslationMessage,
@@ -14,14 +17,30 @@ import {
 } from "@/lib/supabase-realtime";
 import {
   consultationDeliveryStatusCopy,
-  consultationTextCopy,
-  getPatientFollowUpSuggestionSet,
-  getStaffFollowUpSuggestionSet,
-  inferConsultationStage,
-  stageLabel,
+  consultationTextCopy
 } from "@/lib/consultation-templates";
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+const CONSULTATION_TRANSLATION_QUIET_MS = 700;
+const CONSULTATION_TRANSLATION_MAX_MS = 5500;
+
+const voiceCopy: Record<PatientLanguage, { ready: string; speaking: string; waiting: string; helper: string; micError: string; busy: string; fallback: string }> = {
+  zh: { ready: "按住说话", speaking: "再次点击结束", waiting: "请稍候", helper: "建议先用语音咨询。输入框可作为备用。", micError: "无法使用麦克风。请允许浏览器使用麦克风。", busy: "对方正在讲话。请稍后再试。", fallback: "语音不顺利时可输入文字。" },
+  zh_tw: { ready: "點擊說話", speaking: "再次點擊結束", waiting: "請稍候", helper: "建議先用語音諮詢。輸入框可作為備用。", micError: "無法使用麥克風。請允許瀏覽器使用麥克風。", busy: "對方正在說話。請稍後再試。", fallback: "語音不順利時可輸入文字。" },
+  ja: { ready: "タップして話す", speaking: "もう一度タップして終了", waiting: "少々お待ちください", helper: "まず音声で相談できます。入力欄は予備として使えます。", micError: "マイクを使用できません。ブラウザでマイクを許可してください。", busy: "相手が話しています。少し待ってからお試しください。", fallback: "音声がうまくいかない時は文字で入力できます。" },
+  en: { ready: "Tap and speak", speaking: "Tap again to finish", waiting: "Please wait", helper: "Voice is the main way to consult. Typing is available as a backup.", micError: "Microphone is unavailable. Please allow microphone access in your browser.", busy: "The other person is speaking. Please try again shortly.", fallback: "If voice does not work well, type here." },
+  th: { ready: "แตะแล้วพูด", speaking: "แตะอีกครั้งเพื่อจบ", waiting: "กรุณารอสักครู่", helper: "แนะนำให้ปรึกษาด้วยเสียงก่อน ช่องพิมพ์ใช้เป็นทางเลือกสำรอง", micError: "ไม่สามารถใช้ไมโครโฟนได้ กรุณาอนุญาตไมโครโฟนในเบราว์เซอร์", busy: "อีกฝ่ายกำลังพูด กรุณาลองใหม่อีกครั้ง", fallback: "หากเสียงไม่ชัด สามารถพิมพ์ข้อความได้" },
+  ms: { ready: "Ketik dan bercakap", speaking: "Ketik lagi untuk tamat", waiting: "Sila tunggu", helper: "Gunakan suara dahulu untuk konsultasi. Ruang teks tersedia sebagai sandaran.", micError: "Mikrofon tidak tersedia. Sila benarkan akses mikrofon dalam pelayar.", busy: "Orang lain sedang bercakap. Cuba lagi sebentar lagi.", fallback: "Jika suara tidak lancar, taip di sini." },
+  mn: { ready: "Дарж ярих", speaking: "Дахин дарж дуусгах", waiting: "Түр хүлээнэ үү", helper: "Эхлээд дуугаар зөвлөгөө авахыг зөвлөж байна. Бичих талбар нөөцөөр байна.", micError: "Микрофон ашиглах боломжгүй. Хөтөч дээр микрофон зөвшөөрнө үү.", busy: "Нөгөө хүн ярьж байна. Түр хүлээгээд дахин оролдоно уу.", fallback: "Дуу сайн ажиллахгүй бол энд бичнэ үү." },
+  ru: { ready: "Нажмите и говорите", speaking: "Нажмите еще раз, чтобы закончить", waiting: "Пожалуйста, подождите", helper: "Лучше начать консультацию голосом. Текстовое поле доступно как запасной вариант.", micError: "Микрофон недоступен. Разрешите доступ к микрофону в браузере.", busy: "Сейчас говорит другой человек. Повторите чуть позже.", fallback: "Если голос работает плохо, введите текст здесь." },
+  vi: { ready: "Nhấn và nói", speaking: "Nhấn lại để kết thúc", waiting: "Vui lòng chờ", helper: "Nên tư vấn bằng giọng nói trước. Ô nhập chữ dùng khi cần.", micError: "Không thể sử dụng micro. Vui lòng cho phép micro trong trình duyệt.", busy: "Người kia đang nói. Vui lòng thử lại sau.", fallback: "Nếu giọng nói không ổn, hãy nhập chữ tại đây." },
+  id: { ready: "Ketuk dan bicara", speaking: "Ketuk lagi untuk selesai", waiting: "Mohon tunggu", helper: "Gunakan suara sebagai cara utama konsultasi. Kolom teks tersedia sebagai cadangan.", micError: "Mikrofon tidak tersedia. Izinkan akses mikrofon di browser.", busy: "Orang lain sedang berbicara. Coba lagi sebentar lagi.", fallback: "Jika suara kurang lancar, ketik di sini." },
+  fr: { ready: "Touchez et parlez", speaking: "Touchez à nouveau pour terminer", waiting: "Veuillez patienter", helper: "La consultation se fait d'abord par voix. Le texte reste disponible en secours.", micError: "Le microphone n'est pas disponible. Autorisez l'accès au microphone dans le navigateur.", busy: "L'autre personne parle. Veuillez réessayer dans un instant.", fallback: "Si la voix fonctionne mal, écrivez ici." },
+  es: { ready: "Toque y hable", speaking: "Toque de nuevo para terminar", waiting: "Espere un momento", helper: "Use la voz como forma principal de consulta. El texto queda como respaldo.", micError: "El micrófono no está disponible. Permita el acceso al micrófono en el navegador.", busy: "La otra persona está hablando. Inténtelo de nuevo en un momento.", fallback: "Si la voz no funciona bien, escriba aquí." },
+  de: { ready: "Tippen und sprechen", speaking: "Zum Beenden erneut tippen", waiting: "Bitte warten", helper: "Die Beratung läuft zuerst per Sprache. Das Textfeld bleibt als Reserve verfügbar.", micError: "Das Mikrofon ist nicht verfügbar. Bitte erlauben Sie den Mikrofonzugriff im Browser.", busy: "Die andere Person spricht. Bitte versuchen Sie es gleich erneut.", fallback: "Wenn Sprache nicht gut funktioniert, schreiben Sie hier." },
+  it: { ready: "Tocca e parla", speaking: "Tocca di nuovo per finire", waiting: "Attendi", helper: "La consulenza parte dalla voce. Il testo resta come opzione di riserva.", micError: "Il microfono non è disponibile. Consenti l'accesso al microfono nel browser.", busy: "L'altra persona sta parlando. Riprova tra poco.", fallback: "Se la voce non funziona bene, scrivi qui." },
+  pt: { ready: "Toque e fale", speaking: "Toque novamente para terminar", waiting: "Aguarde", helper: "A consulta deve começar por voz. O texto fica como opção de apoio.", micError: "O microfone não está disponível. Permita o acesso ao microfone no navegador.", busy: "A outra pessoa está falando. Tente novamente em instantes.", fallback: "Se a voz não funcionar bem, digite aqui." }
+};
 
 type RoomSnapshot = {
   id: string;
@@ -33,7 +52,9 @@ type RoomSnapshot = {
 type TranslationMessage = {
   id: string;
   speaker: ParticipantRole;
+  sourceText?: string;
   text: string;
+  targetLanguage?: PatientLanguage | "ko";
   createdAt?: string;
   readAt?: string | null;
   deliveryStatus?: "sending" | "failed";
@@ -52,31 +73,57 @@ export function ConsultationChatRoom({
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
   const [textInput, setTextInput] = useState("");
   const [textSubmitting, setTextSubmitting] = useState(false);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+  const [speakingStartedAt, setSpeakingStartedAt] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [ending, setEnding] = useState(false);
   const chatScrollRef = useRef<HTMLElement | null>(null);
   const isComposingTextRef = useRef(false);
   const inactivityTimerRef = useRef<number | null>(null);
   const lastFetchedMessageAtRef = useRef<string | null>(null);
+  const messageFetchInitializedRef = useRef(false);
   const messagePollInFlightRef = useRef(false);
+  const streamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaChunksRef = useRef<Blob[]>([]);
+  const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
+  const realtimePreconnectStartedRef = useRef(false);
+  const speechQueueRef = useRef(Promise.resolve());
+  const spokenMessageIdsRef = useRef(new Set<string>());
 
   const copy = consultationTextCopy[room.patientLanguage];
+  const voiceText = role === "staff"
+    ? { ready: "누르고 말하세요", speaking: "다시 누르면 종료", waiting: "잠시 기다려주세요", helper: "음성을 먼저 사용하고, 인식이 어려울 때만 텍스트로 입력하세요.", micError: "마이크를 사용할 수 없습니다.", busy: "상대방이 말하는 중입니다. 잠시 후 다시 눌러주세요.", fallback: "음성 인식이 원활하지 않을 때 텍스트로 입력하세요." }
+    : voiceCopy[room.patientLanguage];
   const deliveryStatusCopy = role === "staff" ? { sending: "전송 중", failed: "전송 실패", read: "읽음" } : consultationDeliveryStatusCopy[room.patientLanguage];
   const chatMessages = [...messages].reverse();
-  const latestPatientMessage = messages.find((message) => message.speaker === "patient");
-  const latestPatientText = latestPatientMessage?.text;
-  const previousPatientMessage = messages.filter((message) => message.speaker === "patient")[1];
-  const latestStaffMessage = messages.find((message) => message.speaker === "staff");
-  const inferredStage = inferConsultationStage(latestPatientText, inferConsultationStage(previousPatientMessage?.text, "intake"));
-  const staffSuggestionSet = getStaffFollowUpSuggestionSet(latestPatientText, inferredStage);
-  const patientSuggestionSet = getPatientFollowUpSuggestionSet(latestStaffMessage?.text, room.patientLanguage);
   const canSubmitText = Boolean(textInput.trim()) && !textSubmitting && room.status !== "ended";
-  const canSendExampleText = !textSubmitting && room.status !== "ended";
+  const isSpeaking = speakingStartedAt !== null;
+  const micEnabled = isMicEnabled(room.status, role);
 
   const title = useMemo(() => {
     const language = languageLabels[room.patientLanguage];
     return role === "staff" ? `${language.ko} 번역상담` : `${language.native} Consultation`;
   }, [role, room.patientLanguage]);
+
+  const transition = useCallback(async (status: RoomStatus) => {
+    const response = await fetch(`/api/rooms/${room.id}/state`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role, status, roomToken })
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok) {
+      setRoom((current) => ({ ...current, ...data.room }));
+      void broadcastRoomUpdate(data.room);
+      return true;
+    }
+    if (data?.room) {
+      setRoom((current) => ({ ...current, ...data.room }));
+      void broadcastRoomUpdate(data.room);
+    }
+    return false;
+  }, [role, room.id, roomToken]);
 
   const mergeMessages = useCallback((incomingMessages: TranslationMessage[]) => {
     setMessages((current) => {
@@ -115,6 +162,73 @@ export function ConsultationChatRoom({
     );
   }, []);
 
+  const stopPlayback = useCallback(() => {
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  }, []);
+
+  const findBrowserVoice = useCallback((lang: string) => {
+    if (!("speechSynthesis" in window)) return null;
+    const voices = window.speechSynthesis.getVoices();
+    const normalizedLang = lang.toLowerCase();
+    const baseLang = normalizedLang.split("-")[0];
+    return (
+      voices.find((voice) => voice.lang.toLowerCase() === normalizedLang) ??
+      voices.find((voice) => voice.lang.toLowerCase().startsWith(`${baseLang}-`)) ??
+      null
+    );
+  }, []);
+
+  const playBrowserTranslatedSpeech = useCallback((text: string, targetLanguage: PatientLanguage | "ko") => {
+    if (role !== "staff") return;
+    if (!("speechSynthesis" in window)) return;
+
+    const lang = speechLanguageByPatientLanguage[targetLanguage];
+    const voice = findBrowserVoice(lang);
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang;
+    utterance.rate = 0.9;
+    if (voice) utterance.voice = voice;
+
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }, [findBrowserVoice, role]);
+
+  const playQueuedTranslatedSpeech = useCallback((message: TranslationMessage) => {
+    if (role !== "staff" || spokenMessageIdsRef.current.has(message.id)) return;
+    spokenMessageIdsRef.current.add(message.id);
+    const targetLanguage = message.targetLanguage ?? (message.speaker === "staff" ? room.patientLanguage : "ko");
+    speechQueueRef.current = speechQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        playBrowserTranslatedSpeech(message.text, targetLanguage);
+      });
+  }, [playBrowserTranslatedSpeech, role, room.patientLanguage]);
+
+  const ensureRealtimeSession = useCallback(async (stream: MediaStream) => {
+    if (!realtimeClientRef.current) {
+      realtimeClientRef.current = new OpenAIRealtimeClient({
+        roomId: room.id,
+        role,
+        roomToken
+      }, {
+        onFirstOutputDelta: () => {
+          void transition(role === "staff" ? "patient_listening" : "staff_listening");
+        },
+        onError: setError
+      });
+    }
+
+    try {
+      await realtimeClientRef.current.connect(stream);
+      return realtimeClientRef.current;
+    } catch (caught) {
+      realtimeClientRef.current.close();
+      realtimeClientRef.current = null;
+      realtimePreconnectStartedRef.current = false;
+      throw caught;
+    }
+  }, [role, room.id, roomToken, transition]);
+
   const endRoom = useCallback(async () => {
     setEnding(true);
     const response = await fetch(`/api/rooms/${room.id}/end`, { method: "POST" });
@@ -139,6 +253,235 @@ export function ConsultationChatRoom({
     }, INACTIVITY_TIMEOUT_MS);
   }, [endRoom, role, room.status]);
 
+  async function ensureMicStream() {
+    const currentStream = streamRef.current;
+    if (currentStream?.active && currentStream.getAudioTracks().some((track) => track.readyState === "live")) {
+      return currentStream;
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getAudioTracks().forEach((track) => {
+      track.enabled = false;
+    });
+    streamRef.current = stream;
+    return stream;
+  }
+
+  function setMicEnabled(enabled: boolean) {
+    streamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = enabled;
+    });
+  }
+
+  function preferredRecordingMimeType() {
+    if (!("MediaRecorder" in window)) return "";
+    if (MediaRecorder.isTypeSupported("audio/mp4;codecs=mp4a.40.2")) return "audio/mp4;codecs=mp4a.40.2";
+    if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
+    if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) return "audio/webm;codecs=opus";
+    if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
+    return "";
+  }
+
+  function audioFileExtension(mimeType: string) {
+    if (mimeType.includes("mp4") || mimeType.includes("aac")) return "mp4";
+    if (mimeType.includes("ogg")) return "ogg";
+    if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
+    return "webm";
+  }
+
+  function createAudioRecorder(stream: MediaStream) {
+    if (!("MediaRecorder" in window)) {
+      throw new Error("This browser does not support audio recording.");
+    }
+
+    const mimeType = preferredRecordingMimeType();
+    return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  }
+
+  async function startPatientRecording() {
+    const acquiredTurn = await transition("patient_speaking");
+    if (!acquiredTurn) {
+      setError(voiceText.busy);
+      return false;
+    }
+
+    const stream = await ensureMicStream();
+    const recorder = createAudioRecorder(stream);
+    mediaChunksRef.current = [];
+    recorder.addEventListener("dataavailable", (event) => {
+      if (event.data.size > 0) mediaChunksRef.current.push(event.data);
+    });
+    recorder.start();
+    mediaRecorderRef.current = recorder;
+    setMicEnabled(true);
+    setSpeakingStartedAt(Date.now());
+    return true;
+  }
+
+  function stopPatientRecorder() {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") {
+      const mimeType = mediaChunksRef.current.find((chunk) => chunk.type)?.type || "audio/webm";
+      return Promise.resolve(new Blob(mediaChunksRef.current, { type: mimeType }));
+    }
+
+    return new Promise<Blob>((resolve, reject) => {
+      const mimeType = recorder.mimeType || "audio/webm";
+      recorder.addEventListener(
+        "stop",
+        () => {
+          resolve(new Blob(mediaChunksRef.current, { type: mimeType }));
+        },
+        { once: true }
+      );
+      recorder.addEventListener(
+        "error",
+        () => {
+          reject(new Error("Audio recording failed."));
+        },
+        { once: true }
+      );
+      recorder.stop();
+    });
+  }
+
+  async function uploadConsultationVoiceTurn(audio: Blob) {
+    const clientTurnId = `${Date.now()}`;
+    const formData = new FormData();
+    formData.set("roomId", room.id);
+    formData.set("role", role);
+    formData.set("roomToken", roomToken ?? "");
+    formData.set("clientTurnId", clientTurnId);
+    formData.set("patientLanguage", room.patientLanguage);
+    formData.set("audio", audio, `${role}-${clientTurnId}.${audioFileExtension(audio.type)}`);
+
+    const response = await fetch("/api/consultation-voice-turns", {
+      method: "POST",
+      body: formData
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.error ?? "Consultation voice translation failed.");
+    }
+    return data.message as RealtimeTranslationMessage;
+  }
+
+  async function persistRealtimeStaffVoiceTurn(params: {
+    messageId: string;
+    sourceText: string;
+    translatedText: string;
+  }) {
+    const response = await fetch("/api/consultation-voice-turns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roomId: room.id,
+        messageId: params.messageId,
+        role: "staff",
+        roomToken,
+        patientLanguage: room.patientLanguage,
+        sourceText: params.sourceText,
+        translatedText: params.translatedText
+      })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.error ?? "Consultation voice message could not be saved.");
+    }
+    return data.message as RealtimeTranslationMessage;
+  }
+
+  async function startVoiceTurn() {
+    if (voiceBusy || room.status === "ended") return;
+
+    markActivity();
+    setError("");
+    setVoiceBusy(true);
+    try {
+      stopPlayback();
+      if (role === "patient") {
+        await startPatientRecording();
+        return;
+      }
+
+      const acquiredTurn = await transition("staff_speaking");
+      if (!acquiredTurn) {
+        setError(voiceText.busy);
+        return;
+      }
+
+      const stream = await ensureMicStream();
+      const realtimeClient = await ensureRealtimeSession(stream);
+      realtimeClient.startTurn();
+      setMicEnabled(true);
+      setSpeakingStartedAt(Date.now());
+    } catch (caught) {
+      setSpeakingStartedAt(null);
+      setError(caught instanceof Error ? caught.message : voiceText.micError);
+      setMicEnabled(false);
+      realtimeClientRef.current?.close();
+      realtimeClientRef.current = null;
+      realtimePreconnectStartedRef.current = false;
+      await transition("ready");
+    } finally {
+      setVoiceBusy(false);
+    }
+  }
+
+  async function stopVoiceTurn() {
+    if (!speakingStartedAt) return;
+
+    markActivity();
+    setVoiceBusy(true);
+    setSpeakingStartedAt(null);
+    setMicEnabled(false);
+
+    if (role === "patient") {
+      try {
+        await transition("translating_to_staff");
+        const audio = await stopPatientRecorder();
+        mediaRecorderRef.current = null;
+        if (audio.size <= 0) throw new Error("No audio was recorded.");
+        const message = await uploadConsultationVoiceTurn(audio);
+        appendMessage(message);
+        void broadcastTranslationMessage(room.id, message);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Translation failed.");
+      } finally {
+        mediaChunksRef.current = [];
+        await transition("ready");
+        setVoiceBusy(false);
+      }
+      return;
+    }
+
+    try {
+      await transition("translating_to_patient");
+      const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
+        quietMs: CONSULTATION_TRANSLATION_QUIET_MS,
+        maxMs: CONSULTATION_TRANSLATION_MAX_MS
+      });
+      if (!translatedText) throw new Error("No translated text was returned.");
+      const normalizedText = normalizeClinicTranslation(translatedText, room.patientLanguage);
+      const sourceText = realtimeClientRef.current?.getInputTranscript() || "한국어 원문을 표시하지 못했습니다.";
+      const messageId = `${role}-voice-${Date.now()}`;
+      const message = await persistRealtimeStaffVoiceTurn({
+        messageId,
+        sourceText,
+        translatedText: normalizedText
+      });
+
+      appendMessage(message);
+      void broadcastTranslationMessage(room.id, message);
+      playQueuedTranslatedSpeech(message);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Translation failed.");
+    } finally {
+      await transition("ready");
+      setVoiceBusy(false);
+    }
+  }
+
   useEffect(() => {
     const chatScroll = chatScrollRef.current;
     if (!chatScroll) return;
@@ -161,10 +504,13 @@ export function ConsultationChatRoom({
 
   useEffect(() => {
     return subscribeToTranslationMessages(room.id, (message) => {
-      if (message.speaker !== role) appendMessage(message);
+      if (message.speaker !== role) {
+        appendMessage(message);
+        if (role === "staff" && message.speaker === "patient") playQueuedTranslatedSpeech(message);
+      }
       markActivity();
     }) ?? undefined;
-  }, [appendMessage, markActivity, role, room.id]);
+  }, [appendMessage, markActivity, playQueuedTranslatedSpeech, role, room.id]);
 
   useEffect(() => {
     async function fetchMessages() {
@@ -182,6 +528,7 @@ export function ConsultationChatRoom({
         const data = (await response.json()) as { messages?: TranslationMessage[] };
         const fetchedMessages = data.messages ?? [];
         let latestCreatedAt = lastFetchedMessageAtRef.current;
+        const hadFetchedBefore = messageFetchInitializedRef.current;
 
         for (const message of fetchedMessages) {
           if (message.createdAt && (!latestCreatedAt || message.createdAt > latestCreatedAt)) {
@@ -189,8 +536,16 @@ export function ConsultationChatRoom({
           }
         }
         mergeMessages(fetchedMessages);
+        if (role === "staff") {
+          for (const message of fetchedMessages) {
+            if (message.speaker !== "patient") continue;
+            if (hadFetchedBefore) playQueuedTranslatedSpeech(message);
+            else spokenMessageIdsRef.current.add(message.id);
+          }
+        }
 
         if (latestCreatedAt) lastFetchedMessageAtRef.current = latestCreatedAt;
+        messageFetchInitializedRef.current = true;
         if (fetchedMessages.length) markActivity();
       } finally {
         messagePollInFlightRef.current = false;
@@ -203,7 +558,7 @@ export function ConsultationChatRoom({
     }, 1500);
 
     return () => window.clearInterval(interval);
-  }, [markActivity, mergeMessages, role, room.id, roomToken]);
+  }, [markActivity, mergeMessages, playQueuedTranslatedSpeech, role, room.id, roomToken]);
 
   useEffect(() => {
     const interval = window.setInterval(async () => {
@@ -226,6 +581,21 @@ export function ConsultationChatRoom({
       if (inactivityTimerRef.current) window.clearTimeout(inactivityTimerRef.current);
     };
   }, [markActivity]);
+
+  useEffect(() => {
+    return () => {
+      stopPlayback();
+      realtimeClientRef.current?.close();
+      realtimeClientRef.current = null;
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+      mediaRecorderRef.current = null;
+      mediaChunksRef.current = [];
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    };
+  }, [stopPlayback]);
 
   async function submitTextMessage(textOverride?: string) {
     const sourceText = (textOverride ?? textInput).trim();
@@ -295,10 +665,6 @@ export function ConsultationChatRoom({
     void submitTextMessage();
   }
 
-  function sendSuggestedPatientText(example: string) {
-    void submitTextMessage(example);
-  }
-
   return (
     <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col overflow-hidden rounded-lg bg-white shadow-soft md:min-h-[720px]">
       <header className="shrink-0 border-b border-line bg-white px-3 py-2 md:px-6 md:py-2.5">
@@ -327,12 +693,6 @@ export function ConsultationChatRoom({
           <p className="mt-1 truncate text-xs font-semibold text-slate-500">{copy.chatStarted}</p>
         ) : null}
 
-        {role === "staff" ? (
-          <div className="mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-lg bg-green-50 px-2.5 py-1.5 text-[11px] font-bold text-mint md:mt-1.5 md:gap-2 md:px-3 md:py-1.5 md:text-xs">
-            <Sparkles size={13} />
-            <span className="truncate">AI가 고객 메시지에 맞춰 다음 질문을 추천합니다.</span>
-          </div>
-        ) : null}
       </header>
 
       <section ref={chatScrollRef} className="min-h-0 flex-1 overflow-y-auto bg-mist px-3 py-3 md:px-6 md:py-4" aria-live="polite">
@@ -386,63 +746,24 @@ export function ConsultationChatRoom({
       </section>
 
       <footer className="shrink-0 border-t border-line bg-white px-2.5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-2 md:px-4 md:pb-4">
-        {role === "patient" ? (
-          <div className="mb-2 rounded-2xl bg-blue-50 p-2.5">
-            <div className="mb-2 flex items-center gap-2 px-1">
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-white text-trust shadow-sm">
-                <Sparkles size={15} />
-              </span>
-              <div>
-                <p className="text-xs font-bold text-trust">{patientSuggestionSet.label}</p>
-                <p className="text-[11px] font-semibold text-slate-500">{latestStaffMessage ? copy.placeholder : copy.empty}</p>
-              </div>
-            </div>
-            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-              {patientSuggestionSet.suggestions.map((example) => (
-                <button
-                  key={example}
-                  type="button"
-                  onClick={() => sendSuggestedPatientText(example)}
-                  disabled={!canSendExampleText}
-                  className="min-w-[190px] rounded-lg bg-white px-2.5 py-1.5 text-left text-xs font-bold leading-4 text-ink shadow-sm transition hover:bg-slate-50 disabled:opacity-50 md:min-w-[230px]"
-                >
-                  {example}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : latestPatientMessage ? (
-          <div className="mb-2 rounded-2xl bg-slate-50 p-2.5 md:p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-blue-100 text-trust md:h-8 md:w-8">
-                  <Sparkles size={15} />
-                </span>
-                <div>
-                  <p className="text-xs font-bold text-ink md:text-sm">AI 추천 질문</p>
-                  <p className="mt-0.5 text-[11px] font-bold text-slate-500 md:text-xs">
-                    {staffSuggestionSet.label} · {stageLabel(inferredStage)}
-                  </p>
-                </div>
-              </div>
-              <span className="hidden rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-slate-500 shadow-sm sm:inline-flex">
-                고객 답변에 따라 자동 변경
-              </span>
-            </div>
-            <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5 md:mt-3 md:grid md:grid-cols-2 md:gap-2 md:overflow-visible md:pb-0">
-              {staffSuggestionSet.suggestions.map((suggestion) => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  onClick={() => setTextInput(suggestion)}
-                  className="min-h-10 min-w-[220px] rounded-xl bg-white px-3 py-2 text-left text-xs font-bold leading-4 text-ink shadow-sm transition hover:bg-blue-50 hover:text-trust md:min-h-12 md:min-w-0 md:text-sm md:leading-5"
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
+        <div className="mb-2 rounded-2xl bg-slate-50 p-3 text-center md:p-4">
+          <button
+            type="button"
+            disabled={room.status === "ended" || (voiceBusy && !isSpeaking) || (!micEnabled && !isSpeaking)}
+            onClick={isSpeaking ? stopVoiceTurn : startVoiceTurn}
+            className={`tap-highlight-none mx-auto grid h-20 w-20 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 md:h-24 md:w-24 ${
+              isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
+            }`}
+            aria-label={isSpeaking ? voiceText.speaking : voiceText.ready}
+            title={isSpeaking ? voiceText.speaking : voiceText.ready}
+          >
+            {voiceBusy && !isSpeaking ? <Loader2 size={30} className="animate-spin" /> : <Mic size={34} />}
+          </button>
+          <p className="mt-2 text-base font-bold text-ink md:text-lg">
+            {room.status === "ended" ? (role === "staff" ? "상담 종료" : copy.statusEnded) : isSpeaking ? voiceText.speaking : micEnabled ? voiceText.ready : voiceText.waiting}
+          </p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 md:text-sm">{voiceText.helper}</p>
+        </div>
 
         <div className="flex items-end gap-2 rounded-2xl bg-slate-50 p-1.5 md:p-2">
           <textarea
@@ -455,7 +776,7 @@ export function ConsultationChatRoom({
               isComposingTextRef.current = false;
             }}
             onKeyDown={handleTextInputKeyDown}
-            placeholder={role === "staff" ? "상담 내용을 입력하세요." : copy.placeholder}
+            placeholder={role === "staff" ? voiceText.fallback : voiceText.fallback}
             disabled={room.status === "ended" || textSubmitting}
             rows={1}
             className="max-h-24 min-h-10 flex-1 resize-none bg-transparent px-3 py-1.5 text-base font-semibold leading-7 text-ink outline-none disabled:opacity-60 md:max-h-28 md:min-h-11 md:py-2"
