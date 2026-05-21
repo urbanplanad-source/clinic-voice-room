@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { QRCodeCanvas } from "qrcode.react";
-import { ArrowLeft, Check, Copy, Link2, QrCode, Smartphone } from "lucide-react";
+import { Check, Copy, Link2, Loader2, PhoneOff, QrCode, Smartphone } from "lucide-react";
 import { VoiceRoom } from "./VoiceRoom";
 import { type PatientLanguage } from "@/lib/languages";
 import type { RoomStatus } from "@/lib/room-state";
@@ -108,9 +108,11 @@ const defaultQrCopy = qrCopy.en ?? {
 };
 
 export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoomProps) {
+  const router = useRouter();
   const [snapshot, setSnapshot] = useState(room);
   const [copied, setCopied] = useState<"web" | "android" | null>(null);
   const [qrExpanded, setQrExpanded] = useState(false);
+  const [returning, setReturning] = useState(false);
   const connected = snapshot.status !== "waiting_for_patient";
   const copy = qrCopy[snapshot.patientLanguage] ?? defaultQrCopy;
   const isProcedureMode = roomMode === "procedure";
@@ -169,6 +171,14 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
     window.setTimeout(() => setCopied(null), 1600);
   }
 
+  async function endRoomAndReturn() {
+    if (returning) return;
+    setReturning(true);
+    await fetch(`/api/rooms/${room.id}/end`, { method: "POST" }).catch(() => undefined);
+    router.replace("/staff");
+    router.refresh();
+  }
+
   if (connected) {
     return <VoiceRoom initialRoom={snapshot} role="staff" roomMode={roomMode} />;
   }
@@ -176,19 +186,12 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
   return (
     <div className="space-y-3 md:space-y-4">
       <section className="rounded-lg bg-white px-4 py-4 text-center shadow-soft md:px-6">
-        <div className="mb-3 flex items-center justify-between gap-3 text-left">
+        <div className="mb-3 text-left">
           <div className="min-w-0">
             <p className="truncate text-xs font-bold text-trust md:text-sm">{snapshot.hospital.name}</p>
             <h1 className="mt-1 text-2xl font-bold leading-tight text-ink md:text-3xl">{copy.heading}</h1>
             <p className="mt-1 text-sm font-bold text-slate-500">{copy.instruction}</p>
           </div>
-          <Link
-            href="/staff"
-            className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-slate-50 px-3 text-xs font-bold text-ink transition hover:bg-slate-100"
-          >
-            <ArrowLeft size={15} className="text-trust" />
-            직원 화면으로
-          </Link>
         </div>
         <div
           className="mx-auto inline-block rounded-lg border border-line bg-white p-3 md:p-4"
@@ -326,6 +329,16 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
       </section>
 
       <section className="rounded-lg bg-blue-50 px-4 py-3 text-sm font-bold text-trust">{copy.waiting}</section>
+
+      <button
+        type="button"
+        onClick={endRoomAndReturn}
+        disabled={returning}
+        className="flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-rose-50 px-5 text-base font-bold text-rose-600 shadow-sm transition hover:bg-rose-100 disabled:opacity-50 md:h-16 md:text-lg"
+      >
+        {returning ? <Loader2 size={22} className="animate-spin" /> : <PhoneOff size={22} />}
+        방 종료 후 직원 화면으로
+      </button>
     </div>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import Link from "next/link";
-import { ArrowLeft, Loader2, Mic, PhoneOff, Send } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Loader2, Mic, PhoneOff, Send } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
@@ -69,6 +69,7 @@ export function ConsultationChatRoom({
   role: ParticipantRole;
   roomToken?: string;
 }) {
+  const router = useRouter();
   const [room, setRoom] = useState(initialRoom);
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
   const [textInput, setTextInput] = useState("");
@@ -234,15 +235,24 @@ export function ConsultationChatRoom({
   }, [role, room.id, roomToken, transition]);
 
   const endRoom = useCallback(async () => {
+    if (room.status === "ended") return true;
     setEnding(true);
     const response = await fetch(`/api/rooms/${room.id}/end`, { method: "POST" });
     setEnding(false);
-    if (!response.ok) return;
+    if (!response.ok) return false;
 
     const data = await response.json();
     setRoom((current) => ({ ...current, ...data.room }));
     void broadcastRoomUpdate(data.room);
-  }, [room.id]);
+    return true;
+  }, [room.id, room.status]);
+
+  const endRoomAndReturn = useCallback(async () => {
+    const ended = await endRoom();
+    if (!ended) return;
+    router.replace("/staff");
+    router.refresh();
+  }, [endRoom, router]);
 
   const markActivity = useCallback(() => {
     if (inactivityTimerRef.current) window.clearTimeout(inactivityTimerRef.current);
@@ -681,20 +691,12 @@ export function ConsultationChatRoom({
             <p className="truncate text-xs font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
             <h1 className="mt-0.5 truncate text-base font-bold text-ink md:text-lg">{title}</h1>
           </div>
-          {role === "staff" ? (
-            <Link
-              href="/staff"
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-slate-50 px-3 text-xs font-bold text-ink transition hover:bg-slate-100 md:h-10 md:px-3.5 md:text-sm"
-            >
-              <ArrowLeft size={16} className="text-trust" />
-              직원 화면으로
-            </Link>
-          ) : (
+          {role === "patient" ? (
             <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1.5 text-[11px] font-bold text-trust md:gap-2 md:px-3 md:py-1.5 md:text-xs">
               <span className="h-2 w-2 rounded-full bg-trust" />
               {room.status === "ended" ? copy.statusEnded : copy.statusChat}
             </span>
-          )}
+          ) : null}
         </div>
 
         {role === "patient" ? (
@@ -803,12 +805,12 @@ export function ConsultationChatRoom({
         {error ? <p className="mt-2 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
         {role === "staff" ? (
           <button
-            onClick={endRoom}
-            disabled={ending || room.status === "ended"}
-            className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-rose-50 px-4 text-xs font-bold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 md:mt-3 md:h-11 md:text-sm"
+            onClick={endRoomAndReturn}
+            disabled={ending}
+            className="mt-2 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-rose-50 px-4 text-sm font-bold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 md:mt-3 md:h-14 md:text-base"
           >
             {ending ? <Loader2 size={17} className="animate-spin" /> : <PhoneOff size={17} />}
-            상담 종료
+            {room.status === "ended" ? "직원 화면으로" : "상담 종료 후 직원 화면으로"}
           </button>
         ) : null}
       </footer>

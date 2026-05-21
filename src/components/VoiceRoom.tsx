@@ -1,8 +1,8 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { ArrowLeft, Loader2, Mic, PhoneOff } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Loader2, Mic, PhoneOff } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
 import { normalizeClinicTranslation } from "@/lib/clinic-glossary";
@@ -671,6 +671,7 @@ function ProcedureVoiceRoom({
   roomToken,
   roomMode = "consultation"
 }: VoiceRoomProps) {
+  const router = useRouter();
   const [room, setRoom] = useState(initialRoom);
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
   const [speakingStartedAt, setSpeakingStartedAt] = useState<number | null>(null);
@@ -876,6 +877,7 @@ function ProcedureVoiceRoom({
   }, [role, room.id, roomToken]);
 
   const endRoom = useCallback(async () => {
+    if (room.status === "ended") return true;
     setBusy(true);
     await flushUsage();
     await releaseScreenWakeLock();
@@ -886,12 +888,20 @@ function ProcedureVoiceRoom({
     realtimeClientRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-    if (response.ok) {
-      const data = await response.json();
-      setRoom((current) => ({ ...current, ...data.room }));
-      void broadcastRoomUpdate(data.room);
-    }
-  }, [flushUsage, room.id, stopPlayback]);
+    if (!response.ok) return false;
+
+    const data = await response.json();
+    setRoom((current) => ({ ...current, ...data.room }));
+    void broadcastRoomUpdate(data.room);
+    return true;
+  }, [flushUsage, room.id, room.status, stopPlayback]);
+
+  const endRoomAndReturn = useCallback(async () => {
+    const ended = await endRoom();
+    if (!ended) return;
+    router.replace("/staff");
+    router.refresh();
+  }, [endRoom, router]);
 
   const markActivity = useCallback(() => {
     if (inactivityTimerRef.current) window.clearTimeout(inactivityTimerRef.current);
@@ -1374,18 +1384,9 @@ function ProcedureVoiceRoom({
 
       {role === "staff" ? (
         <header className="rounded-lg bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
-              <h1 className="mt-2 text-[28px] font-bold leading-tight text-ink">{title}</h1>
-            </div>
-            <Link
-              href="/staff"
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-slate-50 px-3 text-xs font-bold text-ink transition hover:bg-slate-100 md:text-sm"
-            >
-              <ArrowLeft size={16} className="text-trust" />
-              직원 화면으로
-            </Link>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
+            <h1 className="mt-2 text-[28px] font-bold leading-tight text-ink">{title}</h1>
           </div>
         </header>
       ) : null}
@@ -1433,12 +1434,12 @@ function ProcedureVoiceRoom({
 
       {role === "staff" ? (
         <button
-          onClick={endRoom}
-          disabled={busy || room.status === "ended"}
+          onClick={endRoomAndReturn}
+          disabled={busy && room.status !== "ended"}
           className="flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-white px-4 font-bold text-rose-600 shadow-sm transition hover:bg-rose-50 disabled:opacity-50"
         >
-          <PhoneOff size={19} />
-          {copy.end}
+          {busy && room.status !== "ended" ? <Loader2 size={19} className="animate-spin" /> : <PhoneOff size={19} />}
+          {room.status === "ended" ? "직원 화면으로" : "시술 종료 후 직원 화면으로"}
         </button>
       ) : null}
     </div>

@@ -64,7 +64,7 @@ export function StaffHome({
   }
 
   return (
-    <div className={selectedMode ? "space-y-3 md:space-y-4" : "space-y-5 md:space-y-6"}>
+    <div className={selectedMode ? "flex min-h-[calc(100dvh-96px)] flex-col space-y-3 md:space-y-4" : "flex min-h-[calc(100dvh-96px)] flex-col space-y-5 md:space-y-6"}>
       <header className={`flex items-center justify-between gap-4 rounded-lg bg-ink text-white shadow-soft ${selectedMode ? "p-3 md:p-4" : "p-5 md:p-7"}`}>
         <div className="min-w-0">
           <p className="truncate text-sm font-bold text-blue-200">{staff.hospital.name}</p>
@@ -75,14 +75,6 @@ export function StaffHome({
             {selectedMode ? modeCopy[selectedMode].body : "Choose the room type first. The patient will choose their language on the next screen."}
           </p>
         </div>
-        <button
-          onClick={logout}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-white/10 text-white transition hover:bg-white/15"
-          aria-label="로그아웃"
-          title="로그아웃"
-        >
-          <LogOut size={20} />
-        </button>
       </header>
 
       {!selectedMode ? (
@@ -123,20 +115,7 @@ export function StaffHome({
         </section>
       ) : (
         <section className="rounded-lg bg-white p-2.5 shadow-soft sm:p-3 md:p-4">
-          <div className="flex items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedMode(null);
-                setError("");
-              }}
-              className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg bg-slate-100 px-3 text-sm font-bold text-ink transition hover:bg-slate-200"
-              aria-label="처음으로"
-              title="처음으로"
-            >
-              <ArrowLeft size={18} />
-              처음으로
-            </button>
+          <div className="flex justify-end">
             <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-trust md:text-sm">
               {selectedMode === "consultation" ? "Consultation" : "Procedure"}
             </span>
@@ -179,6 +158,35 @@ export function StaffHome({
           {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold leading-6 text-rose-700">{error}</p> : null}
         </section>
       )}
+
+      <div className="mt-auto pt-4">
+        {selectedMode ? (
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedMode(null);
+              setError("");
+            }}
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-white px-5 text-base font-bold text-ink shadow-soft transition hover:bg-slate-50 md:h-16 md:text-lg"
+            aria-label="처음으로"
+            title="처음으로"
+          >
+            <ArrowLeft size={22} />
+            처음으로
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={logout}
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-rose-50 px-5 text-base font-bold text-rose-600 shadow-sm transition hover:bg-rose-100 md:h-16 md:text-lg"
+            aria-label="로그아웃"
+            title="로그아웃"
+          >
+            <LogOut size={22} />
+            로그아웃
+          </button>
+        )}
+      </div>
     </div>
   );
 }
