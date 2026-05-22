@@ -806,19 +806,6 @@ function ProcedureVoiceRoom({
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   }, []);
 
-  const releaseStaffAudioInputForPlayback = useCallback(async () => {
-    if (!isProcedureMode || role !== "staff") return;
-
-    realtimeClientRef.current?.close();
-    realtimeClientRef.current = null;
-    realtimePreconnectStartedRef.current = false;
-    setMicEnabled(false);
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
-  }, [isProcedureMode, role]);
-
   const findBrowserVoice = useCallback((lang: string) => {
     if (!("speechSynthesis" in window)) return null;
     const voices = window.speechSynthesis.getVoices();
@@ -852,10 +839,9 @@ function ProcedureVoiceRoom({
     speechQueueRef.current = speechQueueRef.current
       .catch(() => undefined)
       .then(async () => {
-        await releaseStaffAudioInputForPlayback();
         playBrowserTranslatedSpeech(message.text, targetLanguage);
       });
-  }, [playBrowserTranslatedSpeech, releaseStaffAudioInputForPlayback, room.patientLanguage]);
+  }, [playBrowserTranslatedSpeech, room.patientLanguage]);
 
   useEffect(() => {
     if (!isStaffAudioHub || !isProcedureMode || !room.patientJoinedAt || room.status === "ended") return;
