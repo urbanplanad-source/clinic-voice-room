@@ -120,7 +120,7 @@ export function AdminStaffManager() {
     setSaving(false);
 
     if (!response.ok) {
-      setError("계정을 저장하지 못했습니다. 이메일 형식과 비밀번호 길이를 확인해주세요.");
+      setError("계정을 저장하지 못했습니다. 이메일 형식과 비밀번호 길이(6자 이상)를 확인해주세요.");
       return;
     }
 
@@ -146,7 +146,7 @@ export function AdminStaffManager() {
     setBusyId(null);
 
     if (!response.ok) {
-      setError(data.error === "Email already exists" ? "이미 사용 중인 이메일입니다." : "계정 정보를 수정하지 못했습니다.");
+      setError(data.error === "Email already exists" ? "이미 사용 중인 이메일입니다." : "계정 정보를 수정하지 못했습니다. 비밀번호는 6자 이상이어야 합니다.");
       return;
     }
 

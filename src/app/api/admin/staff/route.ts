@@ -15,7 +15,7 @@ const schema = z.object({
     .regex(/^[a-z0-9-]+$/),
   name: z.string().trim().min(1).max(80),
   email: z.string().trim().email().max(160),
-  password: z.string().min(10).max(128).optional().or(z.literal("")),
+  password: z.string().min(6).max(128).optional().or(z.literal("")),
   role: z.enum(["staff", "hospital_admin"]).default("staff")
 });
 
@@ -30,7 +30,7 @@ const updateSchema = z.object({
     .regex(/^[a-z0-9-]+$/),
   name: z.string().trim().min(1).max(80),
   email: z.string().trim().email().max(160),
-  password: z.string().min(10).max(128).optional().or(z.literal("")),
+  password: z.string().min(6).max(128).optional().or(z.literal("")),
   generatePassword: z.boolean().optional(),
   role: z.enum(["staff", "hospital_admin", "internal_admin"]),
   isActive: z.boolean()
