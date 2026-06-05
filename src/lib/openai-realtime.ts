@@ -42,14 +42,16 @@ const realtimeInputLanguages: Record<PatientLanguage | "ko", string> = {
   pt: "pt"
 };
 
-function normalizedRealtimeModelName(value: string | undefined) {
-  if (!value || value === "gpt-realtime-translate") return "gpt-realtime";
-  return value;
+export function normalizedRealtimeModelName(value: string | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === "gpt-realtime-translate" || trimmed.startsWith("gpt-4o-realtime-preview")) return "gpt-realtime";
+  return trimmed;
 }
 
-function normalizedRealtimeTranscriptionModelName(value: string | undefined) {
-  if (!value || value === "gpt-realtime-whisper") return "gpt-4o-transcribe";
-  return value;
+export function normalizedRealtimeTranscriptionModelName(value: string | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === "gpt-realtime-whisper" || trimmed === "gpt-4o-mini-transcribe") return "gpt-4o-transcribe";
+  return trimmed;
 }
 
 function buildRealtimeTranslationInstructions(inputLanguage: PatientLanguage | "ko", outputLanguage: PatientLanguage | "ko") {
@@ -74,6 +76,7 @@ export async function createRealtimeSessionToken(params: {
   role: ParticipantRole;
   patientLanguage: PatientLanguage;
   direction?: TranslationDirection;
+  manualTurn?: boolean;
   safetyIdentifier?: string;
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -126,10 +129,12 @@ export async function createRealtimeSessionToken(params: {
           instructions: buildRealtimeTranslationInstructions(inputLanguage, outputLanguage),
           audio: {
             input: {
+              format: params.manualTurn ? { type: "audio/pcm", rate: 24000 } : undefined,
               transcription: includeTranscriptionPrompt
                 ? { model: transcriptionModel, prompt: transcriptionPrompt, language: realtimeInputLanguages[inputLanguage] }
                 : { model: transcriptionModel, language: realtimeInputLanguages[inputLanguage] },
-              noise_reduction: { type: "near_field" }
+              noise_reduction: { type: "near_field" },
+              turn_detection: params.manualTurn ? null : undefined
             },
             output: {
               voice: process.env.OPENAI_REALTIME_VOICE ?? "marin"
@@ -155,5 +160,10 @@ export async function createRealtimeSessionToken(params: {
     throw new Error(`Realtime session token failed: ${response.status} ${detail}`);
   }
 
-  return response.json();
+  const token = await response.json();
+  return {
+    ...token,
+    realtimeModel: model,
+    realtimeTranscriptionModel: transcriptionModel
+  };
 }

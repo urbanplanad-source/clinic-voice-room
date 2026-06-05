@@ -5,5 +5,7 @@ export function normalizedTextTranslationModel(value: string | undefined) {
 }
 
 export function normalizedTranscriptionModel(value: string | undefined) {
-  return value?.trim() || "gpt-4o-mini-transcribe";
+  const trimmed = value?.trim();
+  if (!trimmed || trimmed === "gpt-4o-mini-transcribe") return "gpt-4o-transcribe";
+  return trimmed;
 }

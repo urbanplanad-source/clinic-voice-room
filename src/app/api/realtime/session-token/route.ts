@@ -10,7 +10,8 @@ const schema = z.object({
   roomId: z.string(),
   role: z.enum(["staff", "patient"]),
   roomToken: z.string().optional(),
-  direction: z.enum(["staff_to_patient", "patient_to_staff"]).optional()
+  direction: z.enum(["staff_to_patient", "patient_to_staff"]).optional(),
+  manualTurn: z.boolean().optional()
 });
 
 export async function POST(request: Request) {
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
       role: parsed.data.role,
       patientLanguage: room.patientLanguage,
       direction: parsed.data.direction,
+      manualTurn: parsed.data.manualTurn,
       safetyIdentifier: `${room.hospitalId}:${room.hostStaffId}:${room.id}:${parsed.data.role}:${parsed.data.direction ?? "default"}`
     });
   } catch (caught) {

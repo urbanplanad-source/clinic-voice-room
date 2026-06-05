@@ -4,7 +4,7 @@
 
 `android-staff-app/` is the native hospital-phone app for Clinic Voice Room staff.
 
-It is not a WebView wrapper. It is a Kotlin + Jetpack Compose app that signs in to the existing Next.js backend, creates a QR room for the patient web app, records short staff turns with Android native audio, uploads them to server route handlers for STT and translation, then plays the translated result with Android/Google TTS.
+It is not a WebView wrapper. It is a Kotlin + Jetpack Compose app that signs in to the existing Next.js backend, creates a QR room for the patient web app, streams short staff turns through OpenAI Realtime with manual push-to-talk turn boundaries, falls back to server STT/translation upload when Realtime fails, then plays the translated result with Android/Google TTS.
 
 The app now supports both staff workflows:
 
@@ -18,8 +18,8 @@ The app now supports both staff workflows:
 - Patient QR/link display using the existing patient web join URL.
 - Room state polling through `/api/rooms/{roomId}`.
 - Message polling through `/api/rooms/{roomId}/messages`.
-- Consultation staff voice upload through `/api/consultation-voice-turns`.
-- Procedure staff voice upload through `/api/procedure-turns`.
+- Consultation staff voice Realtime delivery through `/api/realtime/session-token`, with `/api/consultation-voice-turns` used to persist the completed message or as upload fallback.
+- Procedure staff voice Realtime delivery through `/api/realtime/session-token`, with `/api/procedure-turns` used to persist the completed message or as upload fallback.
 - Consultation text fallback through `/api/translate-text`.
 - Patient-to-staff translated message receiving in Android.
 - Staff-to-patient translated message delivery to patient web.
@@ -34,18 +34,19 @@ The app now supports both staff workflows:
 
 ## Architecture Boundary
 
-Android v1 intentionally uses bounded turns:
+Android staff voice now uses Realtime-first manual turns:
 
 ```text
-record short turn in memory
--> upload WAV bytes to Next.js route
--> OpenAI STT/translation on the server
+request server-issued ephemeral Realtime token
+-> stream 24 kHz PCM from Android AudioRecord over Realtime WebSocket
+-> staff button stop commits the input audio buffer manually
+-> Realtime returns translated text
 -> server stores a short room message
 -> Android/patient web poll messages
 -> Android TTS or browser display/playback
 ```
 
-Android v1 does not use OpenAI Realtime/WebRTC. The old `android-spike/` remains reference-only.
+If Realtime returns no text or errors, the same in-memory PCM turn is wrapped as WAV and sent to the existing bounded upload route. The old `android-spike/` remains reference-only.
 
 ## Security And Data Rules
 
@@ -74,14 +75,14 @@ Installable debug APK after build:
 
 ```text
 android-staff-app/app/build/outputs/apk/debug/app-debug.apk
-android-staff-app/app/build/outputs/apk/debug/cvr-staff-0.2.9-debug.apk
+android-staff-app/app/build/outputs/apk/debug/cvr-staff-0.3.0-debug.apk
 ```
 
 Latest local field-test APK:
 
 ```text
-android-staff-app/app/build/outputs/apk/debug/cvr-staff-0.2.9-debug.apk
-SHA256: 2FE35FFF40D90CA007622F08C8EDA4FBA6EAD1E4652C9ADBC20A7CCCC5695267
+android-staff-app/app/build/outputs/apk/debug/cvr-staff-0.3.0-debug.apk
+SHA256: 6616E4874C0FA78527138AB1CD99C28107895D6D46DD579563AF7C15C8AAE760
 ```
 
 Release build sanity check:
@@ -100,8 +101,8 @@ Do not install or distribute the unsigned release APK. Use it only to verify rel
 
 Current app version:
 
-- versionName: `0.2.9`
-- versionCode: `11`
+- versionName: `0.3.0`
+- versionCode: `12`
 
 Pinned build stack:
 
@@ -147,11 +148,12 @@ Recommended OpenAI env values:
 
 ```text
 OPENAI_TEXT_TRANSLATION_MODEL=gpt-5.2
-OPENAI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 OPENAI_REALTIME_MODEL=gpt-realtime
+OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 ```
 
-The server normalizes legacy `OPENAI_TEXT_TRANSLATION_MODEL=gpt-5.5` to `gpt-5.2` and legacy `OPENAI_REALTIME_MODEL=gpt-realtime-translate` to `gpt-realtime`.
+The server normalizes legacy `OPENAI_TEXT_TRANSLATION_MODEL=gpt-5.5` to `gpt-5.2`, legacy `OPENAI_REALTIME_MODEL=gpt-realtime-translate` to `gpt-realtime`, and legacy `OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper` to `gpt-4o-transcribe`.
 
 ## Consultation Mode Field Test
 
@@ -200,7 +202,7 @@ The server normalizes legacy `OPENAI_TEXT_TRANSLATION_MODEL=gpt-5.5` to `gpt-5.2
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
-- Android v1 uses server route handlers instead of OpenAI Realtime/WebRTC.
+- Android v0.3.0 uses OpenAI Realtime WebSocket with manual staff push-to-talk turn commits, while retaining the previous upload route as fallback.
 - Android v0.2.9 follows the provided screenshots more closely: large mode cards, red logout below procedure room creation, 3-column patient-language selection with English prompts, and a large QR waiting screen with explicit QR error handling.
 - Android v0.2.8 removes Android's internal `roomToken` QR fallback, adds direction-aware setup transitions, and expands the QR waiting screen's patient notice preview.
 - Android v0.2.7 adds smooth animated transitions between the staff setup screens and updates field-test guidance to use `patientJoinCode` rather than `roomToken` as the QR handoff value.

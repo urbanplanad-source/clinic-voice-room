@@ -17,6 +17,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
+import android.util.Base64
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -95,16 +96,22 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
+import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 
 private val Ink = Color(0xFF191F28)
@@ -123,6 +130,8 @@ private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
+private const val RealtimePcmSampleRate = 24000
+private const val RealtimeTurnWaitMs = 6500L
 
 private data class PatientLanguageOption(
     val code: String,
@@ -299,6 +308,185 @@ private class PersistentCookieJar(private val preferences: SharedPreferences) : 
     }
 }
 
+private data class RealtimeToken(
+    val value: String,
+    val model: String
+)
+
+private data class RealtimeTurnResult(
+    val sourceText: String,
+    val translatedText: String
+)
+
+private class AndroidRealtimeTurnClient(
+    private val http: OkHttpClient,
+    private val token: RealtimeToken,
+    private val log: (String) -> Unit
+) {
+    private var webSocket: WebSocket? = null
+    private var openLatch = CountDownLatch(1)
+    private var turnDoneLatch = CountDownLatch(1)
+    private val errorRef = AtomicReference<Throwable?>(null)
+    private val outputText = StringBuilder()
+    private val inputText = StringBuilder()
+    @Volatile
+    private var open = false
+
+    fun connect() {
+        if (open) return
+
+        openLatch = CountDownLatch(1)
+        errorRef.set(null)
+        val encodedModel = URLEncoder.encode(token.model.ifBlank { "gpt-realtime" }, "UTF-8")
+        val request = Request.Builder()
+            .url("wss://api.openai.com/v1/realtime?model=$encodedModel")
+            .header("Authorization", "Bearer ${token.value}")
+            .build()
+
+        webSocket = http.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                open = true
+                log("Realtime connected: ${token.model}")
+                openLatch.countDown()
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                handleServerEvent(text)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                open = false
+                log("Realtime closed: $code $reason")
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                open = false
+                errorRef.set(t)
+                openLatch.countDown()
+                turnDoneLatch.countDown()
+                log("Realtime failure: ${t.message}")
+            }
+        })
+
+        if (!openLatch.await(10, TimeUnit.SECONDS)) {
+            close()
+            error("Realtime connection timed out")
+        }
+        errorRef.get()?.let { throw it }
+        if (!open) error("Realtime connection did not open")
+    }
+
+    fun startTurn() {
+        connect()
+        synchronized(this) {
+            outputText.clear()
+            inputText.clear()
+        }
+        errorRef.set(null)
+        turnDoneLatch = CountDownLatch(1)
+        send(JSONObject().put("type", "input_audio_buffer.clear"))
+    }
+
+    fun appendPcm(bytes: ByteArray, length: Int) {
+        if (!open || length <= 0) return
+        val audio = Base64.encodeToString(bytes, 0, length, Base64.NO_WRAP)
+        send(
+            JSONObject()
+                .put("type", "input_audio_buffer.append")
+                .put("audio", audio)
+        )
+    }
+
+    fun stopTurnAndTranslate(timeoutMs: Long = RealtimeTurnWaitMs): RealtimeTurnResult {
+        if (!open) error("Realtime connection is not open")
+
+        send(JSONObject().put("type", "input_audio_buffer.commit"))
+        send(
+            JSONObject()
+                .put("type", "response.create")
+                .put(
+                    "response",
+                    JSONObject().put("modalities", JSONArray().put("text"))
+                )
+        )
+
+        turnDoneLatch.await(timeoutMs, TimeUnit.MILLISECONDS)
+        errorRef.get()?.let { throw it }
+        val translated = synchronized(this) { outputText.toString().trim() }
+        if (translated.isBlank()) error("Realtime returned no translated text")
+
+        return RealtimeTurnResult(
+            sourceText = synchronized(this) { inputText.toString().trim() },
+            translatedText = translated
+        )
+    }
+
+    fun close() {
+        runCatching { webSocket?.cancel() }
+        webSocket = null
+        open = false
+    }
+
+    private fun send(event: JSONObject) {
+        val sent = webSocket?.send(event.toString()) ?: false
+        if (!sent) log("Realtime send skipped: ${event.optString("type")}")
+    }
+
+    private fun handleServerEvent(text: String) {
+        runCatching {
+            val event = JSONObject(text)
+            when (val type = event.optString("type")) {
+                "session.output_transcript.delta",
+                "response.output_audio_transcript.delta",
+                "response.output_text.delta" -> {
+                    val delta = event.optString("delta")
+                    if (delta.isNotBlank()) synchronized(this) { outputText.append(delta) }
+                }
+
+                "session.output_transcript.done",
+                "response.output_audio_transcript.done",
+                "response.output_text.done" -> {
+                    val finalText = event.optString("transcript", event.optString("text"))
+                    if (finalText.isNotBlank()) synchronized(this) {
+                        outputText.clear()
+                        outputText.append(finalText)
+                    }
+                    turnDoneLatch.countDown()
+                }
+
+                "conversation.item.input_audio_transcription.delta" -> {
+                    val delta = event.optString("delta")
+                    if (delta.isNotBlank()) synchronized(this) { inputText.append(delta) }
+                }
+
+                "conversation.item.input_audio_transcription.completed" -> {
+                    val finalText = event.optString("transcript")
+                    if (finalText.isNotBlank()) synchronized(this) {
+                        inputText.clear()
+                        inputText.append(finalText)
+                    }
+                }
+
+                "response.done" -> turnDoneLatch.countDown()
+
+                "error" -> {
+                    val message = event.optJSONObject("error")?.optString("message")
+                        ?: "Realtime API error"
+                    errorRef.set(IllegalStateException(message))
+                    turnDoneLatch.countDown()
+                    log("Realtime API error: $message")
+                }
+
+                else -> if (type.isNotBlank() && type.startsWith("input_audio_buffer.")) {
+                    log("Realtime event: $type")
+                }
+            }
+        }.onFailure {
+            log("Realtime event parse skipped: ${text.take(120)}")
+        }
+    }
+}
+
 class MainActivity : ComponentActivity() {
     private val uiState = mutableStateOf(StaffUiState())
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -328,6 +516,10 @@ class MainActivity : ComponentActivity() {
     private var recordingThread: Thread? = null
     private val recordingLock = Any()
     private var recordedPcm: ByteArrayOutputStream? = null
+    private var realtimeTurnClient: AndroidRealtimeTurnClient? = null
+    private var realtimeTurnRoomId: String = ""
+    @Volatile
+    private var realtimeTurnActive = false
     @Volatile
     private var roomPollingActive = false
     @Volatile
@@ -411,6 +603,7 @@ class MainActivity : ComponentActivity() {
         stopRoomPolling()
         recordingActive = false
         runCatching { recordingThread?.join(500) }
+        closeRealtimeTurnClient()
         mediaSession?.isActive = false
         mediaSession?.release()
         mediaSession = null
@@ -650,6 +843,7 @@ class MainActivity : ComponentActivity() {
     private fun logout() {
         stopRoomPolling()
         resetMessagePolling()
+        closeRealtimeTurnClient()
         val backend = normalizedBackendUrl(uiState.value.backendUrl)
         executor.execute {
             runCatching {
@@ -682,6 +876,7 @@ class MainActivity : ComponentActivity() {
         val state = uiState.value
         val backend = normalizedBackendUrl(state.backendUrl)
         val modeLabel = if (state.selectedRoomMode == "procedure") "시술" else "상담"
+        closeRealtimeTurnClient()
         updateState { it.copy(busy = true, status = "$modeLabel 통역방 생성 중...") }
         executor.execute {
             runCatching {
@@ -751,6 +946,13 @@ class MainActivity : ComponentActivity() {
         messageCursor = null
         messagePollingInitialized = false
         seenMessageIds.clear()
+    }
+
+    private fun closeRealtimeTurnClient() {
+        realtimeTurnActive = false
+        runCatching { realtimeTurnClient?.close() }
+        realtimeTurnClient = null
+        realtimeTurnRoomId = ""
     }
 
     private fun pollCurrentRoom() {
@@ -912,6 +1114,13 @@ class MainActivity : ComponentActivity() {
         executor.execute {
             runCatching {
                 val updatedRoom = transitionRoomState(room, "staff_speaking")
+                realtimeTurnActive = runCatching {
+                    val realtime = ensureRealtimeTurnClient(updatedRoom)
+                    realtime.startTurn()
+                    true
+                }.onFailure {
+                    appendLog("Realtime unavailable, using upload fallback: ${it.message}")
+                }.getOrDefault(false)
                 updateState { it.copy(room = updatedRoom, busy = false) }
                 mainHandler.post { startStaffRecording() }
             }.onFailure { caught ->
@@ -919,6 +1128,41 @@ class MainActivity : ComponentActivity() {
                 updateState { it.copy(busy = false, status = "지금은 말할 수 없습니다: $message") }
                 appendLog("말하기 시작 실패: $message")
             }
+        }
+    }
+
+    private fun requestRealtimeToken(room: RoomInfo): RealtimeToken {
+        val backend = normalizedBackendUrl(uiState.value.backendUrl)
+        val payload = JSONObject()
+            .put("roomId", room.id)
+            .put("role", "staff")
+            .put("direction", "staff_to_patient")
+            .put("manualTurn", true)
+            .toString()
+        val data = postJson("$backend/api/realtime/session-token", payload)
+        val token = data.getJSONObject("token")
+        val clientSecret = token.opt("client_secret")
+        val value = when (clientSecret) {
+            is JSONObject -> clientSecret.optString("value")
+            is String -> clientSecret
+            else -> token.optString("value")
+        }.ifBlank { error("Realtime token response was missing a client secret") }
+        return RealtimeToken(
+            value = value,
+            model = token.optString("realtimeModel", "gpt-realtime").ifBlank { "gpt-realtime" }
+        )
+    }
+
+    private fun ensureRealtimeTurnClient(room: RoomInfo): AndroidRealtimeTurnClient {
+        val current = realtimeTurnClient
+        if (current != null && realtimeTurnRoomId == room.id) return current
+
+        closeRealtimeTurnClient()
+        val token = requestRealtimeToken(room)
+        return AndroidRealtimeTurnClient(http, token, ::appendLog).also { client ->
+            client.connect()
+            realtimeTurnClient = client
+            realtimeTurnRoomId = room.id
         }
     }
 
@@ -945,7 +1189,7 @@ class MainActivity : ComponentActivity() {
         recordingThread = Thread {
             var recorder: AudioRecord? = null
             runCatching {
-                val sampleRate = 16000
+                val sampleRate = RealtimePcmSampleRate
                 val minBuffer = AudioRecord.getMinBufferSize(
                     sampleRate,
                     AudioFormat.CHANNEL_IN_MONO,
@@ -983,6 +1227,9 @@ class MainActivity : ComponentActivity() {
                     synchronized(recordingLock) {
                         recordedPcm?.write(byteBuffer, 0, count * 2)
                     }
+                    if (realtimeTurnActive) {
+                        realtimeTurnClient?.appendPcm(byteBuffer, count * 2)
+                    }
                 }
 
                 if (recordingActive) {
@@ -991,6 +1238,7 @@ class MainActivity : ComponentActivity() {
                 }
             }.onFailure { caught ->
                 recordingActive = false
+                realtimeTurnActive = false
                 recoverRoomToReady("마이크 녹음 실패")
                 val message = userFacingError(caught)
                 updateState { it.copy(speaking = false, busy = false, status = "마이크 녹음 실패: $message") }
@@ -1025,8 +1273,7 @@ class MainActivity : ComponentActivity() {
                     updateState { it.copy(room = translatingRoom) }
                 }.onFailure { appendLog("번역 상태 전환 실패: ${it.message}") }
 
-                val wav = pcm16ToWav(pcm, 16000, 1)
-                val result = uploadStaffVoiceTurn(room, wav)
+                val result = translateStaffVoiceTurn(room, pcm)
                 val message = result.getJSONObject("message")
                 rememberMessage(message)
                 val parsedMessage = messageFromJson(message, room.patientLanguage)
@@ -1068,6 +1315,47 @@ class MainActivity : ComponentActivity() {
         }.onFailure {
             appendLog("$context 후 대기 상태 복구 실패: ${it.message}")
         }
+    }
+
+    private fun translateStaffVoiceTurn(room: RoomInfo, pcm: ByteArray): JSONObject {
+        val realtimeWasActive = realtimeTurnActive
+        realtimeTurnActive = false
+
+        if (realtimeWasActive) {
+            val realtime = realtimeTurnClient
+            if (realtime != null) {
+                runCatching {
+                    val result = realtime.stopTurnAndTranslate()
+                    val sourceText = result.sourceText.ifBlank {
+                        "\uD55C\uAD6D\uC5B4 \uC6D0\uBB38\uC744 \uD45C\uC2DC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4."
+                    }
+                    appendLog("Realtime translation complete")
+                    return persistRealtimeStaffVoiceTurn(room, sourceText, result.translatedText)
+                }.onFailure {
+                    appendLog("Realtime failed, falling back to upload: ${it.message}")
+                    closeRealtimeTurnClient()
+                }
+            }
+        }
+
+        val wav = pcm16ToWav(pcm, RealtimePcmSampleRate, 1)
+        appendLog("Upload fallback translation")
+        return uploadStaffVoiceTurn(room, wav)
+    }
+
+    private fun persistRealtimeStaffVoiceTurn(room: RoomInfo, sourceText: String, translatedText: String): JSONObject {
+        val backend = normalizedBackendUrl(uiState.value.backendUrl)
+        val endpoint = if (room.roomMode == "procedure") "procedure-turns" else "consultation-voice-turns"
+        val messageId = "staff-realtime-android-${System.currentTimeMillis()}"
+        val payload = JSONObject()
+            .put("roomId", room.id)
+            .put("messageId", messageId)
+            .put("role", "staff")
+            .put("patientLanguage", room.patientLanguage)
+            .put("sourceText", sourceText)
+            .put("translatedText", translatedText)
+            .toString()
+        return postJson("$backend/api/$endpoint", payload)
     }
 
     private fun uploadStaffVoiceTurn(room: RoomInfo, wav: ByteArray): JSONObject {
@@ -1155,6 +1443,7 @@ class MainActivity : ComponentActivity() {
         val backend = normalizedBackendUrl(uiState.value.backendUrl)
         stopRoomPolling()
         resetMessagePolling()
+        closeRealtimeTurnClient()
         updateState { it.copy(busy = true, showEndRoomConfirm = false, status = "방 종료 중...") }
         executor.execute {
             runCatching {
