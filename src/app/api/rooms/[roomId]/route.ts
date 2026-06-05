@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { endStaleRooms } from "@/lib/stale-rooms";
+import { staffRoomSelect } from "@/lib/room-response";
+import { ensurePatientJoinCode } from "@/lib/patient-join-code";
 
 export async function GET(_: Request, context: { params: Promise<{ roomId: string }> }) {
   const staff = await getCurrentStaff();
@@ -10,19 +11,22 @@ export async function GET(_: Request, context: { params: Promise<{ roomId: strin
   }
 
   const { roomId } = await context.params;
-  await endStaleRooms({ hospitalId: staff.hospitalId });
-
   const room = await prisma.translationRoom.findFirst({
     where: {
       id: roomId,
       OR: [{ hostStaffId: staff.id }, { hospitalId: staff.hospitalId }]
     },
-    include: { hospital: true, hostStaff: true, usageSession: true, participants: true }
+    select: staffRoomSelect
   });
 
   if (!room) {
     return NextResponse.json({ error: "Room not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ room });
+  return NextResponse.json({
+    room: {
+      ...room,
+      patientJoinCode: await ensurePatientJoinCode(room)
+    }
+  });
 }

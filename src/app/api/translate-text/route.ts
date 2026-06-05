@@ -6,6 +6,8 @@ import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { isPatientLanguage, languageLabels, sourceTargetFor, type PatientLanguage } from "@/lib/languages";
 import { buildClinicGlossaryInstructions, normalizeClinicTranslation } from "@/lib/clinic-glossary";
+import { normalizedTextTranslationModel } from "@/lib/openai-models";
+import { isPatientRoomRequestAuthorized } from "@/lib/patient-room-session";
 
 const schema = z.object({
   roomId: z.string(),
@@ -50,7 +52,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid translation request" }, { status: 400 });
   }
 
-  const limited = rateLimit({
+  const limited = await rateLimit({
     key: `text-translate:${clientIp(request)}:${parsed.data.roomId}:${parsed.data.role}`,
     limit: 60,
     windowMs: 60 * 1000
@@ -69,7 +71,7 @@ export async function POST(request: Request) {
     if (!staff || staff.id !== room.hostStaffId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-  } else if (parsed.data.roomToken !== room.roomToken) {
+  } else if (!(await isPatientRoomRequestAuthorized(room, parsed.data.roomToken))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -106,7 +108,7 @@ export async function POST(request: Request) {
   const direction = sourceTargetFor(parsed.data.role, room.patientLanguage);
   const targetLanguage = parsed.data.role === "staff" ? room.patientLanguage : "ko";
   const targetLabel = targetLanguage === "ko" ? "Korean" : languageLabels[room.patientLanguage].english;
-  const model = process.env.OPENAI_TEXT_TRANSLATION_MODEL ?? "gpt-5.5";
+  const model = normalizedTextTranslationModel(process.env.OPENAI_TEXT_TRANSLATION_MODEL);
   const instructions = [
     "You are a professional medical interpreter for a dermatology and plastic surgery clinic.",
     "Translate the user's message accurately and naturally for a live consultation.",

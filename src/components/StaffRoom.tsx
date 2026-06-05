@@ -12,7 +12,6 @@ import { subscribeToRoomUpdates } from "@/lib/supabase-realtime";
 type StaffRoomProps = {
   room: {
     id: string;
-    roomToken: string;
     status: RoomStatus;
     patientLanguage: PatientLanguage;
     patientJoinedAt?: string | null;
@@ -227,11 +226,11 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
         <h2 className="mt-2 text-xl font-bold text-ink md:text-2xl">{copy.waiting}</h2>
         {isProcedureMode ? (
           <p className="mx-auto mt-1 max-w-sm rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold leading-5 text-trust md:text-sm">
-            Two-device web procedure mode: scan this QR on the patient device.
+            환자 기기에서 이 QR을 스캔하면 시술 통역방으로 입장합니다.
           </p>
         ) : null}
         <p className="mx-auto mt-1 max-w-sm text-sm font-semibold leading-5 text-slate-500">
-          {isProcedureMode ? "Use a second web device near the patient." : primaryQrCopy.body}
+          {isProcedureMode ? "환자 휴대폰 화면을 켜둔 채 가까운 곳에 두세요." : primaryQrCopy.body}
         </p>
         <p className="sr-only">{primaryQrUrl}</p>
         <button

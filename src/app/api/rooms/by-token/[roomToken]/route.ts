@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { legacyRoomTokenAccessEnabled } from "@/lib/legacy-room-token";
 
 export async function GET(request: Request, context: { params: Promise<{ roomToken: string }> }) {
+  if (!legacyRoomTokenAccessEnabled()) {
+    return NextResponse.json({ error: "Legacy room token lookup is disabled" }, { status: 410 });
+  }
+
   const { roomToken } = await context.params;
-  const limited = rateLimit({
+  const limited = await rateLimit({
     key: `room-token-lookup:${clientIp(request)}:${roomToken.slice(0, 12)}`,
     limit: 120,
     windowMs: 60 * 1000
@@ -15,7 +20,18 @@ export async function GET(request: Request, context: { params: Promise<{ roomTok
 
   const room = await prisma.translationRoom.findUnique({
     where: { roomToken },
-    include: { hospital: true, hostStaff: true, participants: true }
+    select: {
+      id: true,
+      patientLanguage: true,
+      roomMode: true,
+      status: true,
+      createdAt: true,
+      patientJoinedAt: true,
+      endedAt: true,
+      hospital: {
+        select: { name: true }
+      }
+    }
   });
 
   if (!room || room.status === "ended") {

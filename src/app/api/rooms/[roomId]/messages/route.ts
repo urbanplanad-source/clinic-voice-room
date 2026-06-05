@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
+import { isPatientRoomRequestAuthorized } from "@/lib/patient-room-session";
 
 export async function GET(request: Request, context: { params: Promise<{ roomId: string }> }) {
   const { roomId } = await context.params;
   const url = new URL(request.url);
-  const roomToken = url.searchParams.get("roomToken");
+  const roomToken = request.headers.get("x-room-token");
   const after = url.searchParams.get("after");
 
   const room = await prisma.translationRoom.findUnique({
@@ -18,20 +19,10 @@ export async function GET(request: Request, context: { params: Promise<{ roomId:
 
   const staff = await getCurrentStaff();
   const staffAllowed = Boolean(staff && staff.id === room.hostStaffId);
-  const patientAllowed = Boolean(roomToken && roomToken === room.roomToken);
+  const patientAllowed = await isPatientRoomRequestAuthorized(room, roomToken);
   if (!staffAllowed && !patientAllowed) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const viewerRole = staffAllowed ? "staff" : "patient";
-
-  await prisma.consultationMessage.updateMany({
-    where: {
-      roomId: room.id,
-      speaker: viewerRole === "staff" ? "patient" : "staff",
-      readAt: null
-    },
-    data: { readAt: new Date() }
-  });
 
   const afterDate = after ? new Date(after) : null;
   const messages = await prisma.consultationMessage.findMany({

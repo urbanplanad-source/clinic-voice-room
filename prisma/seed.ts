@@ -29,7 +29,7 @@ async function main() {
 
   await prisma.staffUser.upsert({
     where: { email: staffEmail },
-    update: { passwordHash, hospitalId: hospital.id, name: staffName },
+    update: { passwordHash, sessionVersion: { increment: 1 }, hospitalId: hospital.id, name: staffName },
     create: {
       hospitalId: hospital.id,
       name: staffName,

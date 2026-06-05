@@ -689,6 +689,8 @@ function ProcedureVoiceRoom({
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
   const realtimePreconnectStartedRef = useRef(false);
   const spokenMessageIdsRef = useRef(new Set<string>());
+  const fetchedMessageIdsRef = useRef(new Set<string>());
+  const messageCursorRef = useRef<string | null>(null);
   const playedIntroKeyRef = useRef<string | null>(null);
   const pressedHardwareKeysRef = useRef(new Set<string>());
   const lastHardwareToggleAtRef = useRef(0);
@@ -773,7 +775,9 @@ function ProcedureVoiceRoom({
         roomToken
       }, {
         onStatus: setRealtimeStatus,
-        onTranscriptDelta: setTranslationDraft,
+        onTranscriptDelta: (text) => {
+          setTranslationDraft(normalizeClinicTranslation(text, role === "staff" ? room.patientLanguage : "ko"));
+        },
         onInputTranscriptDelta: setInputTranscriptDraft,
         onFirstOutputDelta: () => {
           if (isProcedureMode) {
@@ -793,7 +797,7 @@ function ProcedureVoiceRoom({
       realtimePreconnectStartedRef.current = false;
       throw caught;
     }
-  }, [isProcedureMode, role, room.id, roomToken, transition]);
+  }, [isProcedureMode, role, room.id, room.patientLanguage, roomToken, transition]);
 
   const appendMessage = useCallback((message: TranslationMessage) => {
     setMessages((current) => {
@@ -842,6 +846,20 @@ function ProcedureVoiceRoom({
         playBrowserTranslatedSpeech(message.text, targetLanguage);
       });
   }, [playBrowserTranslatedSpeech, room.patientLanguage]);
+
+  const markIncomingMessagesRead = useCallback((incomingMessages: TranslationMessage[]) => {
+    if (!incomingMessages.some((message) => message.speaker !== role)) return;
+
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (roomToken) headers["x-room-token"] = roomToken;
+
+    void fetch(`/api/rooms/${room.id}/messages/read`, {
+      method: "POST",
+      cache: "no-store",
+      headers,
+      body: "{}"
+    }).catch(() => undefined);
+  }, [role, room.id, roomToken]);
 
   useEffect(() => {
     if (!isStaffAudioHub || !isProcedureMode || !room.patientJoinedAt || room.status === "ended") return;
@@ -925,10 +943,52 @@ function ProcedureVoiceRoom({
 
   useEffect(() => {
     return subscribeToTranslationMessages(room.id, (message) => {
-      if (message.speaker !== role) appendMessage(message);
+      if (message.speaker !== role) {
+        appendMessage(message);
+        markIncomingMessagesRead([message]);
+      }
       markActivity();
     }) ?? undefined;
-  }, [appendMessage, markActivity, role, room.id]);
+  }, [appendMessage, markActivity, markIncomingMessagesRead, role, room.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchRoomMessages() {
+      const params = new URLSearchParams();
+      if (messageCursorRef.current) params.set("after", messageCursorRef.current);
+
+      const query = params.toString();
+      const response = await fetch(`/api/rooms/${room.id}/messages${query ? `?${query}` : ""}`, {
+        cache: "no-store",
+        headers: roomToken ? { "x-room-token": roomToken } : undefined
+      }).catch(() => null);
+      if (!response?.ok || cancelled) return;
+
+      const data = (await response.json().catch(() => null)) as { messages?: RealtimeTranslationMessage[] } | null;
+      const nextMessages = data?.messages ?? [];
+      for (const message of nextMessages) {
+        if (!message?.id || fetchedMessageIdsRef.current.has(message.id)) continue;
+
+        fetchedMessageIdsRef.current.add(message.id);
+        if (message.createdAt && (!messageCursorRef.current || message.createdAt > messageCursorRef.current)) {
+          messageCursorRef.current = message.createdAt;
+        }
+        if (message.speaker !== role) {
+          appendMessage(message);
+          markIncomingMessagesRead([message]);
+          markActivity();
+        }
+      }
+    }
+
+    void fetchRoomMessages();
+    const interval = window.setInterval(fetchRoomMessages, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [appendMessage, markActivity, markIncomingMessagesRead, role, room.id, roomToken]);
 
   useEffect(() => {
     cleanupRef.current = () => {
@@ -1091,7 +1151,9 @@ function ProcedureVoiceRoom({
       const response =
         role === "staff"
           ? await fetch(`/api/rooms/${room.id}`, { cache: "no-store" })
-          : await fetch(`/api/rooms/by-token/${roomToken}`, { cache: "no-store" });
+          : roomToken
+            ? await fetch(`/api/rooms/by-token/${roomToken}`, { cache: "no-store" })
+            : await fetch(`/api/rooms/${room.id}/patient`, { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
       setRoom((current) => ({ ...current, ...data.room }));
@@ -1244,6 +1306,31 @@ function ProcedureVoiceRoom({
     return data.message as RealtimeTranslationMessage;
   }
 
+  async function persistRealtimeStaffProcedureTurn(params: {
+    messageId: string;
+    sourceText: string;
+    translatedText: string;
+  }) {
+    const response = await fetch("/api/procedure-turns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roomId: room.id,
+        messageId: params.messageId,
+        role: "staff",
+        roomToken,
+        patientLanguage: room.patientLanguage,
+        sourceText: params.sourceText,
+        translatedText: params.translatedText
+      })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.error ?? "Procedure voice message could not be saved.");
+    }
+    return data.message as RealtimeTranslationMessage;
+  }
+
   async function startSpeaking() {
     setError("");
     setTranslationDraft("");
@@ -1323,14 +1410,12 @@ function ProcedureVoiceRoom({
       const normalizedText = normalizeClinicTranslation(translatedText, role === "staff" ? room.patientLanguage : "ko");
       const sourceText = realtimeClientRef.current?.getInputTranscript() || inputTranscriptDraft || "한국어 원문을 표시하지 못했습니다.";
 
-      const message = {
-        id: `${role}-${Date.now()}`,
-        speaker: role,
+      const messageId = `${role}-procedure-${Date.now()}`;
+      const message = await persistRealtimeStaffProcedureTurn({
+        messageId,
         sourceText,
-        text: normalizedText,
-        targetLanguage: room.patientLanguage,
-        createdAt: new Date().toISOString()
-      } satisfies RealtimeTranslationMessage;
+        translatedText: normalizedText
+      });
 
       appendMessage(message);
       void broadcastTranslationMessage(room.id, message);

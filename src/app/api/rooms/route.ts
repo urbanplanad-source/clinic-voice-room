@@ -5,9 +5,10 @@ import { getCurrentStaff } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { isPatientLanguage } from "@/lib/languages";
 import { roomModes } from "@/lib/room-mode";
-import { getHospitalActiveRoomLimit } from "@/lib/room-limits";
-import { endStaleRooms } from "@/lib/stale-rooms";
+import { getHospitalActiveRoomLimit, getStaleRoomCutoff } from "@/lib/room-limits";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { staffRoomSelect } from "@/lib/room-response";
+import { createPatientJoinCode } from "@/lib/patient-join-code";
 
 const schema = z.object({
   patientLanguage: z.string().refine(isPatientLanguage),
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unsupported patient language" }, { status: 400 });
   }
 
-  const limited = rateLimit({
+  const limited = await rateLimit({
     key: `room-create:${staff.id}:${clientIp(request)}`,
     limit: 30,
     windowMs: 60 * 1000
@@ -43,9 +44,8 @@ export async function POST(request: Request) {
     return rateLimitResponse(limited.retryAfter);
   }
 
-  await endStaleRooms({ hospitalId: staff.hospitalId });
-
   const activeRoomLimit = getHospitalActiveRoomLimit();
+  const activeRoomCutoff = getStaleRoomCutoff(new Date());
   let room;
   try {
     room = await prisma.$transaction(async (tx) => {
@@ -54,7 +54,8 @@ export async function POST(request: Request) {
       const activeRoomCount = await tx.translationRoom.count({
         where: {
           hospitalId: staff.hospitalId,
-          status: { not: "ended" }
+          status: { not: "ended" },
+          lastActiveAt: { gte: activeRoomCutoff }
         }
       });
 
@@ -63,6 +64,7 @@ export async function POST(request: Request) {
       }
 
       const roomToken = randomBytes(24).toString("base64url");
+      const patientJoinCode = createPatientJoinCode();
       return tx.translationRoom.create({
         data: {
           hospitalId: staff.hospitalId,
@@ -70,6 +72,7 @@ export async function POST(request: Request) {
           roomMode: parsed.data.roomMode,
           hostStaffId: staff.id,
           roomToken,
+          patientJoinCode,
           status: "waiting_for_patient",
           participants: {
             create: {
@@ -86,7 +89,7 @@ export async function POST(request: Request) {
             }
           }
         },
-        include: { hospital: true, hostStaff: true, usageSession: true }
+        select: staffRoomSelect
       });
     });
   } catch (caught) {

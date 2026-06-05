@@ -11,6 +11,8 @@ const schema = z.object({
   remember: z.boolean().optional()
 });
 
+const dummyPasswordHash = bcrypt.hashSync("clinic-voice-room-dummy-password", 10);
+
 export async function POST(request: Request) {
   const parsed = schema.safeParse(await request.json());
   if (!parsed.success) {
@@ -19,7 +21,7 @@ export async function POST(request: Request) {
 
   const ip = clientIp(request);
   const emailKey = parsed.data.email.trim().toLowerCase();
-  const limited = rateLimit({ key: `login:${ip}:${emailKey}`, limit: 8, windowMs: 10 * 60 * 1000 });
+  const limited = await rateLimit({ key: `login:${ip}:${emailKey}`, limit: 8, windowMs: 10 * 60 * 1000 });
   if (!limited.ok) {
     return rateLimitResponse(limited.retryAfter);
   }
@@ -29,12 +31,8 @@ export async function POST(request: Request) {
     include: { hospital: true }
   });
 
-  if (!staff || !staff.isActive || staff.hospital.status !== "active") {
-    return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
-  }
-
-  const ok = await bcrypt.compare(parsed.data.password, staff.passwordHash);
-  if (!ok) {
+  const ok = await bcrypt.compare(parsed.data.password, staff?.passwordHash ?? dummyPasswordHash);
+  if (!staff || !staff.isActive || staff.hospital.status !== "active" || !ok) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
@@ -42,7 +40,7 @@ export async function POST(request: Request) {
     where: { id: staff.id },
     data: { lastLoginAt: new Date() }
   });
-  await setStaffSession(staff.id, { remember: parsed.data.remember ?? true });
+  await setStaffSession(staff.id, { remember: parsed.data.remember ?? false });
 
   return NextResponse.json({
     staff: {

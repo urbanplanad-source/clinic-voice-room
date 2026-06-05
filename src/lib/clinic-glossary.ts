@@ -22,6 +22,85 @@ type ClinicGlossaryEntry = {
 
 const rawGlossaryTargetLanguages = new Set<GlossaryTargetLanguage>(["ko", "zh", "ja", "en", "ru", "vi", "id"]);
 
+const realtimeKoreanTranscriptionHints = [
+  "리쥬란",
+  "리주란",
+  "리쥬란 힐러",
+  "쥬베룩",
+  "쥬베룩 볼륨",
+  "울쎄라",
+  "울쎄라 프라임",
+  "써마지",
+  "써마지 FLX",
+  "포텐자",
+  "피코레이저",
+  "스킨부스터",
+  "보툴리눔 톡신",
+  "필러",
+  "부종",
+  "붓기",
+  "멍",
+  "홍반",
+  "통증",
+  "따가움",
+  "가려움",
+  "건조감",
+  "부종이 생길 수 있어요",
+  "붓기가 있을 수 있어요",
+  "멍이 생길 수 있어요",
+  "붉어질 수 있어요",
+  "통증이 있을 수 있어요",
+  "일시적인 반응입니다",
+  "아프지 않으세요?",
+  "통증은 어떠세요?",
+  "괜찮으세요?",
+  "움직이지 마세요",
+  "눈 감고 계세요"
+];
+
+const commonBrandCorrectionPatterns = [
+  /니[주쥬]란/g,
+  /리주란/g,
+  /\bni[\s-]?juran\b/gi,
+  /\bni[\s-]?zuran\b/gi,
+  /\bniju[\s-]?ran\b/gi,
+  /\bnizhu[\s-]?ran\b/gi
+];
+
+const swellingTermByLanguage: Partial<Record<GlossaryTargetLanguage, string>> = {
+  ko: "부종",
+  zh: "肿胀",
+  zh_tw: "腫脹",
+  ja: "腫れ",
+  en: "swelling",
+  ru: "отек",
+  vi: "sưng",
+  id: "bengkak",
+  ms: "bengkak",
+  fr: "gonflement",
+  es: "hinchazón",
+  de: "Schwellung",
+  it: "gonfiore",
+  pt: "inchaço"
+};
+
+const swellingPhraseByLanguage: Partial<Record<GlossaryTargetLanguage, string>> = {
+  ko: "부종이 생길 수 있어요.",
+  zh: "可能会出现肿胀。",
+  zh_tw: "可能會出現腫脹。",
+  ja: "腫れが出ることがあります。",
+  en: "Swelling may occur.",
+  ru: "Может появиться отек.",
+  vi: "Có thể bị sưng.",
+  id: "Bengkak bisa terjadi.",
+  ms: "Bengkak boleh berlaku.",
+  fr: "Un gonflement peut apparaître.",
+  es: "Puede aparecer hinchazón.",
+  de: "Es kann zu einer Schwellung kommen.",
+  it: "Può comparire gonfiore.",
+  pt: "Pode ocorrer inchaço."
+};
+
 const rawClinicGlossary = `
 오십샷|50샷,50샷,五十发,ごじゅうショット,fifty shots,пятьдесят импульсов,năm mươi shot,lima puluh shot,count,샷 수
 백오십샷|150샷,150샷,一百五十发,ひゃくごじゅうショット,one hundred fifty shots,сто пятьдесят импульсов,một trăm năm mươi shot,seratus lima puluh shot,count,샷 수
@@ -373,6 +452,25 @@ function replaceAllCaseInsensitive(text: string, from: string, to: string) {
   return text.replace(new RegExp(escapeRegExp(from), "gi"), to);
 }
 
+function applyHighPriorityClinicCorrections(text: string, targetLanguage: GlossaryTargetLanguage) {
+  let corrected = text;
+  const rejuranReplacement = targetLanguage === "ko" ? "리쥬란" : "Rejuran";
+  const swellingTerm = swellingTermByLanguage[targetLanguage] ?? "swelling";
+  const swellingPhrase = swellingPhraseByLanguage[targetLanguage] ?? "Swelling may occur.";
+
+  for (const pattern of commonBrandCorrectionPatterns) {
+    corrected = corrected.replace(pattern, rejuranReplacement);
+  }
+
+  if (/^(?:그종|구종|붓종|geu[\s-]?jong|gu[\s-]?jong|geo[\s-]?jong)(?:[이가은는]?\s*)?(?:생길\s*수\s*있(?:어|어요|습니다)?|may\s+occur)?[.!?。？\s]*$/i.test(corrected.trim())) {
+    return swellingPhrase;
+  }
+
+  return corrected
+    .replace(/그종|구종|붓종/g, swellingTerm)
+    .replace(/\b(?:geu|gu|geo)[\s-]?jong\b/gi, swellingTerm);
+}
+
 const targetMisrecognitionCorrections: Partial<Record<GlossaryTargetLanguage, Array<[RegExp, string]>>> = {
   zh: [
     [/^(?:你不困吗|不困吗|困吗|你困吗)[?？。.\s]*$/i, "疼吗？"]
@@ -423,12 +521,13 @@ const targetMisrecognitionCorrections: Partial<Record<GlossaryTargetLanguage, Ar
 };
 
 function applyTargetSpecificCorrections(text: string, targetLanguage: GlossaryTargetLanguage) {
+  const highPriorityCorrected = applyHighPriorityClinicCorrections(text, targetLanguage);
   const corrections = targetMisrecognitionCorrections[targetLanguage];
-  if (!corrections) return text;
+  if (!corrections) return highPriorityCorrected;
 
   return corrections.reduce(
     (current, [pattern, replacement]) => current.replace(pattern, replacement),
-    text
+    highPriorityCorrected
   );
 }
 
@@ -513,18 +612,20 @@ export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage
 }
 
 export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLanguage) {
-  const koreanHints = criticalShortPhrases.flatMap((entry) => entry.spoken).join(", ");
+  const koreanHints = realtimeKoreanTranscriptionHints.join(", ");
   if (inputLanguage === "ko") {
     return [
       "Korean dermatology and plastic surgery procedure room.",
       "Common short phrases may be spoken quickly or through a mask.",
       `Prefer these Korean phrases when acoustically plausible: ${koreanHints}.`,
+      "When the sound is close, prefer Rejuran as 리쥬란 and swelling as 부종, not 니주란 or 그종.",
       "Do not reinterpret pain-check phrases as sleepiness, setup, or casual conversation."
     ].join(" ");
   }
 
   return [
     "Dermatology and plastic surgery interpretation room.",
+    "Preserve clinic brand names such as Rejuran, Juvelook, Ultherapy, Thermage, Potenza, and Pico laser.",
     "The speaker may answer briefly about pain, discomfort, movement, or whether they are okay.",
     "Keep medical procedure context when transcribing short phrases."
   ].join(" ");

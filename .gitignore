@@ -17,3 +17,15 @@ android-spike/.kotlin/
 android-spike/local.properties
 android-spike/app/build/
 android-spike/build/
+android-diagnostics/.gradle/
+android-diagnostics/.idea/
+android-diagnostics/.kotlin/
+android-diagnostics/local.properties
+android-diagnostics/app/build/
+android-diagnostics/build/
+android-staff-app/.gradle/
+android-staff-app/.idea/
+android-staff-app/.kotlin/
+android-staff-app/local.properties
+android-staff-app/app/build/
+android-staff-app/build/

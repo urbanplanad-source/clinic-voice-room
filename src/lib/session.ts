@@ -9,6 +9,7 @@ const rememberedSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
 type SessionPayload = {
   staffId: string;
   exp: number;
+  sessionVersion: number;
 };
 
 function secret() {
@@ -50,7 +51,15 @@ function decode(token?: string): SessionPayload | null {
 export async function setStaffSession(staffId: string, options: { remember?: boolean } = {}) {
   const cookieStore = await cookies();
   const maxAge = options.remember ? rememberedSessionMaxAgeSeconds : defaultSessionMaxAgeSeconds;
-  cookieStore.set(cookieName, encode({ staffId, exp: Date.now() + maxAge * 1000 }), {
+  const staff = await prisma.staffUser.findUnique({
+    where: { id: staffId },
+    select: { sessionVersion: true }
+  });
+  if (!staff) {
+    throw new Error("Staff user not found.");
+  }
+
+  cookieStore.set(cookieName, encode({ staffId, exp: Date.now() + maxAge * 1000, sessionVersion: staff.sessionVersion }), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -69,8 +78,13 @@ export async function getCurrentStaff() {
   const payload = decode(cookieStore.get(cookieName)?.value);
   if (!payload) return null;
 
-  return prisma.staffUser.findFirst({
+  const staff = await prisma.staffUser.findFirst({
     where: { id: payload.staffId, isActive: true },
     include: { hospital: true }
   });
+  if (!staff || payload.sessionVersion !== staff.sessionVersion) {
+    return null;
+  }
+
+  return staff;
 }

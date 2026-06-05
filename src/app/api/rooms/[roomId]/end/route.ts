@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { secondsBetween } from "@/lib/usage";
+import { staffRoomSelect } from "@/lib/room-response";
 
 export async function POST(_: Request, context: { params: Promise<{ roomId: string }> }) {
   const staff = await getCurrentStaff();
@@ -36,7 +37,7 @@ export async function POST(_: Request, context: { params: Promise<{ roomId: stri
             }
           : undefined
       },
-      include: { hospital: true, usageSession: true }
+      select: staffRoomSelect
     });
   });
 

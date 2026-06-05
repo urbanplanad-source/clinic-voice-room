@@ -12,7 +12,7 @@ const copy: Record<
 > = {
   zh: {
     title: "医院翻译室",
-    body: "请用文字开始咨询。不需要安装应用或注册账号。",
+    body: "进入后可用语音咨询，文字输入可作为备用。不需要安装应用或注册账号。",
     procedureBody: "治疗过程中会播放翻译语音。请保持屏幕开启，并将手机放在身边。",
     consent: "为提供口译服务，您的语音可能会由外部 AI 服务处理。本服务不会保存原始语音或完整对话记录。",
     button: "进入房间",
@@ -22,7 +22,7 @@ const copy: Record<
   },
   zh_tw: {
     title: "醫院翻譯室",
-    body: "請用文字開始諮詢。不需要安裝 App 或註冊帳號。",
+    body: "入室後可用語音諮詢，文字輸入可作為備用。不需要安裝 App 或註冊帳號。",
     procedureBody: "療程中會播放翻譯語音。請保持螢幕開啟，並將手機放在身邊。",
     consent: "為提供口譯服務，您的語音可能會由外部 AI 服務處理。本服務不會保存原始語音或完整對話紀錄。",
     button: "進入房間",
@@ -32,7 +32,7 @@ const copy: Record<
   },
   ja: {
     title: "病院通訳ルーム",
-    body: "テキストで相談を開始できます。アプリのインストールやアカウント登録は不要です。",
+    body: "入室後は音声で相談できます。文字入力は予備として使えます。アプリのインストールやアカウント登録は不要です。",
     procedureBody: "施術中に通訳音声が再生されます。画面をオンにしたまま、端末をそばに置いてください。",
     consent: "通訳のため、音声が外部AIサービスで処理される場合があります。元の音声や会話全文は保存しません。",
     button: "入室する",
@@ -42,7 +42,7 @@ const copy: Record<
   },
   en: {
     title: "Hospital Interpretation Room",
-    body: "Start the consultation by typing. No app installation or account is required.",
+    body: "After entering, you can consult by voice. Typing is available as a backup. No app installation or account is required.",
     procedureBody: "Translated audio may play during the procedure. Please keep this screen on and place the phone nearby.",
     consent: "To provide interpretation, your voice may be processed by an external AI service. We do not store raw audio or full conversation transcripts.",
     button: "Enter room",
@@ -52,7 +52,7 @@ const copy: Record<
   },
   th: {
     title: "ห้องล่ามของโรงพยาบาล",
-    body: "เริ่มปรึกษาได้ด้วยการพิมพ์ ไม่ต้องติดตั้งแอปหรือสมัครบัญชี",
+    body: "หลังเข้าห้อง คุณสามารถปรึกษาด้วยเสียงได้ และใช้การพิมพ์เป็นตัวเลือกสำรอง ไม่ต้องติดตั้งแอปหรือสมัครบัญชี",
     procedureBody: "ระหว่างทำหัตถการอาจมีเสียงแปล กรุณาเปิดหน้าจอไว้และวางโทรศัพท์ไว้ใกล้ตัว",
     consent: "เพื่อให้บริการล่าม เสียงของคุณอาจถูกประมวลผลโดยบริการ AI ภายนอก เราจะไม่บันทึกเสียงต้นฉบับหรือบทสนทนาทั้งหมด",
     button: "เข้าห้อง",
@@ -62,7 +62,7 @@ const copy: Record<
   },
   ms: {
     title: "Bilik Interpretasi Klinik",
-    body: "Mulakan konsultasi dengan menaip. Tidak perlu memasang aplikasi atau membuat akaun.",
+    body: "Selepas masuk, anda boleh berkonsultasi melalui suara. Menaip tersedia sebagai sandaran. Tidak perlu memasang aplikasi atau membuat akaun.",
     procedureBody: "Audio terjemahan mungkin dimainkan semasa prosedur. Pastikan skrin kekal hidup dan letakkan telefon berhampiran anda.",
     consent: "Untuk menyediakan interpretasi, suara anda mungkin diproses oleh perkhidmatan AI luaran. Kami tidak menyimpan audio mentah atau transkrip perbualan penuh.",
     button: "Masuk",
@@ -72,7 +72,7 @@ const copy: Record<
   },
   mn: {
     title: "Эмнэлгийн орчуулгын өрөө",
-    body: "Зөвлөгөөг бичвэрээр эхлүүлнэ үү. Апп суулгах эсвэл бүртгэл үүсгэх шаардлагагүй.",
+    body: "Өрөөнд орсны дараа дуугаар зөвлөгөө авч болно. Бичих талбар нөөцөөр байна. Апп суулгах эсвэл бүртгэл үүсгэх шаардлагагүй.",
     procedureBody: "Ажилбарын үед орчуулсан дуу тоглож болно. Дэлгэцээ асаалттай байлгаж, утсаа ойрхон тавина уу.",
     consent: "Орчуулга хийхийн тулд таны дуу хоолой гадаад AI үйлчилгээээр боловсруулагдаж болно. Бид эх аудио эсвэл бүтэн ярианы бичвэрийг хадгалахгүй.",
     button: "Өрөөнд орох",
@@ -82,7 +82,7 @@ const copy: Record<
   },
   ru: {
     title: "Кабинет перевода в клинике",
-    body: "Начните консультацию текстом. Установка приложения и регистрация не требуются.",
+    body: "После входа можно консультироваться голосом. Текст доступен как запасной вариант. Установка приложения и регистрация не требуются.",
     procedureBody: "Во время процедуры может воспроизводиться перевод. Оставьте экран включенным и положите телефон рядом.",
     consent: "Для перевода ваш голос может обрабатываться внешним AI-сервисом. Мы не сохраняем исходную аудиозапись или полный текст разговора.",
     button: "Войти",
@@ -92,7 +92,7 @@ const copy: Record<
   },
   vi: {
     title: "Phòng phiên dịch bệnh viện",
-    body: "Bắt đầu tư vấn bằng cách nhập tin nhắn. Không cần cài ứng dụng hoặc tạo tài khoản.",
+    body: "Sau khi vào phòng, bạn có thể tư vấn bằng giọng nói. Nhập chữ là phương án dự phòng. Không cần cài ứng dụng hoặc tạo tài khoản.",
     procedureBody: "Âm thanh phiên dịch có thể được phát trong quá trình thực hiện thủ thuật. Vui lòng để màn hình bật và đặt điện thoại gần bạn.",
     consent: "Để cung cấp phiên dịch, giọng nói của bạn có thể được xử lý bởi dịch vụ AI bên ngoài. Chúng tôi không lưu âm thanh gốc hoặc toàn bộ nội dung cuộc trò chuyện.",
     button: "Vào phòng",
@@ -102,7 +102,7 @@ const copy: Record<
   },
   id: {
     title: "Ruang Interpretasi Klinik",
-    body: "Mulai konsultasi dengan mengetik. Tidak perlu memasang aplikasi atau membuat akun.",
+    body: "Setelah masuk, Anda dapat berkonsultasi dengan suara. Mengetik tersedia sebagai cadangan. Tidak perlu memasang aplikasi atau membuat akun.",
     procedureBody: "Audio terjemahan dapat diputar selama prosedur. Tetap nyalakan layar dan letakkan ponsel di dekat Anda.",
     consent: "Untuk menyediakan interpretasi, suara Anda dapat diproses oleh layanan AI eksternal. Kami tidak menyimpan audio mentah atau transkrip percakapan lengkap.",
     button: "Masuk",
@@ -112,7 +112,7 @@ const copy: Record<
   },
   fr: {
     title: "Salle d'interprétation de la clinique",
-    body: "Commencez la consultation par message. Aucune installation d'application ni création de compte n'est nécessaire.",
+    body: "Après l'entrée, vous pouvez consulter par voix. Le texte reste disponible en secours. Aucune installation d'application ni création de compte n'est nécessaire.",
     procedureBody: "L'audio traduit peut être diffusé pendant l'intervention. Gardez cet écran allumé et placez le téléphone à proximité.",
     consent: "Pour fournir l'interprétation, votre voix peut être traitée par un service d'IA externe. Nous ne conservons pas l'audio brut ni la transcription complète de la conversation.",
     button: "Entrer",
@@ -122,7 +122,7 @@ const copy: Record<
   },
   es: {
     title: "Sala de interpretación de la clínica",
-    body: "Comience la consulta escribiendo. No necesita instalar una aplicación ni crear una cuenta.",
+    body: "Después de entrar, puede consultar por voz. El texto queda como respaldo. No necesita instalar una aplicación ni crear una cuenta.",
     procedureBody: "El audio traducido puede reproducirse durante el procedimiento. Mantenga esta pantalla encendida y coloque el teléfono cerca.",
     consent: "Para ofrecer la interpretación, su voz puede ser procesada por un servicio externo de IA. No guardamos el audio original ni la transcripción completa de la conversación.",
     button: "Entrar",
@@ -132,7 +132,7 @@ const copy: Record<
   },
   de: {
     title: "Dolmetschraum der Klinik",
-    body: "Starten Sie die Beratung per Texteingabe. Eine App-Installation oder Kontoerstellung ist nicht erforderlich.",
+    body: "Nach dem Betreten können Sie per Sprache beraten werden. Text bleibt als Reserve verfügbar. Eine App-Installation oder Kontoerstellung ist nicht erforderlich.",
     procedureBody: "Während der Behandlung kann übersetztes Audio abgespielt werden. Lassen Sie den Bildschirm eingeschaltet und legen Sie das Telefon in Ihre Nähe.",
     consent: "Für die Verdolmetschung kann Ihre Stimme von einem externen KI-Dienst verarbeitet werden. Wir speichern weder Roh-Audio noch vollständige Gesprächsprotokolle.",
     button: "Raum betreten",
@@ -142,7 +142,7 @@ const copy: Record<
   },
   it: {
     title: "Sala di interpretariato della clinica",
-    body: "Inizia la consulenza scrivendo. Non è necessario installare un'app o creare un account.",
+    body: "Dopo l'ingresso puoi fare la consulenza con la voce. Il testo resta come opzione di riserva. Non è necessario installare un'app o creare un account.",
     procedureBody: "Durante la procedura potrebbe essere riprodotto l'audio tradotto. Tieni lo schermo acceso e il telefono vicino.",
     consent: "Per fornire l'interpretariato, la tua voce può essere elaborata da un servizio IA esterno. Non conserviamo l'audio originale né la trascrizione completa della conversazione.",
     button: "Entra",
@@ -152,7 +152,7 @@ const copy: Record<
   },
   pt: {
     title: "Sala de interpretação da clínica",
-    body: "Comece a consulta digitando. Não é necessário instalar aplicativo nem criar conta.",
+    body: "Depois de entrar, você pode consultar por voz. O texto fica como opção de apoio. Não é necessário instalar aplicativo nem criar conta.",
     procedureBody: "O áudio traduzido pode ser reproduzido durante o procedimento. Mantenha esta tela ligada e coloque o telefone por perto.",
     consent: "Para fornecer a interpretação, sua voz pode ser processada por um serviço externo de IA. Não armazenamos o áudio bruto nem a transcrição completa da conversa.",
     button: "Entrar",
@@ -162,15 +162,32 @@ const copy: Record<
   }
 };
 
+const turnTakingNotice: Partial<Record<PatientLanguage, string>> = {
+  zh: "请一次只由一位说话。轮到您时再按麦克风。",
+  zh_tw: "請一次只由一位說話。輪到您時再按麥克風。",
+  ja: "一度に一人ずつお話しください。ご自身の順番でマイクを押してください。",
+  en: "Please speak one person at a time. Press the microphone only when it is your turn.",
+  ms: "Sila bercakap seorang demi seorang. Tekan mikrofon hanya apabila giliran anda.",
+  id: "Harap berbicara satu orang pada satu waktu. Tekan mikrofon hanya saat giliran Anda.",
+  fr: "Parlez une seule personne à la fois. Appuyez sur le micro uniquement quand c'est votre tour.",
+  es: "Hable una persona a la vez. Pulse el micrófono solo cuando sea su turno.",
+  de: "Bitte sprechen Sie immer nur einzeln. Drücken Sie das Mikrofon nur, wenn Sie an der Reihe sind.",
+  it: "Parlate una persona alla volta. Premi il microfono solo quando è il tuo turno.",
+  pt: "Fale uma pessoa por vez. Toque no microfone apenas quando for a sua vez."
+};
+
 export function PatientJoin({
+  joinCode,
   room,
   roomMode = "consultation"
 }: {
-  room: { id: string; roomToken: string; patientLanguage: PatientLanguage; hospital: { name: string } };
+  joinCode: string;
+  room: { id: string; patientLanguage: PatientLanguage; hospital: { name: string } };
   roomMode?: "consultation" | "procedure";
 }) {
   const router = useRouter();
   const text = copy[room.patientLanguage];
+  const turnNotice = turnTakingNotice[room.patientLanguage] ?? turnTakingNotice.en;
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -187,12 +204,12 @@ export function PatientJoin({
       const response = await fetch(`/api/rooms/${room.id}/join-patient`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomToken: room.roomToken })
+        body: JSON.stringify({ joinCode })
       });
       if (!response.ok) throw new Error("Room join failed");
       const data = await response.json();
       await broadcastRoomUpdate(data.room);
-      router.replace(`/room/${room.roomToken}?mode=${roomMode}`);
+      router.replace(`/room/patient/${room.id}?mode=${roomMode}`);
     } catch (caught) {
       setError(roomMode === "procedure" && caught instanceof Error && caught.message === "microphone-unavailable" ? text.denied : text.joinDenied);
     } finally {
@@ -232,10 +249,18 @@ export function PatientJoin({
         {error ? <p className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
       </div>
 
-      <div className="mx-6 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 text-sm font-semibold leading-6 text-slate-700 sm:mx-7">
+      <div className="mx-6 space-y-3 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 text-sm font-semibold leading-6 text-slate-700 sm:mx-7">
+        <div className="flex gap-3">
+          <ShieldCheck size={20} className="mt-0.5 shrink-0 text-trust" />
+          <p>{roomMode === "procedure" ? text.procedureBody : text.body}</p>
+        </div>
         <div className="flex gap-3">
           <Volume2 size={20} className="mt-0.5 shrink-0 text-trust" />
           <p>{text.consent}</p>
+        </div>
+        <div className="flex gap-3">
+          <MessageSquareText size={20} className="mt-0.5 shrink-0 text-trust" />
+          <p>{turnNotice}</p>
         </div>
       </div>
 

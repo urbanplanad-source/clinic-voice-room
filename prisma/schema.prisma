@@ -91,6 +91,7 @@ model StaffUser {
   name          String
   email         String            @unique
   passwordHash  String
+  sessionVersion Int               @default(1)
   role          StaffRole         @default(staff)
   isActive      Boolean           @default(true)
   lastLoginAt   DateTime?
@@ -109,6 +110,7 @@ model TranslationRoom {
   patientLanguage      PatientLanguage
   roomMode             RoomMode              @default(consultation)
   roomToken            String                @unique
+  patientJoinCode      String?               @unique
   status               RoomStatus            @default(waiting_for_patient)
   createdAt            DateTime              @default(now())
   lastActiveAt         DateTime              @default(now())

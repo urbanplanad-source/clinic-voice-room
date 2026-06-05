@@ -2,10 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { setPatientRoomSession } from "@/lib/patient-room-session";
+import { legacyRoomTokenAccessEnabled } from "@/lib/legacy-room-token";
 
 const schema = z.object({
-  roomToken: z.string().min(16)
-});
+  joinCode: z.string().min(16).optional(),
+  roomToken: z.string().min(16).optional()
+}).refine((value) => Boolean(value.joinCode || value.roomToken));
 
 export async function POST(request: Request, context: { params: Promise<{ roomId: string }> }) {
   const { roomId } = await context.params;
@@ -14,8 +17,12 @@ export async function POST(request: Request, context: { params: Promise<{ roomId
     return NextResponse.json({ error: "Invalid join payload" }, { status: 400 });
   }
 
-  const limited = rateLimit({
-    key: `room-token-join:${clientIp(request)}:${parsed.data.roomToken.slice(0, 12)}`,
+  const joinCredential = parsed.data.joinCode ?? parsed.data.roomToken ?? "";
+  const credentialWhere = legacyRoomTokenAccessEnabled()
+    ? [{ patientJoinCode: joinCredential }, { roomToken: joinCredential }]
+    : [{ patientJoinCode: joinCredential }];
+  const limited = await rateLimit({
+    key: `room-token-join:${clientIp(request)}:${joinCredential.slice(0, 12)}`,
     limit: 20,
     windowMs: 10 * 60 * 1000
   });
@@ -24,7 +31,10 @@ export async function POST(request: Request, context: { params: Promise<{ roomId
   }
 
   const room = await prisma.translationRoom.findFirst({
-    where: { id: roomId, roomToken: parsed.data.roomToken },
+    where: {
+      id: roomId,
+      OR: credentialWhere
+    },
     include: { participants: true }
   });
 
@@ -49,8 +59,33 @@ export async function POST(request: Request, context: { params: Promise<{ roomId
             }
           }
     },
-    include: { hospital: true, participants: true }
+    select: {
+      id: true,
+      roomToken: true,
+      patientLanguage: true,
+      roomMode: true,
+      status: true,
+      createdAt: true,
+      patientJoinedAt: true,
+      endedAt: true,
+      hospital: {
+        select: { name: true }
+      }
+    }
   });
 
-  return NextResponse.json({ room: updated });
+  await setPatientRoomSession({ id: updated.id, roomToken: updated.roomToken, status: updated.status });
+
+  return NextResponse.json({
+    room: {
+      id: updated.id,
+      patientLanguage: updated.patientLanguage,
+      roomMode: updated.roomMode,
+      status: updated.status,
+      createdAt: updated.createdAt,
+      patientJoinedAt: updated.patientJoinedAt,
+      endedAt: updated.endedAt,
+      hospital: updated.hospital
+    }
+  });
 }

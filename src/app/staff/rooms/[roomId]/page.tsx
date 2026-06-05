@@ -4,6 +4,7 @@ import { AppFrame } from "@/components/AppFrame";
 import { StaffRoom } from "@/components/StaffRoom";
 import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
+import { ensurePatientJoinCode } from "@/lib/patient-join-code";
 
 export default async function StaffRoomPage({
   params
@@ -26,15 +27,15 @@ export default async function StaffRoomPage({
   const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
   const protocol = headerStore.get("x-forwarded-proto") ?? (host?.startsWith("localhost") ? "http" : "https");
   const baseUrl = host ? `${protocol}://${host}` : (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000");
-  const joinUrl = `${baseUrl}/room/join/${room.roomToken}`;
-  const androidJoinUrl = `clinicvoiceroom://room/join?token=${encodeURIComponent(room.roomToken)}&mode=${roomMode}&backend=${encodeURIComponent(baseUrl)}`;
+  const joinCode = await ensurePatientJoinCode(room);
+  const joinUrl = `${baseUrl}/room/join/${joinCode}?mode=${roomMode}`;
+  const androidJoinUrl = `clinicvoiceroom://room/join?joinCode=${encodeURIComponent(joinCode)}&mode=${roomMode}&backend=${encodeURIComponent(baseUrl)}`;
 
   return (
     <AppFrame narrow>
       <StaffRoom
         room={{
           id: room.id,
-          roomToken: room.roomToken,
           status: room.status,
           patientLanguage: room.patientLanguage,
           patientJoinedAt: room.patientJoinedAt?.toISOString() ?? null,

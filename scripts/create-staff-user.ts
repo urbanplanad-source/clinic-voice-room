@@ -56,6 +56,7 @@ async function main() {
       hospitalId: hospital.id,
       name,
       passwordHash,
+      sessionVersion: { increment: 1 },
       role,
       isActive: true
     },

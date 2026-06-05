@@ -4,6 +4,7 @@ import { getCurrentStaff } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { createRealtimeSessionToken } from "@/lib/openai-realtime";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { isPatientRoomRequestAuthorized } from "@/lib/patient-room-session";
 
 const schema = z.object({
   roomId: z.string(),
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid token request" }, { status: 400 });
   }
 
-  const limited = rateLimit({
+  const limited = await rateLimit({
     key: `realtime-token:${clientIp(request)}:${parsed.data.roomId}:${parsed.data.role}`,
     limit: 40,
     windowMs: 60 * 1000
@@ -35,16 +36,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Room not available" }, { status: 404 });
   }
 
-  if (parsed.data.direction) {
-    if (parsed.data.roomToken !== room.roomToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  } else if (parsed.data.role === "staff") {
+  if (
+    (parsed.data.direction === "staff_to_patient" && parsed.data.role !== "staff") ||
+    (parsed.data.direction === "patient_to_staff" && parsed.data.role !== "patient")
+  ) {
+    return NextResponse.json({ error: "Invalid token direction" }, { status: 400 });
+  }
+
+  if (parsed.data.role === "staff") {
     const staff = await getCurrentStaff();
     if (!staff || staff.id !== room.hostStaffId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-  } else if (parsed.data.roomToken !== room.roomToken) {
+  } else if (!(await isPatientRoomRequestAuthorized(room, parsed.data.roomToken))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

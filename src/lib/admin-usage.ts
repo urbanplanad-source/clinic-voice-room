@@ -1,12 +1,9 @@
 import type { PatientLanguage, PlanType } from "@prisma/client";
 import { prisma } from "./prisma";
-import { endStaleRooms } from "./stale-rooms";
 
 const planTypes: PlanType[] = ["partner_free", "external_trial", "external_paid"];
 
 export async function getAdminUsageSummary() {
-  await endStaleRooms();
-
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);

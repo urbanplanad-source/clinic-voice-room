@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
+import { isPatientRoomRequestAuthorized } from "@/lib/patient-room-session";
 import { canRoleRequestStatus, canTransition, isRoomStatus, type RoomStatus } from "@/lib/room-state";
+import { staffRoomSelect } from "@/lib/room-response";
 
 const schema = z.object({
   role: z.enum(["staff", "patient"]),
@@ -26,7 +28,7 @@ export async function POST(request: Request, context: { params: Promise<{ roomId
     if (!staff || staff.id !== room.hostStaffId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-  } else if (parsed.data.roomToken !== room.roomToken) {
+  } else if (!(await isPatientRoomRequestAuthorized(room, parsed.data.roomToken))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -37,7 +39,11 @@ export async function POST(request: Request, context: { params: Promise<{ roomId
   }
 
   if (!canTransition(room.status, nextStatus)) {
-    return NextResponse.json({ error: `Invalid transition ${room.status} -> ${nextStatus}`, room }, { status: 409 });
+    const currentRoom = await prisma.translationRoom.findUnique({
+      where: { id: roomId },
+      select: staffRoomSelect
+    });
+    return NextResponse.json({ error: `Invalid transition ${room.status} -> ${nextStatus}`, room: currentRoom }, { status: 409 });
   }
 
   const result = await prisma.translationRoom.updateMany({
@@ -47,7 +53,7 @@ export async function POST(request: Request, context: { params: Promise<{ roomId
 
   const updated = await prisma.translationRoom.findUnique({
     where: { id: roomId },
-    include: { hospital: true, usageSession: true, participants: true }
+    select: staffRoomSelect
   });
 
   if (!updated) {
@@ -58,10 +64,5 @@ export async function POST(request: Request, context: { params: Promise<{ roomId
     return NextResponse.json({ error: "Room state changed", room: updated }, { status: 409 });
   }
 
-  const roomWithRelations = await prisma.translationRoom.findUnique({
-    where: { id: roomId },
-    include: { hospital: true, usageSession: true, participants: true }
-  });
-
-  return NextResponse.json({ room: roomWithRelations ?? updated });
+  return NextResponse.json({ room: updated });
 }

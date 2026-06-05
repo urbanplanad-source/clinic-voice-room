@@ -113,6 +113,7 @@ export async function POST(request: Request) {
         hospitalId: hospital.id,
         name: parsed.data.name,
         passwordHash,
+        sessionVersion: { increment: 1 },
         role: parsed.data.role,
         isActive: true
       },
@@ -181,7 +182,7 @@ export async function PATCH(request: Request) {
           email,
           role: parsed.data.role,
           isActive: parsed.data.isActive,
-          ...(passwordHash ? { passwordHash } : {})
+          ...(passwordHash ? { passwordHash, sessionVersion: { increment: 1 } } : {})
         },
         select: {
           id: true,

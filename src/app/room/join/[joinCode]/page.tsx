@@ -1,15 +1,21 @@
 import { AppFrame } from "@/components/AppFrame";
 import { PatientJoin } from "@/components/PatientJoin";
+import { legacyRoomTokenAccessEnabled } from "@/lib/legacy-room-token";
 import { prisma } from "@/lib/prisma";
 
 export default async function PatientJoinPage({
   params
 }: {
-  params: Promise<{ roomToken: string }>;
+  params: Promise<{ joinCode: string }>;
 }) {
-  const { roomToken } = await params;
-  const room = await prisma.translationRoom.findUnique({
-    where: { roomToken },
+  const { joinCode } = await params;
+  const credentialWhere = legacyRoomTokenAccessEnabled()
+    ? [{ patientJoinCode: joinCode }, { roomToken: joinCode }]
+    : [{ patientJoinCode: joinCode }];
+  const room = await prisma.translationRoom.findFirst({
+    where: {
+      OR: credentialWhere
+    },
     include: { hospital: true }
   });
 
@@ -27,9 +33,9 @@ export default async function PatientJoinPage({
   return (
     <AppFrame narrow backHref="/staff">
       <PatientJoin
+        joinCode={joinCode}
         room={{
           id: room.id,
-          roomToken: room.roomToken,
           patientLanguage: room.patientLanguage,
           hospital: { name: room.hospital.name }
         }}

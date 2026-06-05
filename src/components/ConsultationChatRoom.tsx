@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Mic, PhoneOff, Send } from "lucide-react";
+import { Loader2, Mic, PhoneOff, Send, Volume2 } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
@@ -40,6 +40,24 @@ const voiceCopy: Record<PatientLanguage, { ready: string; speaking: string; wait
   de: { ready: "Tippen und sprechen", speaking: "Zum Beenden erneut tippen", waiting: "Bitte warten", helper: "Die Beratung läuft zuerst per Sprache. Das Textfeld bleibt als Reserve verfügbar.", micError: "Das Mikrofon ist nicht verfügbar. Bitte erlauben Sie den Mikrofonzugriff im Browser.", busy: "Die andere Person spricht. Bitte versuchen Sie es gleich erneut.", fallback: "Wenn Sprache nicht gut funktioniert, schreiben Sie hier." },
   it: { ready: "Tocca e parla", speaking: "Tocca di nuovo per finire", waiting: "Attendi", helper: "La consulenza parte dalla voce. Il testo resta come opzione di riserva.", micError: "Il microfono non è disponibile. Consenti l'accesso al microfono nel browser.", busy: "L'altra persona sta parlando. Riprova tra poco.", fallback: "Se la voce non funziona bene, scrivi qui." },
   pt: { ready: "Toque e fale", speaking: "Toque novamente para terminar", waiting: "Aguarde", helper: "A consulta deve começar por voz. O texto fica como opção de apoio.", micError: "O microfone não está disponível. Permita o acesso ao microfone no navegador.", busy: "A outra pessoa está falando. Tente novamente em instantes.", fallback: "Se a voz não funcionar bem, digite aqui." }
+};
+
+const replayCopy: Record<PatientLanguage, string> = {
+  zh: "重新播放",
+  zh_tw: "重新播放",
+  ja: "もう一度聞く",
+  en: "Replay",
+  th: "ฟังอีกครั้ง",
+  ms: "Dengar semula",
+  mn: "Дахин сонсох",
+  ru: "Повторить",
+  vi: "Nghe lại",
+  id: "Dengar lagi",
+  fr: "Réécouter",
+  es: "Escuchar de nuevo",
+  de: "Erneut anhören",
+  it: "Riascolta",
+  pt: "Ouvir novamente"
 };
 
 type RoomSnapshot = {
@@ -101,6 +119,8 @@ export function ConsultationChatRoom({
   const canSubmitText = Boolean(textInput.trim()) && !textSubmitting && room.status !== "ended";
   const isSpeaking = speakingStartedAt !== null;
   const micEnabled = isMicEnabled(room.status, role);
+  const lastIncomingMessage = messages.find((message) => message.speaker !== role && message.deliveryStatus !== "failed");
+  const replayLabel = role === "staff" ? "다시 듣기" : replayCopy[room.patientLanguage];
 
   const title = useMemo(() => {
     const language = languageLabels[room.patientLanguage];
@@ -171,6 +191,10 @@ export function ConsultationChatRoom({
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   }, []);
 
+  const targetLanguageForMessage = useCallback((message: TranslationMessage) => {
+    return message.targetLanguage ?? (message.speaker === "staff" ? room.patientLanguage : "ko");
+  }, [room.patientLanguage]);
+
   const findBrowserVoice = useCallback((lang: string) => {
     if (!("speechSynthesis" in window)) return null;
     const voices = window.speechSynthesis.getVoices();
@@ -184,7 +208,6 @@ export function ConsultationChatRoom({
   }, []);
 
   const playBrowserTranslatedSpeech = useCallback((text: string, targetLanguage: PatientLanguage | "ko") => {
-    if (role !== "staff") return;
     if (!("speechSynthesis" in window)) return;
 
     const lang = speechLanguageByPatientLanguage[targetLanguage];
@@ -196,18 +219,38 @@ export function ConsultationChatRoom({
 
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
-  }, [findBrowserVoice, role]);
+  }, [findBrowserVoice]);
 
   const playQueuedTranslatedSpeech = useCallback((message: TranslationMessage) => {
-    if (role !== "staff" || spokenMessageIdsRef.current.has(message.id)) return;
+    if (spokenMessageIdsRef.current.has(message.id)) return;
     spokenMessageIdsRef.current.add(message.id);
-    const targetLanguage = message.targetLanguage ?? (message.speaker === "staff" ? room.patientLanguage : "ko");
+    const targetLanguage = targetLanguageForMessage(message);
     speechQueueRef.current = speechQueueRef.current
       .catch(() => undefined)
       .then(async () => {
         playBrowserTranslatedSpeech(message.text, targetLanguage);
       });
-  }, [playBrowserTranslatedSpeech, role, room.patientLanguage]);
+  }, [playBrowserTranslatedSpeech, targetLanguageForMessage]);
+
+  const markIncomingMessagesRead = useCallback((incomingMessages: TranslationMessage[]) => {
+    if (!incomingMessages.some((message) => message.speaker !== role)) return;
+
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (role === "patient" && roomToken) headers["x-room-token"] = roomToken;
+
+    void fetch(`/api/rooms/${room.id}/messages/read`, {
+      method: "POST",
+      cache: "no-store",
+      headers,
+      body: "{}"
+    }).catch(() => undefined);
+  }, [role, room.id, roomToken]);
+
+  const replayLastIncomingMessage = useCallback(() => {
+    if (!lastIncomingMessage) return;
+    stopPlayback();
+    playBrowserTranslatedSpeech(lastIncomingMessage.text, targetLanguageForMessage(lastIncomingMessage));
+  }, [lastIncomingMessage, playBrowserTranslatedSpeech, stopPlayback, targetLanguageForMessage]);
 
   const ensureRealtimeSession = useCallback(async (stream: MediaStream) => {
     if (!realtimeClientRef.current) {
@@ -520,23 +563,23 @@ export function ConsultationChatRoom({
     return subscribeToTranslationMessages(room.id, (message) => {
       if (message.speaker !== role) {
         appendMessage(message);
-        if (role === "staff" && message.speaker === "patient") playQueuedTranslatedSpeech(message);
+        playQueuedTranslatedSpeech(message);
+        markIncomingMessagesRead([message]);
       }
       markActivity();
     }) ?? undefined;
-  }, [appendMessage, markActivity, playQueuedTranslatedSpeech, role, room.id]);
+  }, [appendMessage, markActivity, markIncomingMessagesRead, playQueuedTranslatedSpeech, role, room.id]);
 
   useEffect(() => {
     async function fetchMessages() {
       if (messagePollInFlightRef.current) return;
-      if (role === "patient" && !roomToken) return;
 
       messagePollInFlightRef.current = true;
       try {
-        const params = new URLSearchParams();
-        if (role === "patient" && roomToken) params.set("roomToken", roomToken);
-        const query = params.toString();
-        const response = await fetch(`/api/rooms/${room.id}/messages${query ? `?${query}` : ""}`, { cache: "no-store" });
+        const response = await fetch(`/api/rooms/${room.id}/messages`, {
+          cache: "no-store",
+          headers: role === "patient" && roomToken ? { "x-room-token": roomToken } : undefined
+        });
         if (!response.ok) return;
 
         const data = (await response.json()) as { messages?: TranslationMessage[] };
@@ -550,12 +593,11 @@ export function ConsultationChatRoom({
           }
         }
         mergeMessages(fetchedMessages);
-        if (role === "staff") {
-          for (const message of fetchedMessages) {
-            if (message.speaker !== "patient") continue;
-            if (hadFetchedBefore) playQueuedTranslatedSpeech(message);
-            else spokenMessageIdsRef.current.add(message.id);
-          }
+        markIncomingMessagesRead(fetchedMessages);
+        for (const message of fetchedMessages) {
+          if (message.speaker === role) continue;
+          if (hadFetchedBefore) playQueuedTranslatedSpeech(message);
+          else spokenMessageIdsRef.current.add(message.id);
         }
 
         if (latestCreatedAt) lastFetchedMessageAtRef.current = latestCreatedAt;
@@ -572,14 +614,16 @@ export function ConsultationChatRoom({
     }, 1500);
 
     return () => window.clearInterval(interval);
-  }, [markActivity, mergeMessages, playQueuedTranslatedSpeech, role, room.id, roomToken]);
+  }, [markActivity, markIncomingMessagesRead, mergeMessages, playQueuedTranslatedSpeech, role, room.id, roomToken]);
 
   useEffect(() => {
     const interval = window.setInterval(async () => {
       const response =
         role === "staff"
           ? await fetch(`/api/rooms/${room.id}`, { cache: "no-store" })
-          : await fetch(`/api/rooms/by-token/${roomToken}`, { cache: "no-store" });
+          : roomToken
+            ? await fetch(`/api/rooms/by-token/${roomToken}`, { cache: "no-store" })
+            : await fetch(`/api/rooms/${room.id}/patient`, { cache: "no-store" });
       if (!response.ok) return;
 
       const data = await response.json();
@@ -773,6 +817,18 @@ export function ConsultationChatRoom({
             {room.status === "ended" ? (role === "staff" ? "상담 종료" : copy.statusEnded) : isSpeaking ? voiceText.speaking : micEnabled ? voiceText.ready : voiceText.waiting}
           </p>
           <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 md:text-sm">{voiceText.helper}</p>
+          {lastIncomingMessage ? (
+            <button
+              type="button"
+              onClick={replayLastIncomingMessage}
+              className="mx-auto mt-3 inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-trust shadow-sm transition hover:bg-blue-50 md:h-10 md:px-4 md:text-sm"
+              aria-label={replayLabel}
+              title={replayLabel}
+            >
+              <Volume2 size={16} />
+              {replayLabel}
+            </button>
+          ) : null}
         </div>
 
         <div className="flex items-end gap-2 rounded-2xl bg-slate-50 p-1.5 md:p-2">

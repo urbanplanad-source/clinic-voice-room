@@ -4,6 +4,7 @@ type RealtimeTranslationEvent = {
   type?: string;
   delta?: string;
   transcript?: string;
+  text?: string;
   error?: {
     message?: string;
   };
@@ -154,7 +155,7 @@ export class OpenAIRealtimeClient {
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
 
-    const response = await fetch("https://api.openai.com/v1/realtime/translations/calls", {
+    const response = await fetch("https://api.openai.com/v1/realtime/calls", {
       method: "POST",
       body: offer.sdp,
       headers: {
@@ -244,7 +245,14 @@ export class OpenAIRealtimeClient {
       return;
     }
 
-    if (serverEvent.type === "session.output_transcript.delta" && typeof serverEvent.delta === "string") {
+    if (
+      (
+        serverEvent.type === "session.output_transcript.delta" ||
+        serverEvent.type === "response.output_audio_transcript.delta" ||
+        serverEvent.type === "response.output_text.delta"
+      ) &&
+      typeof serverEvent.delta === "string"
+    ) {
       this.currentOutputText += serverEvent.delta;
       if (!this.firstOutputDeltaSeen) {
         this.firstOutputDeltaSeen = true;
@@ -256,20 +264,45 @@ export class OpenAIRealtimeClient {
       return;
     }
 
-    if (serverEvent.type === "session.output_transcript.done" && typeof serverEvent.transcript === "string") {
+    if (
+      (
+        serverEvent.type === "session.output_transcript.done" ||
+        serverEvent.type === "response.output_audio_transcript.done"
+      ) &&
+      typeof serverEvent.transcript === "string"
+    ) {
       this.currentOutputText = serverEvent.transcript;
       this.callbacks.onTranscriptDelta?.(this.currentOutputText);
       this.resolvePendingTranslation();
       return;
     }
 
-    if (serverEvent.type === "session.input_transcript.delta" && typeof serverEvent.delta === "string") {
+    if (serverEvent.type === "response.output_text.done" && typeof serverEvent.text === "string") {
+      this.currentOutputText = serverEvent.text;
+      this.callbacks.onTranscriptDelta?.(this.currentOutputText);
+      this.resolvePendingTranslation();
+      return;
+    }
+
+    if (
+      (
+        serverEvent.type === "session.input_transcript.delta" ||
+        serverEvent.type === "conversation.item.input_audio_transcription.delta"
+      ) &&
+      typeof serverEvent.delta === "string"
+    ) {
       this.currentInputText += serverEvent.delta;
       this.callbacks.onInputTranscriptDelta?.(this.currentInputText);
       return;
     }
 
-    if (serverEvent.type === "session.input_transcript.done" && typeof serverEvent.transcript === "string") {
+    if (
+      (
+        serverEvent.type === "session.input_transcript.done" ||
+        serverEvent.type === "conversation.item.input_audio_transcription.completed"
+      ) &&
+      typeof serverEvent.transcript === "string"
+    ) {
       this.currentInputText = serverEvent.transcript;
       this.callbacks.onInputTranscriptDelta?.(this.currentInputText);
     }

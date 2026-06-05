@@ -6,6 +6,8 @@ import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { buildClinicGlossaryInstructions, normalizeClinicTranslation } from "@/lib/clinic-glossary";
 import { isPatientLanguage, languageLabels, sourceTargetFor, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
+import { normalizedTextTranslationModel, normalizedTranscriptionModel } from "@/lib/openai-models";
+import { isPatientRoomRequestAuthorized } from "@/lib/patient-room-session";
 
 type TargetLanguage = PatientLanguage | "ko";
 
@@ -119,7 +121,7 @@ async function authorizeRoom(params: {
     if (!staff || staff.id !== room.hostStaffId) {
       return { response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
     }
-  } else if (params.roomToken !== room.roomToken) {
+  } else if (!(await isPatientRoomRequestAuthorized(room, params.roomToken))) {
     return { response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
 
@@ -140,7 +142,7 @@ async function translateSourceText(params: {
   const direction = sourceTargetFor(params.role, params.patientLanguage);
   const targetLanguage: TargetLanguage = params.role === "staff" ? params.patientLanguage : "ko";
   const targetLabel = targetLanguage === "ko" ? "Korean" : languageLabels[params.patientLanguage].english;
-  const model = process.env.OPENAI_TEXT_TRANSLATION_MODEL ?? "gpt-5.5";
+  const model = normalizedTextTranslationModel(process.env.OPENAI_TEXT_TRANSLATION_MODEL);
   const instructions = [
     "You are a professional medical interpreter for a dermatology and plastic surgery clinic.",
     "Translate the user's spoken consultation message accurately and naturally.",
@@ -201,7 +203,7 @@ async function handleRealtimeStaffMessage(request: Request) {
     return NextResponse.json({ error: "Invalid consultation voice payload" }, { status: 400 });
   }
 
-  const limited = rateLimit({
+  const limited = await rateLimit({
     key: `consultation-voice:${clientIp(request)}:${parsed.data.roomId}:${parsed.data.role}`,
     limit: 30,
     windowMs: 60 * 1000
@@ -259,7 +261,7 @@ async function handleAudioTurn(request: Request) {
     return NextResponse.json({ error: "Audio turn is empty or too large" }, { status: 413 });
   }
 
-  const limited = rateLimit({
+  const limited = await rateLimit({
     key: `consultation-voice:${clientIp(request)}:${roomId}:${role}`,
     limit: 30,
     windowMs: 60 * 1000
@@ -296,7 +298,7 @@ async function handleAudioTurn(request: Request) {
 
   const transcriptionForm = new FormData();
   transcriptionForm.set("file", audio, audio.name || `${clientTurnId}.webm`);
-  transcriptionForm.set("model", process.env.OPENAI_TRANSCRIPTION_MODEL ?? "gpt-4o-mini-transcribe");
+  transcriptionForm.set("model", normalizedTranscriptionModel(process.env.OPENAI_TRANSCRIPTION_MODEL));
   transcriptionForm.set("language", transcriptionLanguageFor(role, patientLanguage));
   transcriptionForm.set("response_format", "json");
 

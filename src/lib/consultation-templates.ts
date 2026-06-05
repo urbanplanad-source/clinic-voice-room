@@ -77,137 +77,137 @@ export const consultationTextCopy: Record<
   { title: string; placeholder: string; submit: string; chatStarted: string; empty: string; statusChat: string; statusEnded: string }
 > = {
   zh: {
-    title: "请输入文字",
+    title: "点击下方按钮说话",
     placeholder: "请在这里输入您想说的话。",
     submit: "发送翻译",
     chatStarted: "AI 翻译咨询已开始。",
-    empty: "请选择下方示例或输入您的问题。",
+    empty: "您可以用语音咨询，也可以在下方输入文字。",
     statusChat: "咨询中",
     statusEnded: "已结束"
   },
   zh_tw: {
-    title: "請輸入文字",
+    title: "點擊下方按鈕說話",
     placeholder: "請在這裡輸入您想說的內容。",
     submit: "送出翻譯",
     chatStarted: "AI 翻譯諮詢已開始。",
-    empty: "請選擇下方範例或輸入您的問題。",
+    empty: "您可以用語音諮詢，也可以在下方輸入文字。",
     statusChat: "諮詢中",
     statusEnded: "已結束"
   },
   ja: {
-    title: "テキストで入力してください",
+    title: "下のボタンを押して話してください",
     placeholder: "伝えたい内容をここに入力してください。",
     submit: "翻訳を送信",
     chatStarted: "AI翻訳カウンセリングを開始しました。",
-    empty: "下の例文を選ぶか、ご質問を入力してください。",
+    empty: "音声で相談できます。必要な場合は下の入力欄も使えます。",
     statusChat: "チャット",
     statusEnded: "終了"
   },
   en: {
-    title: "Type your message",
+    title: "Tap the button below and speak",
     placeholder: "Type what you want to say here.",
     submit: "Send translation",
     chatStarted: "AI translation consultation has started.",
-    empty: "Choose a sample message below or type your question.",
+    empty: "You can consult by voice, or type below if needed.",
     statusChat: "Chat",
     statusEnded: "Ended"
   },
   th: {
-    title: "พิมพ์ข้อความของคุณ",
+    title: "แตะปุ่มด้านล่างแล้วพูด",
     placeholder: "พิมพ์สิ่งที่ต้องการบอกที่นี่",
     submit: "ส่งคำแปล",
     chatStarted: "เริ่มการปรึกษาพร้อมแปลด้วย AI แล้ว",
-    empty: "เลือกข้อความตัวอย่างด้านล่างหรือพิมพ์คำถามของคุณ",
+    empty: "คุณสามารถปรึกษาด้วยเสียง หรือพิมพ์ด้านล่างได้เมื่อจำเป็น",
     statusChat: "แชท",
     statusEnded: "สิ้นสุด"
   },
   ms: {
-    title: "Taip mesej anda",
+    title: "Ketik butang di bawah dan bercakap",
     placeholder: "Taip perkara yang ingin anda sampaikan di sini.",
     submit: "Hantar terjemahan",
     chatStarted: "Konsultasi terjemahan AI telah bermula.",
-    empty: "Pilih contoh di bawah atau taip soalan anda.",
+    empty: "Anda boleh berkonsultasi melalui suara, atau menaip di bawah jika perlu.",
     statusChat: "Chat",
     statusEnded: "Tamat"
   },
   mn: {
-    title: "Зурвасаа бичнэ үү",
+    title: "Доорх товчийг дарж ярина уу",
     placeholder: "Хэлэхийг хүссэн зүйлээ энд бичнэ үү.",
     submit: "Орчуулга илгээх",
     chatStarted: "AI орчуулгатай зөвлөгөө эхэллээ.",
-    empty: "Доорх жишээнээс сонгох эсвэл асуултаа бичнэ үү.",
+    empty: "Та дуугаар зөвлөгөө авч болно. Шаардлагатай бол доор бичнэ үү.",
     statusChat: "Чат",
     statusEnded: "Дууссан"
   },
   ru: {
-    title: "Введите сообщение",
+    title: "Нажмите кнопку ниже и говорите",
     placeholder: "Введите здесь то, что хотите сказать.",
     submit: "Отправить перевод",
     chatStarted: "Консультация с AI-переводом началась.",
-    empty: "Выберите пример ниже или введите вопрос.",
+    empty: "Можно консультироваться голосом или ввести текст ниже при необходимости.",
     statusChat: "Чат",
     statusEnded: "Завершено"
   },
   vi: {
-    title: "Nhập tin nhắn",
+    title: "Nhấn nút bên dưới và nói",
     placeholder: "Nhập điều bạn muốn nói ở đây.",
     submit: "Gửi bản dịch",
     chatStarted: "Tư vấn dịch AI đã bắt đầu.",
-    empty: "Chọn câu mẫu bên dưới hoặc nhập câu hỏi.",
+    empty: "Bạn có thể tư vấn bằng giọng nói hoặc nhập chữ bên dưới khi cần.",
     statusChat: "Trò chuyện",
     statusEnded: "Đã kết thúc"
   },
   id: {
-    title: "Ketik pesan Anda",
+    title: "Ketuk tombol di bawah dan bicara",
     placeholder: "Ketik apa yang ingin Anda sampaikan di sini.",
     submit: "Kirim terjemahan",
     chatStarted: "Konsultasi terjemahan AI telah dimulai.",
-    empty: "Pilih contoh di bawah atau ketik pertanyaan Anda.",
+    empty: "Anda dapat berkonsultasi dengan suara, atau mengetik di bawah jika perlu.",
     statusChat: "Chat",
     statusEnded: "Selesai"
   },
   fr: {
-    title: "Saisissez votre message",
+    title: "Touchez le bouton ci-dessous et parlez",
     placeholder: "Écrivez ici ce que vous voulez dire.",
     submit: "Envoyer la traduction",
     chatStarted: "La consultation avec traduction IA a commencé.",
-    empty: "Choisissez un exemple ci-dessous ou écrivez votre question.",
+    empty: "Vous pouvez consulter par voix, ou écrire ci-dessous si nécessaire.",
     statusChat: "Chat",
     statusEnded: "Terminé"
   },
   es: {
-    title: "Escriba su mensaje",
+    title: "Toque el botón de abajo y hable",
     placeholder: "Escriba aquí lo que quiere decir.",
     submit: "Enviar traducción",
     chatStarted: "La consulta con traducción de IA ha comenzado.",
-    empty: "Elija un ejemplo abajo o escriba su pregunta.",
+    empty: "Puede consultar por voz o escribir abajo si es necesario.",
     statusChat: "Chat",
     statusEnded: "Finalizado"
   },
   de: {
-    title: "Nachricht eingeben",
+    title: "Tippen Sie unten und sprechen Sie",
     placeholder: "Geben Sie hier ein, was Sie sagen möchten.",
     submit: "Übersetzung senden",
     chatStarted: "Die KI-Übersetzungsberatung hat begonnen.",
-    empty: "Wählen Sie unten einen Beispielsatz oder geben Sie Ihre Frage ein.",
+    empty: "Sie können per Sprache beraten werden oder bei Bedarf unten schreiben.",
     statusChat: "Chat",
     statusEnded: "Beendet"
   },
   it: {
-    title: "Scrivi il messaggio",
+    title: "Tocca il pulsante sotto e parla",
     placeholder: "Scrivi qui ciò che vuoi dire.",
     submit: "Invia traduzione",
     chatStarted: "La consulenza con traduzione AI è iniziata.",
-    empty: "Scegli un esempio qui sotto o scrivi la tua domanda.",
+    empty: "Puoi fare la consulenza con la voce o scrivere sotto se necessario.",
     statusChat: "Chat",
     statusEnded: "Terminato"
   },
   pt: {
-    title: "Digite sua mensagem",
+    title: "Toque no botão abaixo e fale",
     placeholder: "Digite aqui o que você quer dizer.",
     submit: "Enviar tradução",
     chatStarted: "A consulta com tradução por IA começou.",
-    empty: "Escolha uma frase abaixo ou digite sua pergunta.",
+    empty: "Você pode consultar por voz ou digitar abaixo se necessário.",
     statusChat: "Chat",
     statusEnded: "Encerrado"
   }

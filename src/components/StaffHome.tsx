@@ -8,14 +8,14 @@ import type { RoomMode } from "@/lib/room-mode";
 
 const modeCopy: Record<RoomMode, { title: string; body: string; button: string }> = {
   consultation: {
-    title: "AI translation consultation",
-    body: "We will help with AI translation. Please choose your language.",
-    button: "Confirm language"
+    title: "상담 통역방",
+    body: "상대방과 채팅하듯이 음성 번역을 주고받습니다.",
+    button: "상담 통역방 생성"
   },
   procedure: {
-    title: "AI translation during your procedure",
-    body: "We will help you understand procedure guidance. Please choose your language.",
-    button: "Confirm language"
+    title: "시술 통역방",
+    body: "시술 중 누워 있는 환자에게 짧은 안내를 바로 들려줍니다.",
+    button: "시술 통역방 생성"
   }
 };
 
@@ -69,10 +69,10 @@ export function StaffHome({
         <div className="min-w-0">
           <p className="truncate text-sm font-bold text-blue-200">{staff.hospital.name}</p>
           <h1 className={selectedMode ? "mt-0.5 text-xl font-bold leading-tight md:text-2xl" : "mt-1 text-[30px] font-bold leading-tight md:text-[36px]"}>
-            {selectedMode ? "Choose patient language" : "Select translation mode"}
+            {selectedMode ? "환자 언어 선택" : "통역 모드 선택"}
           </h1>
           <p className={selectedMode ? "hidden md:mt-1 md:block md:text-sm md:font-semibold md:leading-5 md:text-slate-300" : "mt-2 text-sm font-semibold leading-6 text-slate-300 md:text-base"}>
-            {selectedMode ? modeCopy[selectedMode].body : "Choose the room type first. The patient will choose their language on the next screen."}
+            {selectedMode ? modeCopy[selectedMode].body : "방 유형을 먼저 고른 뒤 환자 언어를 선택하세요."}
           </p>
         </div>
       </header>
@@ -90,10 +90,10 @@ export function StaffHome({
             <span className="grid h-14 w-14 place-items-center rounded-lg bg-blue-50 text-trust">
               <MessageSquareText size={28} />
             </span>
-            <span>
-              <span className="block text-[28px] font-bold leading-tight text-ink md:text-[34px]">상담방 만들기</span>
-              <span className="mt-3 block text-base font-semibold leading-7 text-slate-500">텍스트 중심 AI 번역 상담</span>
-            </span>
+              <span>
+                <span className="block text-[28px] font-bold leading-tight text-ink md:text-[34px]">상담방 만들기</span>
+              <span className="mt-3 block text-base font-semibold leading-7 text-slate-500">음성 중심 AI 번역 상담</span>
+              </span>
           </button>
 
           <button
