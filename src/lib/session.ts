@@ -48,18 +48,21 @@ function decode(token?: string): SessionPayload | null {
   }
 }
 
-export async function setStaffSession(staffId: string, options: { remember?: boolean } = {}) {
+export async function setStaffSession(staffId: string, options: { remember?: boolean; sessionVersion?: number } = {}) {
   const cookieStore = await cookies();
   const maxAge = options.remember ? rememberedSessionMaxAgeSeconds : defaultSessionMaxAgeSeconds;
-  const staff = await prisma.staffUser.findUnique({
-    where: { id: staffId },
-    select: { sessionVersion: true }
-  });
-  if (!staff) {
-    throw new Error("Staff user not found.");
-  }
+  const sessionVersion =
+    options.sessionVersion ??
+    (
+      await prisma.staffUser.findUnique({
+        where: { id: staffId },
+        select: { sessionVersion: true }
+      })
+    )?.sessionVersion;
 
-  cookieStore.set(cookieName, encode({ staffId, exp: Date.now() + maxAge * 1000, sessionVersion: staff.sessionVersion }), {
+  if (typeof sessionVersion !== "number") throw new Error("Staff user not found.");
+
+  cookieStore.set(cookieName, encode({ staffId, exp: Date.now() + maxAge * 1000, sessionVersion }), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

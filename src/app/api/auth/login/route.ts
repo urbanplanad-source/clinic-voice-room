@@ -38,9 +38,10 @@ export async function POST(request: Request) {
 
   await prisma.staffUser.update({
     where: { id: staff.id },
-    data: { lastLoginAt: new Date() }
+    data: { lastLoginAt: new Date() },
+    select: { id: true }
   });
-  await setStaffSession(staff.id, { remember: parsed.data.remember ?? false });
+  await setStaffSession(staff.id, { remember: parsed.data.remember ?? false, sessionVersion: staff.sessionVersion });
 
   return NextResponse.json({
     staff: {
