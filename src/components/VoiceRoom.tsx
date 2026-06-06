@@ -77,6 +77,8 @@ type TranslationMessage = {
   createdAt?: string;
 };
 
+type RecordingMode = "upload" | "safety";
+
 type VoiceRoomCopy = {
   statusLabels: Record<RoomStatus, string>;
   statusDescriptions: Record<RoomStatus, string>;
@@ -684,6 +686,7 @@ function ProcedureVoiceRoom({
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
+  const recordingModeRef = useRef<RecordingMode | null>(null);
   const roomRootRef = useRef<HTMLDivElement | null>(null);
   const hardwareCaptureRef = useRef<HTMLInputElement | null>(null);
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
@@ -1140,13 +1143,42 @@ function ProcedureVoiceRoom({
   }, [busy, isProcedureMode, isSpeaking, micEnabled, role, room.status]);
 
   useEffect(() => {
-    if (role !== "staff") return;
-    if (room.status !== "ready" || realtimePreconnectStartedRef.current || realtimeClientRef.current || !streamRef.current) return;
+    if (room.status !== "ready" || realtimePreconnectStartedRef.current || realtimeClientRef.current) return;
     realtimePreconnectStartedRef.current = true;
-    void ensureRealtimeSession(streamRef.current).catch(() => {
-      realtimePreconnectStartedRef.current = false;
-    });
-  }, [ensureRealtimeSession, role, room.status]);
+    void ensureMicStream()
+      .then((stream) => ensureRealtimeSession(stream))
+      .catch((caught) => {
+        realtimePreconnectStartedRef.current = false;
+        setError(microphoneErrorMessage(caught));
+      });
+    // Preconnect should run once when the room becomes ready; it reads current refs and room identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room.status]);
+
+  useEffect(() => {
+    const reconnectWhenVisible = (event?: Event) => {
+      if (event?.type === "pageshow" && "persisted" in event && !event.persisted) return;
+      if (document.visibilityState !== "visible" || speakingStartedAt || room.status !== "ready") return;
+      realtimeClientRef.current?.close();
+      realtimeClientRef.current = null;
+      realtimePreconnectStartedRef.current = true;
+      void ensureMicStream()
+        .then((stream) => ensureRealtimeSession(stream))
+        .catch((caught) => {
+          realtimePreconnectStartedRef.current = false;
+          setError(microphoneErrorMessage(caught));
+        });
+    };
+
+    document.addEventListener("visibilitychange", reconnectWhenVisible);
+    window.addEventListener("pageshow", reconnectWhenVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", reconnectWhenVisible);
+      window.removeEventListener("pageshow", reconnectWhenVisible);
+    };
+    // Resume handling should use the latest visibility/status state while reusing current media refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room.status, speakingStartedAt]);
 
   useEffect(() => {
     const interval = window.setInterval(async () => {
@@ -1168,6 +1200,10 @@ function ProcedureVoiceRoom({
     const currentStream = streamRef.current;
     if (currentStream?.active && currentStream.getAudioTracks().some((track) => track.readyState === "live")) {
       return currentStream;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error(role === "staff" ? "마이크는 HTTPS 브라우저 환경에서만 사용할 수 있습니다." : copy.errors.mic);
     }
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1231,7 +1267,7 @@ function ProcedureVoiceRoom({
     return "webm";
   }
 
-  function createPatientAudioRecorder(stream: MediaStream) {
+  function createAudioRecorder(stream: MediaStream) {
     if (!("MediaRecorder" in window)) {
       throw new Error("This browser does not support audio recording.");
     }
@@ -1240,20 +1276,31 @@ function ProcedureVoiceRoom({
     return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
   }
 
-  function beginPatientUploadRecording(stream: MediaStream) {
-    const recorder = createPatientAudioRecorder(stream);
+  function beginUploadRecording(stream: MediaStream, mode: RecordingMode) {
+    const recorder = createAudioRecorder(stream);
     mediaChunksRef.current = [];
     recorder.addEventListener("dataavailable", (event) => {
       if (event.data.size > 0) mediaChunksRef.current.push(event.data);
     });
     recorder.start();
     mediaRecorderRef.current = recorder;
+    recordingModeRef.current = mode;
     setMicEnabled(true);
     setSpeakingStartedAt(Date.now());
-    setRealtimeStatus("Recording patient turn");
+    setRealtimeStatus(mode === "upload" ? "Recording fallback turn" : "Recording safety fallback");
   }
 
-  function stopPatientRecorder() {
+  function beginRealtimeSafetyRecording(stream: MediaStream) {
+    try {
+      beginUploadRecording(stream, "safety");
+    } catch {
+      recordingModeRef.current = null;
+      mediaRecorderRef.current = null;
+      mediaChunksRef.current = [];
+    }
+  }
+
+  function stopRecorder() {
     const recorder = mediaRecorderRef.current;
     if (!recorder || recorder.state === "inactive") {
       const mimeType = mediaChunksRef.current.find((chunk) => chunk.type)?.type || "audio/webm";
@@ -1280,15 +1327,50 @@ function ProcedureVoiceRoom({
     });
   }
 
-  async function uploadPatientProcedureTurn(audio: Blob) {
+  async function stopAndClearRecorder() {
+    const audio = await stopRecorder();
+    mediaRecorderRef.current = null;
+    recordingModeRef.current = null;
+    mediaChunksRef.current = [];
+    return audio;
+  }
+
+  async function discardRecorder() {
+    if (!mediaRecorderRef.current) {
+      recordingModeRef.current = null;
+      mediaChunksRef.current = [];
+      return;
+    }
+    await stopRecorder().catch(() => undefined);
+    mediaRecorderRef.current = null;
+    recordingModeRef.current = null;
+    mediaChunksRef.current = [];
+  }
+
+  function microphoneErrorMessage(caught: unknown) {
+    const name = caught instanceof DOMException || caught instanceof Error ? caught.name : "";
+    if (role !== "staff") return copy.errors.mic;
+    if (name === "NotAllowedError" || name === "SecurityError") {
+      return "마이크 권한이 거부되었습니다. 브라우저 주소창 또는 설정에서 마이크를 허용한 뒤 다시 시도해주세요.";
+    }
+    if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+      return "사용 가능한 마이크를 찾지 못했습니다. 마이크 연결 상태를 확인해주세요.";
+    }
+    if (name === "NotReadableError" || name === "TrackStartError") {
+      return "다른 앱이 마이크를 사용 중일 수 있습니다. 다른 통화/녹음 앱을 닫고 다시 시도해주세요.";
+    }
+    return caught instanceof Error ? caught.message : copy.errors.mic;
+  }
+
+  async function uploadProcedureTurn(audio: Blob, speakerRole: ParticipantRole = role) {
     const clientTurnId = `${Date.now()}`;
     const formData = new FormData();
     formData.set("roomId", room.id);
-    formData.set("role", "patient");
+    formData.set("role", speakerRole);
     formData.set("roomToken", roomToken ?? "");
     formData.set("clientTurnId", clientTurnId);
     formData.set("patientLanguage", room.patientLanguage);
-    formData.set("audio", audio, `patient-${clientTurnId}.${audioFileExtension(audio.type)}`);
+    formData.set("audio", audio, `${speakerRole}-${clientTurnId}.${audioFileExtension(audio.type)}`);
 
     const response = await fetch("/api/procedure-turns", {
       method: "POST",
@@ -1346,11 +1428,12 @@ function ProcedureVoiceRoom({
         try {
           const realtimeClient = await ensureRealtimeSession(stream);
           realtimeClient.startTurn();
+          beginRealtimeSafetyRecording(stream);
           setMicEnabled(true);
           setSpeakingStartedAt(Date.now());
           setRealtimeStatus("Recording patient turn");
         } catch {
-          beginPatientUploadRecording(stream);
+          beginUploadRecording(stream, "upload");
         }
         return;
       }
@@ -1362,17 +1445,23 @@ function ProcedureVoiceRoom({
       }
 
       const stream = await ensureMicStream();
-      const realtimeClient = await ensureRealtimeSession(stream);
-      realtimeClient.startTurn();
-      setMicEnabled(true);
-      setSpeakingStartedAt(Date.now());
+      try {
+        const realtimeClient = await ensureRealtimeSession(stream);
+        realtimeClient.startTurn();
+        beginRealtimeSafetyRecording(stream);
+        setMicEnabled(true);
+        setSpeakingStartedAt(Date.now());
+      } catch {
+        beginUploadRecording(stream, "upload");
+      }
     } catch (caught) {
       setSpeakingStartedAt(null);
-      setError(role === "patient" ? copy.errors.mic : caught instanceof Error ? caught.message : copy.errors.mic);
+      setError(microphoneErrorMessage(caught));
       setMicEnabled(false);
       realtimeClientRef.current?.close();
       realtimeClientRef.current = null;
       realtimePreconnectStartedRef.current = false;
+      recordingModeRef.current = null;
       await transition("ready");
     } finally {
       setBusy(false);
@@ -1387,32 +1476,41 @@ function ProcedureVoiceRoom({
     setSpeakingStartedAt(null);
     setMicEnabled(false);
     queueUsage(durationSeconds);
+    const recordingMode = recordingModeRef.current;
 
     if (role === "patient") {
       try {
         setRoom((current) => ({ ...current, status: "translating_to_staff" }));
         void transition("translating_to_staff");
         let message: RealtimeTranslationMessage;
-        if (mediaRecorderRef.current) {
+        if (recordingMode === "upload") {
           setRealtimeStatus("Uploading patient turn");
-          const audio = await stopPatientRecorder();
-          mediaRecorderRef.current = null;
+          const audio = await stopAndClearRecorder();
           if (audio.size <= 0) throw new Error("No audio was recorded.");
-          message = await uploadPatientProcedureTurn(audio);
+          message = await uploadProcedureTurn(audio, role);
         } else {
-          const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
-            quietMs: PROCEDURE_TRANSLATION_QUIET_MS,
-            maxMs: PROCEDURE_TRANSLATION_MAX_MS
-          });
-          if (!translatedText) throw new Error("No translated text was returned.");
-          const normalizedText = normalizeClinicTranslation(translatedText, "ko");
-          const sourceText = realtimeClientRef.current?.getInputTranscript() || inputTranscriptDraft || copy.helper.idle;
-          message = await persistRealtimeProcedureTurn({
-            messageId: `${role}-procedure-${Date.now()}`,
-            speakerRole: role,
-            sourceText,
-            translatedText: normalizedText
-          });
+          try {
+            const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
+              quietMs: PROCEDURE_TRANSLATION_QUIET_MS,
+              maxMs: PROCEDURE_TRANSLATION_MAX_MS
+            });
+            if (!translatedText) throw new Error("No translated text was returned.");
+            const normalizedText = normalizeClinicTranslation(translatedText, "ko");
+            const sourceText = realtimeClientRef.current?.getInputTranscript() || inputTranscriptDraft || copy.helper.idle;
+            await discardRecorder();
+            message = await persistRealtimeProcedureTurn({
+              messageId: `${role}-procedure-${Date.now()}`,
+              speakerRole: role,
+              sourceText,
+              translatedText: normalizedText
+            });
+          } catch (realtimeError) {
+            if (recordingMode !== "safety") throw realtimeError;
+            setRealtimeStatus("Realtime interrupted; uploading fallback turn");
+            const audio = await stopAndClearRecorder();
+            if (audio.size <= 0) throw realtimeError;
+            message = await uploadProcedureTurn(audio, role);
+          }
         }
         appendMessage(message);
         void broadcastTranslationMessage(room.id, message);
@@ -1432,21 +1530,37 @@ function ProcedureVoiceRoom({
     const translatingStatus = role === "staff" ? "translating_to_patient" : "translating_to_staff";
     try {
       await transition(translatingStatus);
-      const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
-        quietMs: PROCEDURE_TRANSLATION_QUIET_MS,
-        maxMs: PROCEDURE_TRANSLATION_MAX_MS
-      });
-      if (!translatedText) throw new Error("No translated text was returned.");
-      const normalizedText = normalizeClinicTranslation(translatedText, role === "staff" ? room.patientLanguage : "ko");
-      const sourceText = realtimeClientRef.current?.getInputTranscript() || inputTranscriptDraft || "한국어 원문을 표시하지 못했습니다.";
+      let message: RealtimeTranslationMessage;
+      if (recordingMode === "upload") {
+        const audio = await stopAndClearRecorder();
+        if (audio.size <= 0) throw new Error("No audio was recorded.");
+        message = await uploadProcedureTurn(audio, role);
+      } else {
+        try {
+          const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
+            quietMs: PROCEDURE_TRANSLATION_QUIET_MS,
+            maxMs: PROCEDURE_TRANSLATION_MAX_MS
+          });
+          if (!translatedText) throw new Error("No translated text was returned.");
+          const normalizedText = normalizeClinicTranslation(translatedText, role === "staff" ? room.patientLanguage : "ko");
+          const sourceText = realtimeClientRef.current?.getInputTranscript() || inputTranscriptDraft || "한국어 원문을 표시하지 못했습니다.";
 
-      const messageId = `${role}-procedure-${Date.now()}`;
-      const message = await persistRealtimeProcedureTurn({
-        messageId,
-        speakerRole: role,
-        sourceText,
-        translatedText: normalizedText
-      });
+          const messageId = `${role}-procedure-${Date.now()}`;
+          await discardRecorder();
+          message = await persistRealtimeProcedureTurn({
+            messageId,
+            speakerRole: role,
+            sourceText,
+            translatedText: normalizedText
+          });
+        } catch (realtimeError) {
+          if (recordingMode !== "safety") throw realtimeError;
+          setRealtimeStatus("Realtime interrupted; uploading fallback turn");
+          const audio = await stopAndClearRecorder();
+          if (audio.size <= 0) throw realtimeError;
+          message = await uploadProcedureTurn(audio, role);
+        }
+      }
 
       appendMessage(message);
       void broadcastTranslationMessage(room.id, message);

@@ -78,6 +78,8 @@ type TranslationMessage = {
   deliveryStatus?: "sending" | "failed";
 };
 
+type RecordingMode = "upload" | "safety";
+
 export function ConsultationChatRoom({
   initialRoom,
   role,
@@ -105,6 +107,7 @@ export function ConsultationChatRoom({
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
+  const recordingModeRef = useRef<RecordingMode | null>(null);
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
   const realtimePreconnectStartedRef = useRef(false);
   const speechQueueRef = useRef(Promise.resolve());
@@ -318,6 +321,10 @@ export function ConsultationChatRoom({
       return currentStream;
     }
 
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error(role === "staff" ? "마이크는 HTTPS 브라우저 환경에서만 사용할 수 있습니다." : voiceText.micError);
+    }
+
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     stream.getAudioTracks().forEach((track) => {
       track.enabled = false;
@@ -357,7 +364,7 @@ export function ConsultationChatRoom({
     return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
   }
 
-  function beginPatientUploadRecording(stream: MediaStream) {
+  function beginUploadRecording(stream: MediaStream, mode: RecordingMode) {
     const recorder = createAudioRecorder(stream);
     mediaChunksRef.current = [];
     recorder.addEventListener("dataavailable", (event) => {
@@ -365,8 +372,19 @@ export function ConsultationChatRoom({
     });
     recorder.start();
     mediaRecorderRef.current = recorder;
+    recordingModeRef.current = mode;
     setMicEnabled(true);
     setSpeakingStartedAt(Date.now());
+  }
+
+  function beginRealtimeSafetyRecording(stream: MediaStream) {
+    try {
+      beginUploadRecording(stream, "safety");
+    } catch {
+      recordingModeRef.current = null;
+      mediaRecorderRef.current = null;
+      mediaChunksRef.current = [];
+    }
   }
 
   function stopPatientRecorder() {
@@ -394,6 +412,41 @@ export function ConsultationChatRoom({
       );
       recorder.stop();
     });
+  }
+
+  async function stopAndClearRecorder() {
+    const audio = await stopPatientRecorder();
+    mediaRecorderRef.current = null;
+    recordingModeRef.current = null;
+    mediaChunksRef.current = [];
+    return audio;
+  }
+
+  async function discardRecorder() {
+    if (!mediaRecorderRef.current) {
+      recordingModeRef.current = null;
+      mediaChunksRef.current = [];
+      return;
+    }
+    await stopPatientRecorder().catch(() => undefined);
+    mediaRecorderRef.current = null;
+    recordingModeRef.current = null;
+    mediaChunksRef.current = [];
+  }
+
+  function microphoneErrorMessage(caught: unknown) {
+    const name = caught instanceof DOMException || caught instanceof Error ? caught.name : "";
+    if (role !== "staff") return voiceText.micError;
+    if (name === "NotAllowedError" || name === "SecurityError") {
+      return "마이크 권한이 거부되었습니다. 브라우저 주소창 또는 설정에서 마이크를 허용한 뒤 다시 시도해주세요.";
+    }
+    if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+      return "사용 가능한 마이크를 찾지 못했습니다. 마이크 연결 상태를 확인해주세요.";
+    }
+    if (name === "NotReadableError" || name === "TrackStartError") {
+      return "다른 앱이 마이크를 사용 중일 수 있습니다. 다른 통화/녹음 앱을 닫고 다시 시도해주세요.";
+    }
+    return caught instanceof Error ? caught.message : voiceText.micError;
   }
 
   async function uploadConsultationVoiceTurn(audio: Blob) {
@@ -462,10 +515,11 @@ export function ConsultationChatRoom({
         try {
           const realtimeClient = await ensureRealtimeSession(stream);
           realtimeClient.startTurn();
+          beginRealtimeSafetyRecording(stream);
           setMicEnabled(true);
           setSpeakingStartedAt(Date.now());
         } catch {
-          beginPatientUploadRecording(stream);
+          beginUploadRecording(stream, "upload");
         }
         return;
       }
@@ -477,17 +531,23 @@ export function ConsultationChatRoom({
       }
 
       const stream = await ensureMicStream();
-      const realtimeClient = await ensureRealtimeSession(stream);
-      realtimeClient.startTurn();
-      setMicEnabled(true);
-      setSpeakingStartedAt(Date.now());
+      try {
+        const realtimeClient = await ensureRealtimeSession(stream);
+        realtimeClient.startTurn();
+        beginRealtimeSafetyRecording(stream);
+        setMicEnabled(true);
+        setSpeakingStartedAt(Date.now());
+      } catch {
+        beginUploadRecording(stream, "upload");
+      }
     } catch (caught) {
       setSpeakingStartedAt(null);
-      setError(caught instanceof Error ? caught.message : voiceText.micError);
+      setError(microphoneErrorMessage(caught));
       setMicEnabled(false);
       realtimeClientRef.current?.close();
       realtimeClientRef.current = null;
       realtimePreconnectStartedRef.current = false;
+      recordingModeRef.current = null;
       await transition("ready");
     } finally {
       setVoiceBusy(false);
@@ -501,31 +561,39 @@ export function ConsultationChatRoom({
     setVoiceBusy(true);
     setSpeakingStartedAt(null);
     setMicEnabled(false);
+    const recordingMode = recordingModeRef.current;
 
     if (role === "patient") {
       try {
         setRoom((current) => ({ ...current, status: "translating_to_staff" }));
         void transition("translating_to_staff");
         let message: RealtimeTranslationMessage;
-        if (mediaRecorderRef.current) {
-          const audio = await stopPatientRecorder();
-          mediaRecorderRef.current = null;
+        if (recordingMode === "upload") {
+          const audio = await stopAndClearRecorder();
           if (audio.size <= 0) throw new Error("No audio was recorded.");
           message = await uploadConsultationVoiceTurn(audio);
         } else {
-          const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
-            quietMs: CONSULTATION_TRANSLATION_QUIET_MS,
-            maxMs: CONSULTATION_TRANSLATION_MAX_MS
-          });
-          if (!translatedText) throw new Error("No translated text was returned.");
-          const normalizedText = normalizeClinicTranslation(translatedText, "ko");
-          const sourceText = realtimeClientRef.current?.getInputTranscript() || voiceText.fallback;
-          message = await persistRealtimeConsultationVoiceTurn({
-            messageId: `${role}-voice-${Date.now()}`,
-            speakerRole: role,
-            sourceText,
-            translatedText: normalizedText
-          });
+          try {
+            const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
+              quietMs: CONSULTATION_TRANSLATION_QUIET_MS,
+              maxMs: CONSULTATION_TRANSLATION_MAX_MS
+            });
+            if (!translatedText) throw new Error("No translated text was returned.");
+            const normalizedText = normalizeClinicTranslation(translatedText, "ko");
+            const sourceText = realtimeClientRef.current?.getInputTranscript() || voiceText.fallback;
+            await discardRecorder();
+            message = await persistRealtimeConsultationVoiceTurn({
+              messageId: `${role}-voice-${Date.now()}`,
+              speakerRole: role,
+              sourceText,
+              translatedText: normalizedText
+            });
+          } catch (realtimeError) {
+            if (recordingMode !== "safety") throw realtimeError;
+            const audio = await stopAndClearRecorder();
+            if (audio.size <= 0) throw realtimeError;
+            message = await uploadConsultationVoiceTurn(audio);
+          }
         }
         appendMessage(message);
         void broadcastTranslationMessage(room.id, message);
@@ -541,21 +609,37 @@ export function ConsultationChatRoom({
     }
 
     try {
-      await transition("translating_to_patient");
-      const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
-        quietMs: CONSULTATION_TRANSLATION_QUIET_MS,
-        maxMs: CONSULTATION_TRANSLATION_MAX_MS
-      });
-      if (!translatedText) throw new Error("No translated text was returned.");
-      const normalizedText = normalizeClinicTranslation(translatedText, room.patientLanguage);
-      const sourceText = realtimeClientRef.current?.getInputTranscript() || "한국어 원문을 표시하지 못했습니다.";
-      const messageId = `${role}-voice-${Date.now()}`;
-      const message = await persistRealtimeConsultationVoiceTurn({
-        messageId,
-        speakerRole: role,
-        sourceText,
-        translatedText: normalizedText
-      });
+      let message: RealtimeTranslationMessage;
+      if (recordingMode === "upload") {
+        await transition("translating_to_patient");
+        const audio = await stopAndClearRecorder();
+        if (audio.size <= 0) throw new Error("No audio was recorded.");
+        message = await uploadConsultationVoiceTurn(audio);
+      } else {
+        await transition("translating_to_patient");
+        try {
+          const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
+            quietMs: CONSULTATION_TRANSLATION_QUIET_MS,
+            maxMs: CONSULTATION_TRANSLATION_MAX_MS
+          });
+          if (!translatedText) throw new Error("No translated text was returned.");
+          const normalizedText = normalizeClinicTranslation(translatedText, room.patientLanguage);
+          const sourceText = realtimeClientRef.current?.getInputTranscript() || "한국어 원문을 표시하지 못했습니다.";
+          const messageId = `${role}-voice-${Date.now()}`;
+          await discardRecorder();
+          message = await persistRealtimeConsultationVoiceTurn({
+            messageId,
+            speakerRole: role,
+            sourceText,
+            translatedText: normalizedText
+          });
+        } catch (realtimeError) {
+          if (recordingMode !== "safety") throw realtimeError;
+          const audio = await stopAndClearRecorder();
+          if (audio.size <= 0) throw realtimeError;
+          message = await uploadConsultationVoiceTurn(audio);
+        }
+      }
 
       appendMessage(message);
       void broadcastTranslationMessage(room.id, message);
@@ -670,6 +754,44 @@ export function ConsultationChatRoom({
   }, [markActivity]);
 
   useEffect(() => {
+    if (room.status !== "ready" || realtimePreconnectStartedRef.current || realtimeClientRef.current) return;
+    realtimePreconnectStartedRef.current = true;
+    void ensureMicStream()
+      .then((stream) => ensureRealtimeSession(stream))
+      .catch((caught) => {
+        realtimePreconnectStartedRef.current = false;
+        setError(microphoneErrorMessage(caught));
+      });
+    // Preconnect should run once when the room becomes ready; it reads current refs and room identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room.status]);
+
+  useEffect(() => {
+    const reconnectWhenVisible = (event?: Event) => {
+      if (event?.type === "pageshow" && "persisted" in event && !event.persisted) return;
+      if (document.visibilityState !== "visible" || speakingStartedAt || room.status !== "ready") return;
+      realtimeClientRef.current?.close();
+      realtimeClientRef.current = null;
+      realtimePreconnectStartedRef.current = true;
+      void ensureMicStream()
+        .then((stream) => ensureRealtimeSession(stream))
+        .catch((caught) => {
+          realtimePreconnectStartedRef.current = false;
+          setError(microphoneErrorMessage(caught));
+        });
+    };
+
+    document.addEventListener("visibilitychange", reconnectWhenVisible);
+    window.addEventListener("pageshow", reconnectWhenVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", reconnectWhenVisible);
+      window.removeEventListener("pageshow", reconnectWhenVisible);
+    };
+    // Resume handling should use the latest visibility/status state while reusing current media refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room.status, speakingStartedAt]);
+
+  useEffect(() => {
     return () => {
       stopPlayback();
       realtimeClientRef.current?.close();
@@ -678,6 +800,7 @@ export function ConsultationChatRoom({
         mediaRecorderRef.current.stop();
       }
       mediaRecorderRef.current = null;
+      recordingModeRef.current = null;
       mediaChunksRef.current = [];
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
