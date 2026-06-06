@@ -773,6 +773,7 @@ function ProcedureVoiceRoom({
         roomId: room.id,
         role,
         roomToken,
+        direction: role === "staff" ? "staff_to_patient" : "patient_to_staff",
         manualTurn: true
       }, {
         onStatus: setRealtimeStatus,
@@ -1239,14 +1240,7 @@ function ProcedureVoiceRoom({
     return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
   }
 
-  async function startPatientRecording() {
-    const acquiredTurn = await transition("patient_speaking");
-    if (!acquiredTurn) {
-      setError(copy.errors.busy);
-      return;
-    }
-
-    const stream = await ensureMicStream();
+  function beginPatientUploadRecording(stream: MediaStream) {
     const recorder = createPatientAudioRecorder(stream);
     mediaChunksRef.current = [];
     recorder.addEventListener("dataavailable", (event) => {
@@ -1307,8 +1301,9 @@ function ProcedureVoiceRoom({
     return data.message as RealtimeTranslationMessage;
   }
 
-  async function persistRealtimeStaffProcedureTurn(params: {
+  async function persistRealtimeProcedureTurn(params: {
     messageId: string;
+    speakerRole: ParticipantRole;
     sourceText: string;
     translatedText: string;
   }) {
@@ -1318,7 +1313,7 @@ function ProcedureVoiceRoom({
       body: JSON.stringify({
         roomId: room.id,
         messageId: params.messageId,
-        role: "staff",
+        role: params.speakerRole,
         roomToken,
         patientLanguage: room.patientLanguage,
         sourceText: params.sourceText,
@@ -1341,7 +1336,22 @@ function ProcedureVoiceRoom({
     try {
       if (isProcedureMode) stopPlayback();
       if (role === "patient") {
-        await startPatientRecording();
+        const acquiredTurn = await transition("patient_speaking");
+        if (!acquiredTurn) {
+          setError(copy.errors.busy);
+          return;
+        }
+
+        const stream = await ensureMicStream();
+        try {
+          const realtimeClient = await ensureRealtimeSession(stream);
+          realtimeClient.startTurn();
+          setMicEnabled(true);
+          setSpeakingStartedAt(Date.now());
+          setRealtimeStatus("Recording patient turn");
+        } catch {
+          beginPatientUploadRecording(stream);
+        }
         return;
       }
       const nextStatus = role === "staff" ? "staff_speaking" : "patient_speaking";
@@ -1380,12 +1390,30 @@ function ProcedureVoiceRoom({
 
     if (role === "patient") {
       try {
-        await transition("translating_to_staff");
-        setRealtimeStatus("Uploading patient turn");
-        const audio = await stopPatientRecorder();
-        mediaRecorderRef.current = null;
-        if (audio.size <= 0) throw new Error("No audio was recorded.");
-        const message = await uploadPatientProcedureTurn(audio);
+        setRoom((current) => ({ ...current, status: "translating_to_staff" }));
+        void transition("translating_to_staff");
+        let message: RealtimeTranslationMessage;
+        if (mediaRecorderRef.current) {
+          setRealtimeStatus("Uploading patient turn");
+          const audio = await stopPatientRecorder();
+          mediaRecorderRef.current = null;
+          if (audio.size <= 0) throw new Error("No audio was recorded.");
+          message = await uploadPatientProcedureTurn(audio);
+        } else {
+          const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
+            quietMs: PROCEDURE_TRANSLATION_QUIET_MS,
+            maxMs: PROCEDURE_TRANSLATION_MAX_MS
+          });
+          if (!translatedText) throw new Error("No translated text was returned.");
+          const normalizedText = normalizeClinicTranslation(translatedText, "ko");
+          const sourceText = realtimeClientRef.current?.getInputTranscript() || inputTranscriptDraft || copy.helper.idle;
+          message = await persistRealtimeProcedureTurn({
+            messageId: `${role}-procedure-${Date.now()}`,
+            speakerRole: role,
+            sourceText,
+            translatedText: normalizedText
+          });
+        }
         appendMessage(message);
         void broadcastTranslationMessage(room.id, message);
         setInputTranscriptDraft(message.sourceText ?? "");
@@ -1394,7 +1422,8 @@ function ProcedureVoiceRoom({
         setError(role === "patient" ? copy.statusDescriptions.error : caught instanceof Error ? caught.message : "Translation failed.");
       } finally {
         mediaChunksRef.current = [];
-        await transition("ready");
+        setRoom((current) => ({ ...current, status: "ready" }));
+        void transition("ready");
         setBusy(false);
       }
       return;
@@ -1412,8 +1441,9 @@ function ProcedureVoiceRoom({
       const sourceText = realtimeClientRef.current?.getInputTranscript() || inputTranscriptDraft || "한국어 원문을 표시하지 못했습니다.";
 
       const messageId = `${role}-procedure-${Date.now()}`;
-      const message = await persistRealtimeStaffProcedureTurn({
+      const message = await persistRealtimeProcedureTurn({
         messageId,
+        speakerRole: role,
         sourceText,
         translatedText: normalizedText
       });

@@ -50,6 +50,7 @@ export class OpenAIRealtimeClient {
       roomId: string;
       role: "staff" | "patient";
       roomToken?: string;
+      direction?: "staff_to_patient" | "patient_to_staff";
       manualTurn?: boolean;
     },
     private readonly callbacks: {

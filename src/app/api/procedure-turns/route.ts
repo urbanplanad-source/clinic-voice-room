@@ -34,7 +34,7 @@ const realtimeMessageSchema = z.object({
   roomId: z.string(),
   roomToken: z.string().optional(),
   messageId: z.string().min(1).max(120),
-  role: z.literal("staff"),
+  role: z.enum(["staff", "patient"]),
   patientLanguage: z.custom<PatientLanguage>((value) => isPatientLanguage(value)),
   sourceText: z.string().trim().min(1).max(4000),
   translatedText: z.string().trim().min(1).max(4000)
@@ -82,12 +82,17 @@ async function handleRealtimeStaffMessage(request: Request) {
     return NextResponse.json({ error: "Room not available" }, { status: 404 });
   }
 
-  const staff = await getCurrentStaff();
-  if (!staff || staff.id !== room.hostStaffId) {
+  if (parsed.data.role === "staff") {
+    const staff = await getCurrentStaff();
+    if (!staff || staff.id !== room.hostStaffId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  } else if (!(await isPatientRoomRequestAuthorized(room, parsed.data.roomToken))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const normalizedText = normalizeClinicTranslation(parsed.data.translatedText, parsed.data.patientLanguage);
+  const targetLanguage: TargetLanguage = parsed.data.role === "staff" ? parsed.data.patientLanguage : "ko";
+  const normalizedText = normalizeClinicTranslation(parsed.data.translatedText, targetLanguage);
   let savedMessage;
   try {
     savedMessage = await prisma.$transaction(async (tx) => {
@@ -103,7 +108,7 @@ async function handleRealtimeStaffMessage(request: Request) {
           speaker: parsed.data.role,
           sourceText: parsed.data.sourceText,
           text: normalizedText,
-          targetLanguage: parsed.data.patientLanguage
+          targetLanguage
         }
       });
     });

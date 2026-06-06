@@ -1075,7 +1075,11 @@ class MainActivity : ComponentActivity() {
 
     private fun roomPollDelayMs(): Long {
         val room = uiState.value.room
-        return if (room?.patientJoinedAt == null) 500L else 1_000L
+        return when {
+            room?.patientJoinedAt == null -> 500L
+            room.status == "patient_speaking" || room.status == "translating_to_staff" -> 300L
+            else -> 650L
+        }
     }
 
     private fun closeRealtimeTurnClient() {
@@ -1096,6 +1100,9 @@ class MainActivity : ComponentActivity() {
         roomPollInFlight = true
         pollExecutor.execute {
             runCatching {
+                val messagesPolledEarly = room.patientJoinedAt != null
+                if (messagesPolledEarly) pollRoomMessages(room, backend)
+
                 val data = getJson("$backend/api/rooms/${room.id}")
                 val updatedRoom = roomInfoFromJson(data.getJSONObject("room"), backend, room)
                 val previousRoom = uiState.value.room
@@ -1129,7 +1136,9 @@ class MainActivity : ComponentActivity() {
                     if (updatedRoom.patientJoinedAt != null) {
                         prepareRealtimeTurnClientAsync(updatedRoom, force = joinedNow)
                     }
-                    pollRoomMessages(updatedRoom, backend)
+                    if (!messagesPolledEarly && updatedRoom.patientJoinedAt != null) {
+                        pollRoomMessages(updatedRoom, backend)
+                    }
                 }
             }.onFailure { caught ->
                 appendLog("방 상태 확인 실패: ${userFacingError(caught)}")

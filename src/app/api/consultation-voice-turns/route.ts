@@ -34,7 +34,7 @@ const realtimeMessageSchema = z.object({
   roomId: z.string(),
   roomToken: z.string().optional(),
   messageId: z.string().min(1).max(120),
-  role: z.literal("staff"),
+  role: z.enum(["staff", "patient"]),
   patientLanguage: z.custom<PatientLanguage>((value) => isPatientLanguage(value)),
   sourceText: z.string().trim().min(1).max(4000),
   translatedText: z.string().trim().min(1).max(4000)
@@ -213,14 +213,15 @@ async function handleRealtimeStaffMessage(request: Request) {
   const authorization = await authorizeRoom(parsed.data);
   if (authorization.response) return authorization.response;
 
-  const normalizedText = normalizeClinicTranslation(parsed.data.translatedText, parsed.data.patientLanguage);
+  const targetLanguage: TargetLanguage = parsed.data.role === "staff" ? parsed.data.patientLanguage : "ko";
+  const normalizedText = normalizeClinicTranslation(parsed.data.translatedText, targetLanguage);
   const message = await createMessage({
     roomId: parsed.data.roomId,
     messageId: parsed.data.messageId,
     role: parsed.data.role,
     sourceText: parsed.data.sourceText,
     text: normalizedText,
-    targetLanguage: parsed.data.patientLanguage
+    targetLanguage
   });
 
   return NextResponse.json({

@@ -258,6 +258,7 @@ export function ConsultationChatRoom({
         roomId: room.id,
         role,
         roomToken,
+        direction: role === "staff" ? "staff_to_patient" : "patient_to_staff",
         manualTurn: true
       }, {
         onFirstOutputDelta: () => {
@@ -356,14 +357,7 @@ export function ConsultationChatRoom({
     return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
   }
 
-  async function startPatientRecording() {
-    const acquiredTurn = await transition("patient_speaking");
-    if (!acquiredTurn) {
-      setError(voiceText.busy);
-      return false;
-    }
-
-    const stream = await ensureMicStream();
+  function beginPatientUploadRecording(stream: MediaStream) {
     const recorder = createAudioRecorder(stream);
     mediaChunksRef.current = [];
     recorder.addEventListener("dataavailable", (event) => {
@@ -373,7 +367,6 @@ export function ConsultationChatRoom({
     mediaRecorderRef.current = recorder;
     setMicEnabled(true);
     setSpeakingStartedAt(Date.now());
-    return true;
   }
 
   function stopPatientRecorder() {
@@ -424,8 +417,9 @@ export function ConsultationChatRoom({
     return data.message as RealtimeTranslationMessage;
   }
 
-  async function persistRealtimeStaffVoiceTurn(params: {
+  async function persistRealtimeConsultationVoiceTurn(params: {
     messageId: string;
+    speakerRole: ParticipantRole;
     sourceText: string;
     translatedText: string;
   }) {
@@ -435,7 +429,7 @@ export function ConsultationChatRoom({
       body: JSON.stringify({
         roomId: room.id,
         messageId: params.messageId,
-        role: "staff",
+        role: params.speakerRole,
         roomToken,
         patientLanguage: room.patientLanguage,
         sourceText: params.sourceText,
@@ -458,7 +452,21 @@ export function ConsultationChatRoom({
     try {
       stopPlayback();
       if (role === "patient") {
-        await startPatientRecording();
+        const acquiredTurn = await transition("patient_speaking");
+        if (!acquiredTurn) {
+          setError(voiceText.busy);
+          return;
+        }
+
+        const stream = await ensureMicStream();
+        try {
+          const realtimeClient = await ensureRealtimeSession(stream);
+          realtimeClient.startTurn();
+          setMicEnabled(true);
+          setSpeakingStartedAt(Date.now());
+        } catch {
+          beginPatientUploadRecording(stream);
+        }
         return;
       }
 
@@ -496,18 +504,37 @@ export function ConsultationChatRoom({
 
     if (role === "patient") {
       try {
-        await transition("translating_to_staff");
-        const audio = await stopPatientRecorder();
-        mediaRecorderRef.current = null;
-        if (audio.size <= 0) throw new Error("No audio was recorded.");
-        const message = await uploadConsultationVoiceTurn(audio);
+        setRoom((current) => ({ ...current, status: "translating_to_staff" }));
+        void transition("translating_to_staff");
+        let message: RealtimeTranslationMessage;
+        if (mediaRecorderRef.current) {
+          const audio = await stopPatientRecorder();
+          mediaRecorderRef.current = null;
+          if (audio.size <= 0) throw new Error("No audio was recorded.");
+          message = await uploadConsultationVoiceTurn(audio);
+        } else {
+          const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
+            quietMs: CONSULTATION_TRANSLATION_QUIET_MS,
+            maxMs: CONSULTATION_TRANSLATION_MAX_MS
+          });
+          if (!translatedText) throw new Error("No translated text was returned.");
+          const normalizedText = normalizeClinicTranslation(translatedText, "ko");
+          const sourceText = realtimeClientRef.current?.getInputTranscript() || voiceText.fallback;
+          message = await persistRealtimeConsultationVoiceTurn({
+            messageId: `${role}-voice-${Date.now()}`,
+            speakerRole: role,
+            sourceText,
+            translatedText: normalizedText
+          });
+        }
         appendMessage(message);
         void broadcastTranslationMessage(room.id, message);
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Translation failed.");
       } finally {
         mediaChunksRef.current = [];
-        await transition("ready");
+        setRoom((current) => ({ ...current, status: "ready" }));
+        void transition("ready");
         setVoiceBusy(false);
       }
       return;
@@ -523,8 +550,9 @@ export function ConsultationChatRoom({
       const normalizedText = normalizeClinicTranslation(translatedText, room.patientLanguage);
       const sourceText = realtimeClientRef.current?.getInputTranscript() || "한국어 원문을 표시하지 못했습니다.";
       const messageId = `${role}-voice-${Date.now()}`;
-      const message = await persistRealtimeStaffVoiceTurn({
+      const message = await persistRealtimeConsultationVoiceTurn({
         messageId,
+        speakerRole: role,
         sourceText,
         translatedText: normalizedText
       });
