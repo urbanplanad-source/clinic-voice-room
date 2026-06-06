@@ -772,7 +772,8 @@ function ProcedureVoiceRoom({
       realtimeClientRef.current = new OpenAIRealtimeClient({
         roomId: room.id,
         role,
-        roomToken
+        roomToken,
+        manualTurn: true
       }, {
         onStatus: setRealtimeStatus,
         onTranscriptDelta: (text) => {

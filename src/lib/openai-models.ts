@@ -1,6 +1,6 @@
 export function normalizedTextTranslationModel(value: string | undefined) {
   const trimmed = value?.trim();
-  if (!trimmed || trimmed === "gpt-5.5") return "gpt-5.2";
+  if (!trimmed) return "gpt-5.2";
   return trimmed;
 }
 

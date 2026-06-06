@@ -153,7 +153,7 @@ OPENAI_REALTIME_MODEL=gpt-realtime
 OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 ```
 
-The server normalizes legacy `OPENAI_TEXT_TRANSLATION_MODEL=gpt-5.5` to `gpt-5.2`, legacy `OPENAI_REALTIME_MODEL=gpt-realtime-translate` to `gpt-realtime`, and legacy `OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper` to `gpt-4o-transcribe`.
+The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but honors an explicit value such as `gpt-5.5`. It normalizes legacy `OPENAI_REALTIME_MODEL=gpt-realtime-translate` to `gpt-realtime` for the current general Realtime path, and legacy `OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper` to `gpt-4o-transcribe`.
 
 ## Consultation Mode Field Test
 

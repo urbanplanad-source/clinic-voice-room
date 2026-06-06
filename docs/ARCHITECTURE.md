@@ -20,9 +20,9 @@ The current product split is deliberate: consultation mode is a lightweight text
 ## Current MVP Implementation Note
 The app currently uses lightweight browser polling for room state updates so it can run without a separate realtime infrastructure during first setup. The room state service and API boundaries are intentionally isolated so Supabase Realtime or a WebSocket transport can replace polling without changing the product flow.
 
-Consultation mode is text-first and uses `POST /api/translate-text`, backed by the OpenAI Responses API with `gpt-5.2` by default for accuracy-oriented medical consultation translation. Staff consultation input is text-only. Patient consultation input shows text first. The UI adds staged consultation guidance, patient sample-message categories, staff follow-up suggestions, lightweight risk flags, and a summary draft.
+Consultation mode is chat-based and uses `POST /api/translate-text` for text fallback, backed by the OpenAI Responses API with `gpt-5.2` by default unless `OPENAI_TEXT_TRANSLATION_MODEL` overrides it. Staff Android voice uses Realtime-first manual turns with bounded upload fallback. Patient web voice still uses short bounded uploads.
 
-OpenAI Realtime credential issuance keeps the permanent API key server-side. The current procedure translation path uses `POST /v1/realtime/translations/client_secrets` and `POST /v1/realtime/translations/calls` for browser WebRTC translation, then uses device/browser TTS on the receiving device when speech playback is enabled. Full production audio relay between two Android devices is now the main integration hardening step.
+OpenAI Realtime credential issuance keeps the permanent API key server-side. Current code issues ephemeral credentials through `POST /v1/realtime/client_secrets`; browser WebRTC uses `POST /v1/realtime/calls` with manual push-to-talk commit events, and Android staff voice uses a Realtime WebSocket connection with manual input-audio commit. The older `realtime/translations/*` endpoint notes remain only in historical spike docs.
 
 See [ANDROID_TRANSITION_ARCHITECTURE.md](ANDROID_TRANSITION_ARCHITECTURE.md) for the earlier Android target architecture notes.
 

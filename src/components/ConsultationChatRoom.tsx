@@ -257,7 +257,8 @@ export function ConsultationChatRoom({
       realtimeClientRef.current = new OpenAIRealtimeClient({
         roomId: room.id,
         role,
-        roomToken
+        roomToken,
+        manualTurn: true
       }, {
         onFirstOutputDelta: () => {
           void transition(role === "staff" ? "patient_listening" : "staff_listening");

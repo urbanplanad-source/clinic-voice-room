@@ -4,7 +4,7 @@ import { buildClinicTranscriptionPrompt } from "./clinic-glossary";
 
 export type TranslationDirection = "staff_to_patient" | "patient_to_staff";
 
-const realtimeTranslationOutputLanguages: Record<PatientLanguage | "ko", string> = {
+const realtimeInputLanguageHints: Record<PatientLanguage | "ko", string> = {
   ko: "ko",
   zh: "zh",
   zh_tw: "zh",
@@ -23,23 +23,23 @@ const realtimeTranslationOutputLanguages: Record<PatientLanguage | "ko", string>
   pt: "pt"
 };
 
-const realtimeInputLanguages: Record<PatientLanguage | "ko", string> = {
-  ko: "ko",
-  zh: "zh",
-  zh_tw: "zh",
-  ja: "ja",
-  en: "en",
-  th: "th",
-  ms: "ms",
-  mn: "mn",
-  ru: "ru",
-  vi: "vi",
-  id: "id",
-  fr: "fr",
-  es: "es",
-  de: "de",
-  it: "it",
-  pt: "pt"
+const realtimeLanguageLabels: Record<PatientLanguage | "ko", string> = {
+  ko: "Korean",
+  zh: "Simplified Chinese",
+  zh_tw: "Traditional Chinese",
+  ja: "Japanese",
+  en: "English",
+  th: "Thai",
+  ms: "Malay",
+  mn: "Mongolian",
+  ru: "Russian",
+  vi: "Vietnamese",
+  id: "Indonesian",
+  fr: "French",
+  es: "Spanish",
+  de: "German",
+  it: "Italian",
+  pt: "Portuguese"
 };
 
 export function normalizedRealtimeModelName(value: string | undefined) {
@@ -55,17 +55,24 @@ export function normalizedRealtimeTranscriptionModelName(value: string | undefin
 }
 
 function buildRealtimeTranslationInstructions(inputLanguage: PatientLanguage | "ko", outputLanguage: PatientLanguage | "ko") {
-  const inputLabel = inputLanguage === "ko" ? "Korean" : realtimeTranslationOutputLanguages[inputLanguage];
-  const outputLabel = outputLanguage === "ko" ? "Korean" : realtimeTranslationOutputLanguages[outputLanguage];
+  const inputLabel = realtimeLanguageLabels[inputLanguage];
+  const outputLabel = realtimeLanguageLabels[outputLanguage];
+  const characterInstruction =
+    outputLanguage === "zh_tw"
+      ? "Use Traditional Chinese characters."
+      : outputLanguage === "zh"
+        ? "Use Simplified Chinese characters."
+        : "";
 
   return [
     "You are a live medical interpreter for a Korean dermatology/plastic-surgery clinic.",
     `Translate the speaker from ${inputLabel} to ${outputLabel}.`,
+    characterInstruction,
     "Output only the translated utterance. Do not add explanations, disclaimers, summaries, or extra conversation.",
     "Preserve clinic brand names such as Rejuran, Juvelook, Ultherapy, Thermage, Potenza, and Pico laser.",
-    "For Korean procedure-room speech, interpret short masked utterances in the clinic context: 리쥬란 means Rejuran, and 부종 means swelling.",
+    "For Korean procedure-room speech, interpret common clinic misrecognitions in context: Nijuran usually means Rejuran, and geujong usually means swelling or edema.",
     "Keep responses short and natural for immediate spoken playback."
-  ].join(" ");
+  ].filter(Boolean).join(" ");
 }
 
 function isPromptCompatibilityError(detail: string) {
@@ -131,8 +138,8 @@ export async function createRealtimeSessionToken(params: {
             input: {
               format: params.manualTurn ? { type: "audio/pcm", rate: 24000 } : undefined,
               transcription: includeTranscriptionPrompt
-                ? { model: transcriptionModel, prompt: transcriptionPrompt, language: realtimeInputLanguages[inputLanguage] }
-                : { model: transcriptionModel, language: realtimeInputLanguages[inputLanguage] },
+                ? { model: transcriptionModel, prompt: transcriptionPrompt, language: realtimeInputLanguageHints[inputLanguage] }
+                : { model: transcriptionModel, language: realtimeInputLanguageHints[inputLanguage] },
               noise_reduction: { type: "near_field" },
               turn_detection: params.manualTurn ? null : undefined
             },

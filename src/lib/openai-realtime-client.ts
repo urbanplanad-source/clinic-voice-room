@@ -50,6 +50,7 @@ export class OpenAIRealtimeClient {
       roomId: string;
       role: "staff" | "patient";
       roomToken?: string;
+      manualTurn?: boolean;
     },
     private readonly callbacks: {
       onStatus?: (status: string) => void;
@@ -74,6 +75,7 @@ export class OpenAIRealtimeClient {
     this.clearPendingTranslation();
     this.callbacks.onTranscriptDelta?.("");
     this.callbacks.onInputTranscriptDelta?.("");
+    this.sendClientEvent({ type: "input_audio_buffer.clear" });
     this.callbacks.onStatus?.("Listening");
   }
 
@@ -101,9 +103,22 @@ export class OpenAIRealtimeClient {
         resolve,
         reject,
         quietMs,
-        quietTimer: window.setTimeout(finish, quietMs),
+        quietTimer: null,
         maxTimer: window.setTimeout(finish, maxMs)
       };
+
+      try {
+        this.sendClientEvent({ type: "input_audio_buffer.commit" }, { requireOpen: true });
+        this.sendClientEvent({
+          type: "response.create",
+          response: {
+            modalities: ["text"]
+          }
+        }, { requireOpen: true });
+      } catch (caught) {
+        this.clearPendingTranslation();
+        reject(caught);
+      }
     });
   }
 
@@ -181,7 +196,10 @@ export class OpenAIRealtimeClient {
     const response = await fetch("/api/realtime/session-token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(this.params)
+      body: JSON.stringify({
+        ...this.params,
+        manualTurn: this.params.manualTurn ?? true
+      })
     });
 
     const data = (await response.json().catch(() => null)) as SessionTokenResponse | null;
@@ -284,6 +302,11 @@ export class OpenAIRealtimeClient {
       return;
     }
 
+    if (serverEvent.type === "response.done") {
+      this.resolvePendingTranslation();
+      return;
+    }
+
     if (
       (
         serverEvent.type === "session.input_transcript.delta" ||
@@ -310,6 +333,7 @@ export class OpenAIRealtimeClient {
 
   private resetQuietTimer() {
     if (!this.pendingTranslation) return;
+    if (!this.firstOutputDeltaSeen) return;
 
     if (this.pendingTranslation.quietTimer) {
       window.clearTimeout(this.pendingTranslation.quietTimer);
@@ -342,5 +366,13 @@ export class OpenAIRealtimeClient {
       window.clearTimeout(this.pendingTranslation.maxTimer);
     }
     this.pendingTranslation = null;
+  }
+
+  private sendClientEvent(event: Record<string, unknown>, options: { requireOpen?: boolean } = {}) {
+    if (!this.dataChannel || this.dataChannel.readyState !== "open") {
+      if (options.requireOpen) throw new Error("Realtime translation data channel is not open.");
+      return;
+    }
+    this.dataChannel.send(JSON.stringify(event));
   }
 }
