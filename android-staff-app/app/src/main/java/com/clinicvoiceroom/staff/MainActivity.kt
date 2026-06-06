@@ -22,6 +22,7 @@ import android.util.Base64
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -135,7 +136,9 @@ private const val SetupStepLanguage = "language"
 private const val RealtimePcmSampleRate = 24000
 private const val RealtimeTurnWaitMs = 5500L
 private const val RealtimeOutputQuietMs = 300L
+private const val RealtimeInputTranscriptWaitMs = 1200L
 private const val RecordingStopJoinMs = 250L
+private const val StaffRecordingMaxMs = 60_000L
 
 private data class PatientLanguageOption(
     val code: String,
@@ -338,6 +341,8 @@ private class AndroidRealtimeTurnClient(
     @Volatile
     private var responseDone = false
     @Volatile
+    private var inputTranscriptDone = false
+    @Volatile
     private var responseRequestedAt = 0L
     @Volatile
     private var firstOutputLogged = false
@@ -397,6 +402,7 @@ private class AndroidRealtimeTurnClient(
             inputText.clear()
         }
         responseDone = false
+        inputTranscriptDone = false
         responseRequestedAt = 0L
         firstOutputLogged = false
         errorRef.set(null)
@@ -458,10 +464,11 @@ private class AndroidRealtimeTurnClient(
         errorRef.get()?.let { throw it }
         val translated = synchronized(this) { outputText.toString().trim() }
         if (translated.isBlank()) error("Realtime returned no translated text")
+        waitForInputTranscriptIfNeeded()
         log("Realtime local result ${SystemClock.elapsedRealtime() - responseRequestedAt}ms")
 
         return RealtimeTurnResult(
-            sourceText = synchronized(this) { inputText.toString().trim() },
+            sourceText = normalizeKoreanSourceText(synchronized(this) { inputText.toString().trim() }),
             translatedText = translated
         )
     }
@@ -547,6 +554,7 @@ private class AndroidRealtimeTurnClient(
                         inputText.clear()
                         inputText.append(finalText)
                     }
+                    inputTranscriptDone = true
                 }
 
                 "response.done" -> {
@@ -580,6 +588,18 @@ private class AndroidRealtimeTurnClient(
             if (text.isNotBlank()) parts.add(text)
         }
         return parts.joinToString("").trim()
+    }
+
+    private fun waitForInputTranscriptIfNeeded() {
+        if (synchronized(this) { inputText.isNotBlank() } || inputTranscriptDone) return
+
+        val deadlineAt = SystemClock.elapsedRealtime() + RealtimeInputTranscriptWaitMs
+        while (SystemClock.elapsedRealtime() < deadlineAt) {
+            errorRef.get()?.let { throw it }
+            if (synchronized(this) { inputText.isNotBlank() } || inputTranscriptDone) return
+            Thread.sleep(40)
+        }
+        log("Realtime input transcript missing after ${RealtimeInputTranscriptWaitMs}ms")
     }
 }
 
@@ -651,6 +671,11 @@ class MainActivity : ComponentActivity() {
         initializeTts()
         StaffMediaButtonRouter.setHandler(::handleHardwareKey)
         configureMediaSession()
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                handleAppBack()
+            }
+        })
 
         setContent {
             MaterialTheme {
@@ -727,6 +752,44 @@ class MainActivity : ComponentActivity() {
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         if (handleHardwareKey(event, "activity")) return true
         return super.onKeyUp(keyCode, event)
+    }
+
+    private fun handleAppBack() {
+        val state = uiState.value
+        when {
+            state.showEndRoomConfirm -> updateState { it.copy(showEndRoomConfirm = false) }
+            state.speaking -> stopStaffRecordingAndTranslate()
+            state.busy -> updateState { it.copy(status = "처리 중입니다. 잠시만 기다려주세요.") }
+            state.room?.status == "ended" -> {
+                stopRoomPolling()
+                resetMessagePolling()
+                closeRealtimeTurnClient()
+                updateState {
+                    it.copy(
+                        room = null,
+                        setupStep = SetupStepMode,
+                        connected = false,
+                        sourceDraft = "",
+                        translatedDraft = "",
+                        lastMessageSpeaker = "",
+                        messages = emptyList(),
+                        textInput = "",
+                        status = "상담방 또는 시술방을 선택하세요."
+                    )
+                }
+            }
+            state.room != null -> updateState { it.copy(showEndRoomConfirm = true) }
+            state.loggedIn && state.setupStep == SetupStepLanguage -> {
+                updateState {
+                    it.copy(
+                        setupStep = SetupStepMode,
+                        status = "상담방 또는 시술방을 선택하세요."
+                    )
+                }
+            }
+            state.loggedIn -> updateState { it.copy(status = "직원 화면을 유지합니다.") }
+            else -> updateState { it.copy(status = "로그인 화면입니다.") }
+        }
     }
 
     private fun restorePreferences() {
@@ -1185,7 +1248,7 @@ class MainActivity : ComponentActivity() {
         return StaffMessage(
             id = message.optString("id", "message-${System.currentTimeMillis()}"),
             speaker = speaker,
-            sourceText = message.optString("sourceText"),
+            sourceText = if (speaker == "staff") normalizeKoreanSourceText(message.optString("sourceText")) else message.optString("sourceText"),
             text = normalizeClinicText(message.optString("text"), displayLanguage),
             targetLanguage = targetLanguage,
             createdAt = message.optString("createdAt", System.currentTimeMillis().toString())
@@ -1447,7 +1510,7 @@ class MainActivity : ComponentActivity() {
                 val startedAt = System.currentTimeMillis()
                 activeRecorder.startRecording()
 
-                while (recordingActive && System.currentTimeMillis() - startedAt < 12000L) {
+                while (recordingActive && System.currentTimeMillis() - startedAt < StaffRecordingMaxMs) {
                     val count = activeRecorder.read(buffer, 0, buffer.size)
                     if (count <= 0) continue
                     for (index in 0 until count) {
@@ -1553,9 +1616,7 @@ class MainActivity : ComponentActivity() {
                 runCatching {
                     val startedAt = SystemClock.elapsedRealtime()
                     val result = realtime.stopTurnAndTranslate()
-                    val sourceText = result.sourceText.ifBlank {
-                        "\uD55C\uAD6D\uC5B4 \uC6D0\uBB38\uC744 \uD45C\uC2DC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4."
-                    }
+                    val sourceText = normalizeKoreanSourceText(result.sourceText)
                     appendLog("Realtime translation complete ${SystemClock.elapsedRealtime() - startedAt}ms")
                     val messageId = "staff-realtime-android-${System.currentTimeMillis()}"
                     persistRealtimeStaffVoiceTurnAsync(room, messageId, sourceText, result.translatedText)
@@ -1981,8 +2042,51 @@ private fun messageTimeLabel(createdAt: String): String {
     return Regex("T(\\d{2}:\\d{2})").find(createdAt)?.groupValues?.getOrNull(1).orEmpty()
 }
 
+private fun brandDisplay(patientLanguage: String, key: String): String {
+    return when (key) {
+        "rejuranHealer" -> when (patientLanguage) {
+            "ko" -> "리쥬란 힐러"
+            "zh" -> "丽珠兰 Healer"
+            "zh_tw" -> "麗珠蘭 Healer"
+            "ja" -> "リジュランヒーラー"
+            else -> "Rejuran Healer"
+        }
+        "rejuran" -> when (patientLanguage) {
+            "ko" -> "리쥬란"
+            "zh" -> "丽珠兰"
+            "zh_tw" -> "麗珠蘭"
+            "ja" -> "リジュラン"
+            else -> "Rejuran"
+        }
+        "juvelookVolume" -> when (patientLanguage) {
+            "ko" -> "쥬베룩 볼륨"
+            "ja" -> "ジュベルック ボリューム"
+            else -> "Juvelook Volume"
+        }
+        "juvelook" -> when (patientLanguage) {
+            "ko" -> "쥬베룩"
+            "ja" -> "ジュベルック"
+            else -> "Juvelook"
+        }
+        else -> ""
+    }
+}
+
+private fun normalizeKoreanSourceText(text: String): String {
+    return text.trim()
+        .replace(Regex("(?:리\\s*[쥬주]\\s*란|니\\s*[쥬주]\\s*란|리.{0,3}란)\\s*힐러|\\b(?:re|ni|nizhu|niju)[\\s-]?juran\\s*healer\\b", RegexOption.IGNORE_CASE), "리쥬란 힐러")
+        .replace(Regex("(?:쥬|주)\\s*베\\s*룩\\s*볼륨|\\bjuve[\\s-]?look\\s*volume\\b", RegexOption.IGNORE_CASE), "쥬베룩 볼륨")
+        .replace(Regex("(?:쥬|주)\\s*베\\s*룩|\\bjuve[\\s-]?look\\b", RegexOption.IGNORE_CASE), "쥬베룩")
+        .replace(Regex("니[주쥬]란|리주란|\\bni[\\s-]?juran\\b|\\bni[\\s-]?zuran\\b|\\bniju[\\s-]?ran\\b", RegexOption.IGNORE_CASE), "리쥬란")
+        .replace(Regex("그종|구종|붓종"), "부종")
+        .replace(Regex("\\b(?:geu|gu|geo)[\\s-]?jong\\b", RegexOption.IGNORE_CASE), "부종")
+}
+
 private fun normalizeClinicText(text: String, patientLanguage: String): String {
-    val rejuran = if (patientLanguage == "ko") "리쥬란" else "Rejuran"
+    val rejuran = brandDisplay(patientLanguage, "rejuran")
+    val rejuranHealer = brandDisplay(patientLanguage, "rejuranHealer")
+    val juvelook = brandDisplay(patientLanguage, "juvelook")
+    val juvelookVolume = brandDisplay(patientLanguage, "juvelookVolume")
     val swelling = when (patientLanguage) {
         "zh" -> "肿胀"
         "zh_tw" -> "腫脹"
@@ -2012,6 +2116,9 @@ private fun normalizeClinicText(text: String, patientLanguage: String): String {
         return swellingSentence
     }
     return trimmed
+        .replace(Regex("(?:리\\s*[쥬주]\\s*란|니\\s*[쥬주]\\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)\\s*힐러|\\b(?:re|ni|nizhu|niju)[\\s-]?juran\\s*healer\\b", RegexOption.IGNORE_CASE), rejuranHealer)
+        .replace(Regex("(?:쥬|주)\\s*베\\s*룩\\s*볼륨|\\bjuve[\\s-]?look\\s*volume\\b", RegexOption.IGNORE_CASE), juvelookVolume)
+        .replace(Regex("(?:쥬|주)\\s*베\\s*룩|\\bjuve[\\s-]?look\\b", RegexOption.IGNORE_CASE), juvelook)
         .replace(Regex("니[주쥬]란|리주란"), rejuran)
         .replace(Regex("\\bni[\\s-]?juran\\b|\\bni[\\s-]?zuran\\b|\\bniju[\\s-]?ran\\b", RegexOption.IGNORE_CASE), rejuran)
         .replace(Regex("그종|구종|붓종"), swelling)

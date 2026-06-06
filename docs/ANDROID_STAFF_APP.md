@@ -74,14 +74,14 @@ cd "C:\Users\user\Desktop\개발 작업\clinic-voice-room\android-staff-app"
 Installable field-test APK after build:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/cvr-staff-0.3.7-field.apk
+android-staff-app/app/build/outputs/apk/field/cvr-staff-0.3.9-field.apk
 ```
 
 Latest local field-test APK:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/cvr-staff-0.3.7-field.apk
-SHA256: 4E7E44C95FD49D345FC615FE4F59FCCB4A35BE22D54A25E7564935656CB99A86
+android-staff-app/app/build/outputs/apk/field/cvr-staff-0.3.9-field.apk
+SHA256: FB4C68615F757B522049A96B6DC802D3423F3093EF60288233DF3920763543D3
 ```
 
 Release build sanity check:
@@ -100,8 +100,8 @@ Do not install or distribute the unsigned release APK. Use it only to verify rel
 
 Current app version:
 
-- versionName: `0.3.7`
-- versionCode: `19`
+- versionName: `0.3.9`
+- versionCode: `21`
 
 Pinned build stack:
 
@@ -201,6 +201,8 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
+- Android v0.3.9 intercepts Android system back navigation, waits briefly for Realtime input transcripts before saving staff voice turns, avoids the Korean-source fallback sentence when transcription is missing, and strengthens Rejuran Healer/Juvelook brand normalization.
+- Android v0.3.8 increases the staff recording safety limit from 12 seconds to 60 seconds so longer explanations are not auto-submitted prematurely.
 - Android v0.3.7 reduces patient-to-staff receive latency by polling messages before room state, using a 300ms poll window while the patient is speaking/translating, and letting patient web upload start without waiting for noncritical state-transition POSTs.
 - Android v0.3.6 forces Realtime responses to text-only output, returns Android Realtime turns before the persist POST finishes, retries that persist in the background, wakes the Realtime completion loop from `response.done`, and pre-warms Korean plus patient-language TTS after room setup.
 - Android v0.3.5 adds a non-debuggable `field` APK build, enables R8/resource shrinking for field testing, warms `/api/me` on app start, removes the blocking `translating_to_patient` state round-trip before TTS, shortens Realtime quiet completion to 300ms, and keeps the mic helper visible while Realtime prepares.
@@ -218,6 +220,6 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 - Android v0.2.3 makes Android and web staff QR links both include `?mode=consultation|procedure` for clearer field-test handoff. The server still uses `TranslationRoom.roomMode` as the source of truth.
 - Android v0.2.2 puts the active translation panel before room metadata after the patient joins, so staff see chat/mic controls first.
 - Android v0.2.1 and later use the phone's normal media volume/output route for TTS and request no Bluetooth permission.
-- The v0.3.7 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
+- The v0.3.9 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
 - A real two-phone field test is required before marking the app production-ready.
 

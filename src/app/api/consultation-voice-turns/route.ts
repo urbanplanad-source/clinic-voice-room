@@ -36,7 +36,7 @@ const realtimeMessageSchema = z.object({
   messageId: z.string().min(1).max(120),
   role: z.enum(["staff", "patient"]),
   patientLanguage: z.custom<PatientLanguage>((value) => isPatientLanguage(value)),
-  sourceText: z.string().trim().min(1).max(4000),
+  sourceText: z.string().trim().max(4000).optional().default(""),
   translatedText: z.string().trim().min(1).max(4000)
 });
 
@@ -68,7 +68,7 @@ async function createMessage(params: {
   roomId: string;
   messageId: string;
   role: ParticipantRole;
-  sourceText: string;
+  sourceText?: string;
   text: string;
   targetLanguage: TargetLanguage;
 }) {
@@ -84,7 +84,7 @@ async function createMessage(params: {
           id: params.messageId,
           roomId: params.roomId,
           speaker: params.role,
-          sourceText: params.sourceText,
+          sourceText: params.sourceText?.trim() || null,
           text: params.text,
           targetLanguage: params.targetLanguage
         }

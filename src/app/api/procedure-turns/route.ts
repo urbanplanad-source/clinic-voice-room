@@ -36,7 +36,7 @@ const realtimeMessageSchema = z.object({
   messageId: z.string().min(1).max(120),
   role: z.enum(["staff", "patient"]),
   patientLanguage: z.custom<PatientLanguage>((value) => isPatientLanguage(value)),
-  sourceText: z.string().trim().min(1).max(4000),
+  sourceText: z.string().trim().max(4000).optional().default(""),
   translatedText: z.string().trim().min(1).max(4000)
 });
 
@@ -106,7 +106,7 @@ async function handleRealtimeStaffMessage(request: Request) {
           id: parsed.data.messageId,
           roomId: room.id,
           speaker: parsed.data.role,
-          sourceText: parsed.data.sourceText,
+          sourceText: parsed.data.sourceText || null,
           text: normalizedText,
           targetLanguage
         }

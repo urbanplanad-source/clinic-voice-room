@@ -101,6 +101,33 @@ const swellingPhraseByLanguage: Partial<Record<GlossaryTargetLanguage, string>> 
   pt: "Pode ocorrer inchaço."
 };
 
+const brandDisplayByLanguage: Partial<Record<GlossaryTargetLanguage, Record<"rejuran" | "rejuranHealer" | "juvelook" | "juvelookVolume", string>>> = {
+  ko: {
+    rejuran: "리쥬란",
+    rejuranHealer: "리쥬란 힐러",
+    juvelook: "쥬베룩",
+    juvelookVolume: "쥬베룩 볼륨"
+  },
+  zh: {
+    rejuran: "丽珠兰",
+    rejuranHealer: "丽珠兰 Healer",
+    juvelook: "Juvelook",
+    juvelookVolume: "Juvelook Volume"
+  },
+  zh_tw: {
+    rejuran: "麗珠蘭",
+    rejuranHealer: "麗珠蘭 Healer",
+    juvelook: "Juvelook",
+    juvelookVolume: "Juvelook Volume"
+  },
+  ja: {
+    rejuran: "リジュラン",
+    rejuranHealer: "リジュランヒーラー",
+    juvelook: "ジュベルック",
+    juvelookVolume: "ジュベルック ボリューム"
+  }
+};
+
 const rawClinicGlossary = `
 오십샷|50샷,50샷,五十发,ごじゅうショット,fifty shots,пятьдесят импульсов,năm mươi shot,lima puluh shot,count,샷 수
 백오십샷|150샷,150샷,一百五十发,ひゃくごじゅうショット,one hundred fifty shots,сто пятьдесят импульсов,một trăm năm mươi shot,seratus lima puluh shot,count,샷 수
@@ -452,11 +479,28 @@ function replaceAllCaseInsensitive(text: string, from: string, to: string) {
   return text.replace(new RegExp(escapeRegExp(from), "gi"), to);
 }
 
+function brandDisplay(targetLanguage: GlossaryTargetLanguage, key: "rejuran" | "rejuranHealer" | "juvelook" | "juvelookVolume") {
+  return brandDisplayByLanguage[targetLanguage]?.[key] ?? {
+    rejuran: "Rejuran",
+    rejuranHealer: "Rejuran Healer",
+    juvelook: "Juvelook",
+    juvelookVolume: "Juvelook Volume"
+  }[key];
+}
+
 function applyHighPriorityClinicCorrections(text: string, targetLanguage: GlossaryTargetLanguage) {
   let corrected = text;
-  const rejuranReplacement = targetLanguage === "ko" ? "리쥬란" : "Rejuran";
+  const rejuranReplacement = brandDisplay(targetLanguage, "rejuran");
+  const rejuranHealerReplacement = brandDisplay(targetLanguage, "rejuranHealer");
+  const juvelookReplacement = brandDisplay(targetLanguage, "juvelook");
+  const juvelookVolumeReplacement = brandDisplay(targetLanguage, "juvelookVolume");
   const swellingTerm = swellingTermByLanguage[targetLanguage] ?? "swelling";
   const swellingPhrase = swellingPhraseByLanguage[targetLanguage] ?? "Swelling may occur.";
+
+  corrected = corrected
+    .replace(/(?:리\s*[쥬주]\s*란|니\s*[쥬주]\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)\s*힐러|\b(?:re|ni|nizhu|niju)[\s-]?juran\s*healer\b/gi, rejuranHealerReplacement)
+    .replace(/(?:쥬|주)\s*베\s*룩\s*볼륨|\bjuve[\s-]?look\s*volume\b/gi, juvelookVolumeReplacement)
+    .replace(/(?:쥬|주)\s*베\s*룩|\bjuve[\s-]?look\b/gi, juvelookReplacement);
 
   for (const pattern of commonBrandCorrectionPatterns) {
     corrected = corrected.replace(pattern, rejuranReplacement);
@@ -554,8 +598,16 @@ function targetForCritical(entry: CriticalShortPhrase, targetLanguage: GlossaryT
   return entry.translations[targetLanguage];
 }
 
+function applyReplacementsLongestFirst(text: string, replacements: Array<{ source: string; target: string }>) {
+  return replacements
+    .filter(({ source, target }) => source && source !== target)
+    .sort((a, b) => b.source.length - a.source.length)
+    .reduce((current, { source, target }) => replaceAllCaseInsensitive(current, source, target), text);
+}
+
 export function normalizeClinicTranslation(text: string, targetLanguage: GlossaryTargetLanguage) {
   let normalized = text;
+  const criticalReplacements: Array<{ source: string; target: string }> = [];
 
   for (const entry of criticalShortPhrases) {
     const target = targetForCritical(entry, targetLanguage);
@@ -565,12 +617,13 @@ export function normalizeClinicTranslation(text: string, targetLanguage: Glossar
     ]);
 
     for (const source of sources) {
-      if (!source || source === target) continue;
-      normalized = replaceAllCaseInsensitive(normalized, source, target);
+      criticalReplacements.push({ source, target });
     }
   }
+  normalized = applyReplacementsLongestFirst(normalized, criticalReplacements);
 
   if (rawGlossaryTargetLanguages.has(targetLanguage)) {
+    const glossaryReplacements: Array<{ source: string; target: string }> = [];
     for (const entry of clinicGlossary) {
       const target = targetFor(entry, targetLanguage);
       const sources = new Set([
@@ -585,10 +638,10 @@ export function normalizeClinicTranslation(text: string, targetLanguage: Glossar
       ]);
 
       for (const source of sources) {
-        if (!source || source === target) continue;
-        normalized = replaceAllCaseInsensitive(normalized, source, target);
+        glossaryReplacements.push({ source, target });
       }
     }
+    normalized = applyReplacementsLongestFirst(normalized, glossaryReplacements);
   }
 
   return cleanRepeatedPunctuation(applyTargetSpecificCorrections(normalized, targetLanguage));
