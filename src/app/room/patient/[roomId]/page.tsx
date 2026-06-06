@@ -11,7 +11,15 @@ export default async function PatientCookieRoomPage({
   const { roomId } = await params;
   const room = await prisma.translationRoom.findUnique({
     where: { id: roomId },
-    include: { hospital: true }
+    select: {
+      id: true,
+      roomToken: true,
+      status: true,
+      patientLanguage: true,
+      roomMode: true,
+      patientJoinedAt: true,
+      hospital: { select: { name: true } }
+    }
   });
 
   if (!room || !(await isPatientRoomSessionAuthorized(room))) {

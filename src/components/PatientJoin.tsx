@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { ArrowRight, MessageSquareText, Mic, ShieldCheck, Volume2 } from "lucide-react";
 import { languageLabels, type PatientLanguage } from "@/lib/languages";
+import type { RoomStatus } from "@/lib/room-state";
 import { broadcastRoomUpdate } from "@/lib/supabase-realtime";
+import { VoiceRoom } from "@/components/VoiceRoom";
 
 const copy: Record<
   PatientLanguage,
@@ -185,31 +186,45 @@ export function PatientJoin({
   room: { id: string; patientLanguage: PatientLanguage; hospital: { name: string } };
   roomMode?: "consultation" | "procedure";
 }) {
-  const router = useRouter();
   const text = copy[room.patientLanguage];
   const turnNotice = turnTakingNotice[room.patientLanguage] ?? turnTakingNotice.en;
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [joinedRoom, setJoinedRoom] = useState<{
+    id: string;
+    status: RoomStatus;
+    patientLanguage: PatientLanguage;
+    patientJoinedAt?: string | null;
+    hospital?: { name: string };
+  } | null>(null);
+
+  if (joinedRoom) {
+    return <VoiceRoom role="patient" roomMode={roomMode} initialRoom={joinedRoom} />;
+  }
 
   async function enterRoom() {
     setLoading(true);
     setError("");
     try {
-      if (roomMode === "procedure") {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {
-          throw new Error("microphone-unavailable");
-        });
-        stream.getTracks().forEach((track) => track.stop());
-      }
       const response = await fetch(`/api/rooms/${room.id}/join-patient`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ joinCode })
       });
       if (!response.ok) throw new Error("Room join failed");
-      const data = await response.json();
-      await broadcastRoomUpdate(data.room);
-      router.replace(`/room/patient/${room.id}?mode=${roomMode}`);
+      const data = await response.json() as {
+        room?: {
+          id: string;
+          status: RoomStatus;
+          patientLanguage: PatientLanguage;
+          patientJoinedAt?: string | null;
+          hospital?: { name: string };
+        };
+      };
+      if (!data.room) throw new Error("Room join failed");
+      setJoinedRoom(data.room);
+      window.history.replaceState(null, "", `/room/patient/${room.id}?mode=${roomMode}`);
+      void broadcastRoomUpdate(data.room);
     } catch (caught) {
       setError(roomMode === "procedure" && caught instanceof Error && caught.message === "microphone-unavailable" ? text.denied : text.joinDenied);
     } finally {

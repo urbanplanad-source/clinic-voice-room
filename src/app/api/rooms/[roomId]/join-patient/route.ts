@@ -35,7 +35,21 @@ export async function POST(request: Request, context: { params: Promise<{ roomId
       id: roomId,
       OR: credentialWhere
     },
-    include: { participants: true }
+    select: {
+      id: true,
+      roomToken: true,
+      patientLanguage: true,
+      roomMode: true,
+      status: true,
+      createdAt: true,
+      patientJoinedAt: true,
+      endedAt: true,
+      participants: {
+        where: { role: "patient", leftAt: null },
+        select: { id: true },
+        take: 1
+      }
+    }
   });
 
   if (!room || room.status === "ended") {
@@ -43,7 +57,7 @@ export async function POST(request: Request, context: { params: Promise<{ roomId
   }
 
   const joinedAt = new Date();
-  const existingPatient = room.participants.find((participant) => participant.role === "patient" && !participant.leftAt);
+  const existingPatient = room.participants[0];
   const updated = await prisma.translationRoom.update({
     where: { id: room.id },
     data: {

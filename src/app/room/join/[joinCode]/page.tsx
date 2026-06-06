@@ -16,7 +16,13 @@ export default async function PatientJoinPage({
     where: {
       OR: credentialWhere
     },
-    include: { hospital: true }
+    select: {
+      id: true,
+      status: true,
+      patientLanguage: true,
+      roomMode: true,
+      hospital: { select: { name: true } }
+    }
   });
 
   if (!room || room.status === "ended") {
