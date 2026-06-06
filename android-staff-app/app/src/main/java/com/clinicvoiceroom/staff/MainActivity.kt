@@ -376,6 +376,8 @@ private class AndroidRealtimeTurnClient(
         if (!open) error("Realtime connection did not open")
     }
 
+    fun isReady(): Boolean = open
+
     fun startTurn() {
         connect()
         synchronized(this) {
@@ -490,6 +492,7 @@ private class AndroidRealtimeTurnClient(
 class MainActivity : ComponentActivity() {
     private val uiState = mutableStateOf(StaffUiState())
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val sessionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val cookieJar by lazy { PersistentCookieJar(getSharedPreferences("staff_cookies", MODE_PRIVATE)) }
     private val ttsAudioAttributes by lazy {
@@ -519,11 +522,14 @@ class MainActivity : ComponentActivity() {
     private var realtimeTurnClient: AndroidRealtimeTurnClient? = null
     private var realtimeTurnRoomId: String = ""
     @Volatile
+    private var realtimePreparingRoomId: String = ""
+    @Volatile
     private var realtimeTurnActive = false
     @Volatile
     private var roomPollingActive = false
     @Volatile
     private var roomPollInFlight = false
+    private val realtimeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var messageCursor: String? = null
     private var messagePollingInitialized = false
     private val seenMessageIds = mutableSetOf<String>()
@@ -531,7 +537,7 @@ class MainActivity : ComponentActivity() {
         override fun run() {
             pollCurrentRoom()
             if (roomPollingActive) {
-                mainHandler.postDelayed(this, 2_000L)
+                mainHandler.postDelayed(this, roomPollDelayMs())
             }
         }
     }
@@ -610,6 +616,8 @@ class MainActivity : ComponentActivity() {
         StaffMediaButtonRouter.setHandler(null)
         textToSpeech?.shutdown()
         textToSpeech = null
+        realtimeExecutor.shutdownNow()
+        sessionExecutor.shutdownNow()
         executor.shutdownNow()
         super.onDestroy()
     }
@@ -680,8 +688,8 @@ class MainActivity : ComponentActivity() {
         val meUrl = "$backend/api/me".toHttpUrl()
         if (!cookieJar.hasCookiesFor(meUrl)) return
 
-        updateState { it.copy(busy = true, status = "로그인 세션 확인 중...") }
-        executor.execute {
+        updateState { it.copy(status = "로그인 세션 확인 중...") }
+        sessionExecutor.execute {
             runCatching {
                 val data = getJson(meUrl.toString())
                 val staff = data.getJSONObject("staff")
@@ -699,9 +707,10 @@ class MainActivity : ComponentActivity() {
                 }
                 appendLog("기존 로그인 세션 복구")
             }.onFailure { caught ->
+                if (uiState.value.loggedIn) return@onFailure
                 cookieJar.clear()
                 val message = userFacingError(caught)
-                updateState { it.copy(busy = false, loggedIn = false, status = "로그인이 필요합니다: $message") }
+                updateState { it.copy(loggedIn = false, status = "로그인이 필요합니다: $message") }
                 appendLog("기존 로그인 세션 확인 실패: $message")
             }
         }
@@ -948,8 +957,14 @@ class MainActivity : ComponentActivity() {
         seenMessageIds.clear()
     }
 
+    private fun roomPollDelayMs(): Long {
+        val room = uiState.value.room
+        return if (room?.patientJoinedAt == null) 800L else 1_500L
+    }
+
     private fun closeRealtimeTurnClient() {
         realtimeTurnActive = false
+        realtimePreparingRoomId = ""
         runCatching { realtimeTurnClient?.close() }
         realtimeTurnClient = null
         realtimeTurnRoomId = ""
@@ -991,8 +1006,14 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (joinedNow) appendLog("환자 입장 확인")
-                if (ended) stopRoomPolling()
-                else pollRoomMessages(updatedRoom, backend)
+                if (ended) {
+                    stopRoomPolling()
+                } else {
+                    if (updatedRoom.patientJoinedAt != null) {
+                        prepareRealtimeTurnClientAsync(updatedRoom, force = joinedNow)
+                    }
+                    pollRoomMessages(updatedRoom, backend)
+                }
             }.onFailure { caught ->
                 appendLog("방 상태 확인 실패: ${userFacingError(caught)}")
             }
@@ -1114,13 +1135,7 @@ class MainActivity : ComponentActivity() {
         executor.execute {
             runCatching {
                 val updatedRoom = transitionRoomState(room, "staff_speaking")
-                realtimeTurnActive = runCatching {
-                    val realtime = ensureRealtimeTurnClient(updatedRoom)
-                    realtime.startTurn()
-                    true
-                }.onFailure {
-                    appendLog("Realtime unavailable, using upload fallback: ${it.message}")
-                }.getOrDefault(false)
+                realtimeTurnActive = tryStartPreparedRealtimeTurn(updatedRoom)
                 updateState { it.copy(room = updatedRoom, busy = false) }
                 mainHandler.post { startStaffRecording() }
             }.onFailure { caught ->
@@ -1164,6 +1179,60 @@ class MainActivity : ComponentActivity() {
             realtimeTurnClient = client
             realtimeTurnRoomId = room.id
         }
+    }
+
+    private fun prepareRealtimeTurnClientAsync(room: RoomInfo, force: Boolean = false) {
+        if (room.status == "ended" || room.patientJoinedAt == null) return
+        if (recordingActive || realtimeTurnActive) return
+
+        val current = realtimeTurnClient
+        if (!force && current != null && realtimeTurnRoomId == room.id && current.isReady()) return
+        if (realtimePreparingRoomId == room.id) return
+
+        realtimePreparingRoomId = room.id
+        realtimeExecutor.execute {
+            runCatching {
+                appendLog("Realtime preparing")
+                val token = requestRealtimeToken(room)
+                val client = AndroidRealtimeTurnClient(http, token, ::appendLog)
+                client.connect()
+                if (uiState.value.room?.id == room.id && !recordingActive && !realtimeTurnActive) {
+                    runCatching { realtimeTurnClient?.close() }
+                    realtimeTurnClient = client
+                    realtimeTurnRoomId = room.id
+                    appendLog("Realtime ready")
+                } else {
+                    client.close()
+                }
+            }.onFailure {
+                appendLog("Realtime prepare failed: ${it.message}")
+                if (realtimeTurnRoomId == room.id) {
+                    runCatching { realtimeTurnClient?.close() }
+                    realtimeTurnClient = null
+                    realtimeTurnRoomId = ""
+                }
+            }
+            if (realtimePreparingRoomId == room.id) realtimePreparingRoomId = ""
+        }
+    }
+
+    private fun tryStartPreparedRealtimeTurn(room: RoomInfo): Boolean {
+        val realtime = realtimeTurnClient
+        if (realtime == null || realtimeTurnRoomId != room.id || !realtime.isReady()) {
+            prepareRealtimeTurnClientAsync(room)
+            appendLog("Realtime not ready, recording with upload fallback")
+            return false
+        }
+
+        return runCatching {
+            realtime.startTurn()
+            appendLog("Realtime turn started")
+            true
+        }.onFailure {
+            appendLog("Realtime start failed, using upload fallback: ${it.message}")
+            closeRealtimeTurnClient()
+            prepareRealtimeTurnClientAsync(room, force = true)
+        }.getOrDefault(false)
     }
 
     @SuppressLint("MissingPermission")

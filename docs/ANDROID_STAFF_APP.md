@@ -75,14 +75,14 @@ Installable debug APK after build:
 
 ```text
 android-staff-app/app/build/outputs/apk/debug/app-debug.apk
-android-staff-app/app/build/outputs/apk/debug/cvr-staff-0.3.0-debug.apk
+android-staff-app/app/build/outputs/apk/debug/cvr-staff-0.3.1-debug.apk
 ```
 
 Latest local field-test APK:
 
 ```text
-android-staff-app/app/build/outputs/apk/debug/cvr-staff-0.3.0-debug.apk
-SHA256: 6616E4874C0FA78527138AB1CD99C28107895D6D46DD579563AF7C15C8AAE760
+android-staff-app/app/build/outputs/apk/debug/cvr-staff-0.3.1-debug.apk
+SHA256: 1F1A04B4EFAC12F27E17DAB9A3DD4D87107D6447CC4D0B7634D131846FF09136
 ```
 
 Release build sanity check:
@@ -101,8 +101,8 @@ Do not install or distribute the unsigned release APK. Use it only to verify rel
 
 Current app version:
 
-- versionName: `0.3.0`
-- versionCode: `12`
+- versionName: `0.3.1`
+- versionCode: `13`
 
 Pinned build stack:
 
@@ -202,6 +202,7 @@ The server normalizes legacy `OPENAI_TEXT_TRANSLATION_MODEL=gpt-5.5` to `gpt-5.2
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
+- Android v0.3.1 starts Realtime preparation automatically when the patient enters, polls faster while waiting for patient entry, no longer waits for Realtime connection before turning the mic red, and keeps saved-session restore off the login request queue.
 - Android v0.3.0 uses OpenAI Realtime WebSocket with manual staff push-to-talk turn commits, while retaining the previous upload route as fallback.
 - Android v0.2.9 follows the provided screenshots more closely: large mode cards, red logout below procedure room creation, 3-column patient-language selection with English prompts, and a large QR waiting screen with explicit QR error handling.
 - Android v0.2.8 removes Android's internal `roomToken` QR fallback, adds direction-aware setup transitions, and expands the QR waiting screen's patient notice preview.
