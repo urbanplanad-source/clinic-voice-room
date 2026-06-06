@@ -131,7 +131,8 @@ private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
 private const val RealtimePcmSampleRate = 24000
-private const val RealtimeTurnWaitMs = 6500L
+private const val RealtimeTurnWaitMs = 5500L
+private const val RealtimeOutputQuietMs = 700L
 
 private data class PatientLanguageOption(
     val code: String,
@@ -331,6 +332,8 @@ private class AndroidRealtimeTurnClient(
     private val inputText = StringBuilder()
     @Volatile
     private var open = false
+    @Volatile
+    private var responseDone = false
 
     fun connect() {
         if (open) return
@@ -384,6 +387,7 @@ private class AndroidRealtimeTurnClient(
             outputText.clear()
             inputText.clear()
         }
+        responseDone = false
         errorRef.set(null)
         turnDoneLatch = CountDownLatch(1)
         send(JSONObject().put("type", "input_audio_buffer.clear"))
@@ -412,7 +416,24 @@ private class AndroidRealtimeTurnClient(
                 )
         )
 
-        turnDoneLatch.await(timeoutMs, TimeUnit.MILLISECONDS)
+        val deadlineAt = System.currentTimeMillis() + timeoutMs
+        var lastLength = -1
+        var stableSince = 0L
+        while (System.currentTimeMillis() < deadlineAt) {
+            errorRef.get()?.let { throw it }
+            val length = synchronized(this) { outputText.length }
+            val now = System.currentTimeMillis()
+            if (length > 0) {
+                if (length != lastLength) {
+                    lastLength = length
+                    stableSince = now
+                }
+                if (responseDone || now - stableSince >= RealtimeOutputQuietMs) break
+            } else if (responseDone) {
+                break
+            }
+            Thread.sleep(50)
+        }
         errorRef.get()?.let { throw it }
         val translated = synchronized(this) { outputText.toString().trim() }
         if (translated.isBlank()) error("Realtime returned no translated text")
@@ -453,6 +474,27 @@ private class AndroidRealtimeTurnClient(
                         outputText.clear()
                         outputText.append(finalText)
                     }
+                    responseDone = true
+                    turnDoneLatch.countDown()
+                }
+
+                "response.content_part.done" -> {
+                    val finalText = event.optJSONObject("part")?.optString("text").orEmpty()
+                    if (finalText.isNotBlank()) synchronized(this) {
+                        outputText.clear()
+                        outputText.append(finalText)
+                    }
+                    responseDone = true
+                    turnDoneLatch.countDown()
+                }
+
+                "response.output_item.done" -> {
+                    val finalText = collectRealtimeItemText(event.optJSONObject("item"))
+                    if (finalText.isNotBlank()) synchronized(this) {
+                        outputText.clear()
+                        outputText.append(finalText)
+                    }
+                    responseDone = true
                     turnDoneLatch.countDown()
                 }
 
@@ -469,7 +511,10 @@ private class AndroidRealtimeTurnClient(
                     }
                 }
 
-                "response.done" -> turnDoneLatch.countDown()
+                "response.done" -> {
+                    responseDone = true
+                    turnDoneLatch.countDown()
+                }
 
                 "error" -> {
                     val message = event.optJSONObject("error")?.optString("message")
@@ -486,6 +531,17 @@ private class AndroidRealtimeTurnClient(
         }.onFailure {
             log("Realtime event parse skipped: ${text.take(120)}")
         }
+    }
+
+    private fun collectRealtimeItemText(item: JSONObject?): String {
+        val content = item?.optJSONArray("content") ?: return ""
+        val parts = mutableListOf<String>()
+        for (index in 0 until content.length()) {
+            val part = content.optJSONObject(index) ?: continue
+            val text = part.optString("text").ifBlank { part.optString("transcript") }
+            if (text.isNotBlank()) parts.add(text)
+        }
+        return parts.joinToString("").trim()
     }
 }
 
@@ -530,6 +586,7 @@ class MainActivity : ComponentActivity() {
     @Volatile
     private var roomPollInFlight = false
     private val realtimeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val pollExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var messageCursor: String? = null
     private var messagePollingInitialized = false
     private val seenMessageIds = mutableSetOf<String>()
@@ -617,6 +674,7 @@ class MainActivity : ComponentActivity() {
         textToSpeech?.shutdown()
         textToSpeech = null
         realtimeExecutor.shutdownNow()
+        pollExecutor.shutdownNow()
         sessionExecutor.shutdownNow()
         executor.shutdownNow()
         super.onDestroy()
@@ -959,7 +1017,7 @@ class MainActivity : ComponentActivity() {
 
     private fun roomPollDelayMs(): Long {
         val room = uiState.value.room
-        return if (room?.patientJoinedAt == null) 800L else 1_500L
+        return if (room?.patientJoinedAt == null) 500L else 1_000L
     }
 
     private fun closeRealtimeTurnClient() {
@@ -978,7 +1036,7 @@ class MainActivity : ComponentActivity() {
 
         val backend = normalizedBackendUrl(snapshot.backendUrl)
         roomPollInFlight = true
-        executor.execute {
+        pollExecutor.execute {
             runCatching {
                 val data = getJson("$backend/api/rooms/${room.id}")
                 val updatedRoom = roomInfoFromJson(data.getJSONObject("room"), backend, room)
