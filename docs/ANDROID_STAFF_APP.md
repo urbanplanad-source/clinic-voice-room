@@ -1,4 +1,4 @@
-# Android Staff App
+﻿# Android Staff App
 
 ## Purpose
 
@@ -29,7 +29,7 @@ The app now supports both staff workflows:
 - TTS uses Android media audio output/volume (`USAGE_MEDIA`). Staff control loudness with the phone's normal media volume, and any optional external speaker should be paired in Android system settings. The staff app does not request Bluetooth/nearby-device permission.
 - HID footpad/button toggle for Space, Enter, Numpad Enter, Media Play/Pause, and Headset Hook. Media Play/Pause and Headset Hook are handled through both activity key events and Android MediaSession media-button routing.
 - Mic permission recovery from the in-room mic panel.
-- Staff session restore through the server-issued `cvr_session` cookie when "이 기기에서 로그인 유지" is enabled.
+- Staff session restore through the server-issued `cvr_session` cookie when "??湲곌린?먯꽌 濡쒓렇???좎?" is enabled.
 - Active rooms hide logout and require a confirmation dialog before room termination, so staff do not accidentally leave a patient room open or end it with one stray tap.
 
 ## Architecture Boundary
@@ -58,31 +58,30 @@ If Realtime returns no text or errors, the same in-memory PCM turn is wrapped as
 - Android cleartext HTTP is disabled; production backend URLs must use `https://`.
 - The app auto-normalizes a backend value like `voice.insightmedi.co.kr` to `https://voice.insightmedi.co.kr`.
 - The Android app stores no staff password. When login persistence is enabled, it stores only the server-issued session cookie in app-private storage and verifies it with `/api/me` on app start.
-- Turning off `이 기기에서 로그인 유지` or logging out clears the saved session cookie from the device.
+- Turning off `??湲곌린?먯꽌 濡쒓렇???좎?` or logging out clears the saved session cookie from the device.
 
 ## Build
 
 Expected local environment:
 
 ```powershell
-$env:JAVA_HOME='C:\Users\user\Desktop\개발 작업\clinic-voice-room\.tools\jdk17\jdk-17.0.19+10'
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
 $env:ANDROID_HOME='C:\Users\user\AppData\Local\Android\Sdk'
 cd "C:\Users\user\Desktop\개발 작업\clinic-voice-room\android-staff-app"
-.\gradlew.bat :app:assembleDebug
+.\gradlew.bat :app:assembleField
 ```
 
-Installable debug APK after build:
+Installable field-test APK after build:
 
 ```text
-android-staff-app/app/build/outputs/apk/debug/app-debug.apk
-android-staff-app/app/build/outputs/apk/debug/cvr-staff-0.3.2-debug.apk
+android-staff-app/app/build/outputs/apk/field/cvr-staff-0.3.5-field.apk
 ```
 
 Latest local field-test APK:
 
 ```text
-android-staff-app/app/build/outputs/apk/debug/cvr-staff-0.3.2-debug.apk
-SHA256: 9929C62DB36F3F3D62F25749412D8AA36ECE516F55363235D08662819818C4D0
+android-staff-app/app/build/outputs/apk/field/cvr-staff-0.3.5-field.apk
+SHA256: 18DA744737CE2832119C9892FC4C0B6C01436AAD0C0486811A45A98D76DC4299
 ```
 
 Release build sanity check:
@@ -101,8 +100,8 @@ Do not install or distribute the unsigned release APK. Use it only to verify rel
 
 Current app version:
 
-- versionName: `0.3.2`
-- versionCode: `14`
+- versionName: `0.3.4`
+- versionCode: `16`
 
 Pinned build stack:
 
@@ -140,8 +139,8 @@ Before field testing against `voice.insightmedi.co.kr`:
 5. Use the phone's normal media volume for TTS loudness. If a Bluetooth speaker is needed, pair it in Android system settings before opening the room. The staff app itself must not request Bluetooth/nearby-device permission.
 6. Grant microphone permission when the in-room mic panel asks for it. The app should not show a permission prompt immediately on login.
 7. Connect the USB-C or wired pin microphone.
-8. Confirm the mic button works. If microphone permission is missing, the in-room mic panel should show `마이크 권한 허용`.
-9. With `이 기기에서 로그인 유지` enabled, close and reopen the app.
+8. Confirm the mic button works. If microphone permission is missing, the in-room mic panel should show `留덉씠??沅뚰븳 ?덉슜`.
+9. With `??湲곌린?먯꽌 濡쒓렇???좎?` enabled, close and reopen the app.
 10. Pass: the app restores the staff session without asking for the password and shows the room creation screen.
 
 Recommended OpenAI env values:
@@ -158,7 +157,7 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 ## Consultation Mode Field Test
 
 1. Log in as staff.
-2. Select `상담`.
+2. Select `?곷떞`.
 3. Select patient language.
 4. Create the consultation room.
 5. Scan the QR on the patient phone and enter the room.
@@ -171,13 +170,13 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 12. Pass: Android clears the text input, shows the message in chat, and patient web receives the translated text.
 13. While the patient is speaking, press the Android mic or footpad.
 14. Pass: Android does not start recording and shows a wait message.
-15. Tap `방 종료`.
-16. Pass: Android shows a confirmation dialog. `계속 사용` keeps the room open; `방 종료` ends it and returns to room creation.
+15. Tap `諛?醫낅즺`.
+16. Pass: Android shows a confirmation dialog. `怨꾩냽 ?ъ슜` keeps the room open; `諛?醫낅즺` ends it and returns to room creation.
 
 ## Procedure Mode Field Test
 
 1. Log in as staff.
-2. Select `시술`.
+2. Select `?쒖닠`.
 3. Select patient language.
 4. Create the procedure room.
 5. Scan the QR on the patient phone and enter the room.
@@ -185,7 +184,7 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 7. Set the phone media volume and place the phone or optional external media speaker where the lying patient can hear it.
 8. Staff presses the large mic button, speaks one short Korean procedure phrase, then presses again.
 9. Pass: Android displays recognized Korean/translated text and plays patient-language TTS through the intended output route.
-10. Tap `다시 듣기`.
+10. Tap `?ㅼ떆 ?ｊ린`.
 11. Pass: the latest translated phrase replays through the same output route.
 12. Patient uses the patient web mic to speak.
 13. Pass: Android receives the Korean translation and Korean TTS plays for staff.
@@ -196,12 +195,15 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 - Audio output: translated TTS should follow the phone's current media output route. Test once with the phone speaker, and optionally again after connecting an external speaker in Android system settings.
 - HID footpad/button: Space, Enter, Numpad Enter, Media Play/Pause, and Headset Hook should toggle the same mic button.
 - During translation/busy states, repeated footpad presses should not start a second recording.
-- If microphone permission is denied, enter a room and confirm the mic panel offers `마이크 권한 허용`.
-- With an active room open, confirm the top logout button is not shown. End the room through the confirmed `방 종료` action first.
+- If microphone permission is denied, enter a room and confirm the mic panel offers `留덉씠??沅뚰븳 ?덉슜`.
+- With an active room open, confirm the top logout button is not shown. End the room through the confirmed `諛?醫낅즺` action first.
 
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
+- Android v0.3.5 adds a non-debuggable `field` APK build, enables R8/resource shrinking for field testing, warms `/api/me` on app start, removes the blocking `translating_to_patient` state round-trip before TTS, shortens Realtime quiet completion to 300ms, and keeps the mic helper visible while Realtime prepares.
+- Android v0.3.4 changes the staff mic start UX to optimistic local recording: the button turns red immediately, recording starts before the server state transition returns, and the mic helper explains that Realtime can still be preparing.
+- Android v0.3.3 starts staff Realtime preconnect immediately after room creation, reduces recorder stop wait from 1500ms to 250ms, and adds timing logs for HTTP, Realtime token/socket/first text/local result, persist, and upload fallback.
 - Android v0.3.2 keeps the v0.3.1 preconnect behavior, separates room polling from user action requests, shortens patient-entry polling, and matches the web Realtime completion behavior by returning after a short quiet window once translated text starts streaming.
 - Android v0.3.1 starts Realtime preparation automatically when the patient enters, polls faster while waiting for patient entry, no longer waits for Realtime connection before turning the mic red, and keeps saved-session restore off the login request queue.
 - Android v0.3.0 uses OpenAI Realtime WebSocket with manual staff push-to-talk turn commits, while retaining the previous upload route as fallback.
@@ -214,5 +216,6 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 - Android v0.2.3 makes Android and web staff QR links both include `?mode=consultation|procedure` for clearer field-test handoff. The server still uses `TranslationRoom.roomMode` as the source of truth.
 - Android v0.2.2 puts the active translation panel before room metadata after the patient joins, so staff see chat/mic controls first.
 - Android v0.2.1 and later use the phone's normal media volume/output route for TTS and request no Bluetooth permission.
-- The APK is currently a debug build for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
+- The v0.3.5 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
 - A real two-phone field test is required before marking the app production-ready.
+

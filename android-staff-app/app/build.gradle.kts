@@ -23,8 +23,8 @@ android {
         applicationId = "com.clinicvoiceroom.staff"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.3.2"
+        versionCode = 17
+        versionName = "0.3.5"
     }
 
     buildFeatures {
@@ -43,9 +43,25 @@ android {
     }
 
     buildTypes {
-        release {
+        debug {
             isMinifyEnabled = false
             isShrinkResources = false
+        }
+
+        create("field") {
+            initWith(getByName("release"))
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release", "debug")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+        }
+
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             }

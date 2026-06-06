@@ -16,6 +16,7 @@ import android.media.session.PlaybackState
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.util.Base64
 import android.view.KeyEvent
@@ -132,7 +133,8 @@ private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
 private const val RealtimePcmSampleRate = 24000
 private const val RealtimeTurnWaitMs = 5500L
-private const val RealtimeOutputQuietMs = 700L
+private const val RealtimeOutputQuietMs = 300L
+private const val RecordingStopJoinMs = 250L
 
 private data class PatientLanguageOption(
     val code: String,
@@ -334,10 +336,15 @@ private class AndroidRealtimeTurnClient(
     private var open = false
     @Volatile
     private var responseDone = false
+    @Volatile
+    private var responseRequestedAt = 0L
+    @Volatile
+    private var firstOutputLogged = false
 
     fun connect() {
         if (open) return
 
+        val startedAt = SystemClock.elapsedRealtime()
         openLatch = CountDownLatch(1)
         errorRef.set(null)
         val encodedModel = URLEncoder.encode(token.model.ifBlank { "gpt-realtime" }, "UTF-8")
@@ -377,6 +384,7 @@ private class AndroidRealtimeTurnClient(
         }
         errorRef.get()?.let { throw it }
         if (!open) error("Realtime connection did not open")
+        log("Realtime socket ready ${SystemClock.elapsedRealtime() - startedAt}ms")
     }
 
     fun isReady(): Boolean = open
@@ -388,6 +396,8 @@ private class AndroidRealtimeTurnClient(
             inputText.clear()
         }
         responseDone = false
+        responseRequestedAt = 0L
+        firstOutputLogged = false
         errorRef.set(null)
         turnDoneLatch = CountDownLatch(1)
         send(JSONObject().put("type", "input_audio_buffer.clear"))
@@ -415,6 +425,7 @@ private class AndroidRealtimeTurnClient(
                     JSONObject().put("modalities", JSONArray().put("text"))
                 )
         )
+        responseRequestedAt = SystemClock.elapsedRealtime()
 
         val deadlineAt = System.currentTimeMillis() + timeoutMs
         var lastLength = -1
@@ -437,6 +448,7 @@ private class AndroidRealtimeTurnClient(
         errorRef.get()?.let { throw it }
         val translated = synchronized(this) { outputText.toString().trim() }
         if (translated.isBlank()) error("Realtime returned no translated text")
+        log("Realtime local result ${SystemClock.elapsedRealtime() - responseRequestedAt}ms")
 
         return RealtimeTurnResult(
             sourceText = synchronized(this) { inputText.toString().trim() },
@@ -463,7 +475,17 @@ private class AndroidRealtimeTurnClient(
                 "response.output_audio_transcript.delta",
                 "response.output_text.delta" -> {
                     val delta = event.optString("delta")
-                    if (delta.isNotBlank()) synchronized(this) { outputText.append(delta) }
+                    if (delta.isNotBlank()) {
+                        val isFirst = synchronized(this) {
+                            val first = outputText.isEmpty()
+                            outputText.append(delta)
+                            first
+                        }
+                        if (isFirst && !firstOutputLogged && responseRequestedAt > 0L) {
+                            firstOutputLogged = true
+                            log("Realtime first text ${SystemClock.elapsedRealtime() - responseRequestedAt}ms")
+                        }
+                    }
                 }
 
                 "session.output_transcript.done",
@@ -660,6 +682,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         verifyExistingSession()
+        warmBackendConnection()
     }
 
     override fun onDestroy() {
@@ -770,6 +793,23 @@ class MainActivity : ComponentActivity() {
                 val message = userFacingError(caught)
                 updateState { it.copy(loggedIn = false, status = "로그인이 필요합니다: $message") }
                 appendLog("기존 로그인 세션 확인 실패: $message")
+            }
+        }
+    }
+
+    private fun warmBackendConnection() {
+        val backend = normalizedBackendUrl(uiState.value.backendUrl)
+        if (!backend.startsWith("https://")) return
+
+        sessionExecutor.execute {
+            runCatching {
+                val startedAt = SystemClock.elapsedRealtime()
+                val request = Request.Builder().url("$backend/api/me").get().build()
+                http.newCall(request).execute().use { response ->
+                    appendLog("Warmup /api/me ${response.code} ${SystemClock.elapsedRealtime() - startedAt}ms")
+                }
+            }.onFailure {
+                appendLog("Warmup skipped: ${it.message}")
             }
         }
     }
@@ -976,6 +1016,7 @@ class MainActivity : ComponentActivity() {
                 }
                 appendLog("$modeLabel 방 생성: ${roomInfo.id}")
                 startRoomPolling()
+                prepareRealtimeTurnClientAsync(roomInfo, force = true)
             }.onFailure { caught ->
                 val message = userFacingError(caught)
                 updateState { it.copy(busy = false, status = "$modeLabel 방 생성 실패: $message") }
@@ -1189,16 +1230,45 @@ class MainActivity : ComponentActivity() {
 
     private fun beginStaffTurn() {
         val room = uiState.value.room ?: return
-        updateState { it.copy(busy = true, status = "마이크 준비 중입니다...") }
+        val optimisticRoom = room.copy(status = "staff_speaking")
+        updateState {
+            it.copy(
+                room = optimisticRoom,
+                busy = false,
+                speaking = true,
+                sourceDraft = "",
+                translatedDraft = "",
+                status = "Realtime 준비 중입니다. 녹음은 바로 시작됐으니 말씀하세요."
+            )
+        }
+        realtimeTurnActive = tryStartPreparedRealtimeTurn(room)
+        startStaffRecording()
         executor.execute {
             runCatching {
                 val updatedRoom = transitionRoomState(room, "staff_speaking")
-                realtimeTurnActive = tryStartPreparedRealtimeTurn(updatedRoom)
-                updateState { it.copy(room = updatedRoom, busy = false) }
-                mainHandler.post { startStaffRecording() }
+                updateState { current ->
+                    if (current.room?.id == updatedRoom.id && current.speaking) {
+                        current.copy(room = updatedRoom, busy = false)
+                    } else {
+                        current
+                    }
+                }
             }.onFailure { caught ->
+                recordingActive = false
+                realtimeTurnActive = false
+                synchronized(recordingLock) {
+                    recordedPcm = null
+                }
+                closeRealtimeTurnClient()
                 val message = userFacingError(caught)
-                updateState { it.copy(busy = false, status = "지금은 말할 수 없습니다: $message") }
+                updateState {
+                    it.copy(
+                        room = room,
+                        speaking = false,
+                        busy = false,
+                        status = "지금은 말할 수 없습니다: $message"
+                    )
+                }
                 appendLog("말하기 시작 실패: $message")
             }
         }
@@ -1212,7 +1282,9 @@ class MainActivity : ComponentActivity() {
             .put("direction", "staff_to_patient")
             .put("manualTurn", true)
             .toString()
+        val startedAt = SystemClock.elapsedRealtime()
         val data = postJson("$backend/api/realtime/session-token", payload)
+        appendLog("Realtime token ${SystemClock.elapsedRealtime() - startedAt}ms")
         val token = data.getJSONObject("token")
         val clientSecret = token.opt("client_secret")
         val value = when (clientSecret) {
@@ -1240,7 +1312,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun prepareRealtimeTurnClientAsync(room: RoomInfo, force: Boolean = false) {
-        if (room.status == "ended" || room.patientJoinedAt == null) return
+        if (room.status == "ended") return
         if (recordingActive || realtimeTurnActive) return
 
         val current = realtimeTurnClient
@@ -1250,6 +1322,7 @@ class MainActivity : ComponentActivity() {
         realtimePreparingRoomId = room.id
         realtimeExecutor.execute {
             runCatching {
+                val startedAt = SystemClock.elapsedRealtime()
                 appendLog("Realtime preparing")
                 val token = requestRealtimeToken(room)
                 val client = AndroidRealtimeTurnClient(http, token, ::appendLog)
@@ -1258,7 +1331,7 @@ class MainActivity : ComponentActivity() {
                     runCatching { realtimeTurnClient?.close() }
                     realtimeTurnClient = client
                     realtimeTurnRoomId = room.id
-                    appendLog("Realtime ready")
+                    appendLog("Realtime ready ${SystemClock.elapsedRealtime() - startedAt}ms")
                 } else {
                     client.close()
                 }
@@ -1301,6 +1374,11 @@ class MainActivity : ComponentActivity() {
             recordedPcm = ByteArrayOutputStream()
         }
         recordingActive = true
+        val recordingStatus = if (realtimeTurnActive) {
+            "Realtime 연결됨. 말하는 중입니다. 끝나면 다시 누르세요."
+        } else {
+            "Realtime 준비 중입니다. 녹음은 시작됐으니 계속 말씀하세요."
+        }
         updateState {
             it.copy(
                 busy = false,
@@ -1308,10 +1386,10 @@ class MainActivity : ComponentActivity() {
                 speaking = true,
                 sourceDraft = "",
                 translatedDraft = "",
-                status = "말하는 중입니다. 끝나면 다시 누르세요."
+                status = recordingStatus
             )
         }
-        appendLog("마이크 시작: 안전 녹음 업로드 모드")
+        appendLog(if (realtimeTurnActive) "마이크 시작: Realtime streaming" else "마이크 시작: Realtime 준비 중, 안전 녹음")
 
         recordingThread = Thread {
             var recorder: AudioRecord? = null
@@ -1385,7 +1463,9 @@ class MainActivity : ComponentActivity() {
 
         executor.execute {
             runCatching {
-                recordingThread?.join(1500)
+                val joinStartedAt = SystemClock.elapsedRealtime()
+                recordingThread?.join(RecordingStopJoinMs)
+                appendLog("Recorder stop wait ${SystemClock.elapsedRealtime() - joinStartedAt}ms")
                 val pcm = synchronized(recordingLock) {
                     recordedPcm?.toByteArray() ?: ByteArray(0)
                 }
@@ -1395,11 +1475,6 @@ class MainActivity : ComponentActivity() {
                 if (pcm.size < 1600) error("녹음된 음성이 너무 짧습니다.")
 
                 val room = uiState.value.room ?: error("Room is missing")
-                runCatching {
-                    val translatingRoom = transitionRoomState(room, "translating_to_patient")
-                    updateState { it.copy(room = translatingRoom) }
-                }.onFailure { appendLog("번역 상태 전환 실패: ${it.message}") }
-
                 val result = translateStaffVoiceTurn(room, pcm)
                 val message = result.getJSONObject("message")
                 rememberMessage(message)
@@ -1410,6 +1485,7 @@ class MainActivity : ComponentActivity() {
 
                 updateState {
                     it.copy(
+                        room = room.copy(status = "ready"),
                         busy = false,
                         sourceDraft = source,
                         translatedDraft = translated,
@@ -1418,10 +1494,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 speakTranslatedText(translated, room.patientLanguage)
-                runCatching {
-                    val readyRoom = transitionRoomState(room, "ready")
-                    updateState { it.copy(room = readyRoom) }
-                }.onFailure { appendLog("대기 상태 전환 실패: ${it.message}") }
+                transitionRoomStateAsync(room, "ready", "대기 상태 전환")
                 appendLog("번역 완료")
             }.onFailure { caught ->
                 recoverRoomToReady("번역 실패")
@@ -1452,11 +1525,12 @@ class MainActivity : ComponentActivity() {
             val realtime = realtimeTurnClient
             if (realtime != null) {
                 runCatching {
+                    val startedAt = SystemClock.elapsedRealtime()
                     val result = realtime.stopTurnAndTranslate()
                     val sourceText = result.sourceText.ifBlank {
                         "\uD55C\uAD6D\uC5B4 \uC6D0\uBB38\uC744 \uD45C\uC2DC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4."
                     }
-                    appendLog("Realtime translation complete")
+                    appendLog("Realtime translation complete ${SystemClock.elapsedRealtime() - startedAt}ms")
                     return persistRealtimeStaffVoiceTurn(room, sourceText, result.translatedText)
                 }.onFailure {
                     appendLog("Realtime failed, falling back to upload: ${it.message}")
@@ -1466,7 +1540,7 @@ class MainActivity : ComponentActivity() {
         }
 
         val wav = pcm16ToWav(pcm, RealtimePcmSampleRate, 1)
-        appendLog("Upload fallback translation")
+        appendLog("Upload fallback translation (${wav.size} bytes)")
         return uploadStaffVoiceTurn(room, wav)
     }
 
@@ -1482,7 +1556,10 @@ class MainActivity : ComponentActivity() {
             .put("sourceText", sourceText)
             .put("translatedText", translatedText)
             .toString()
-        return postJson("$backend/api/$endpoint", payload)
+        val startedAt = SystemClock.elapsedRealtime()
+        return postJson("$backend/api/$endpoint", payload).also {
+            appendLog("Realtime persist ${SystemClock.elapsedRealtime() - startedAt}ms")
+        }
     }
 
     private fun uploadStaffVoiceTurn(room: RoomInfo, wav: ByteArray): JSONObject {
@@ -1501,9 +1578,11 @@ class MainActivity : ComponentActivity() {
             .url("$backend/api/$endpoint")
             .post(body)
             .build()
+        val startedAt = SystemClock.elapsedRealtime()
         http.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) error(apiErrorMessage(text, response.code))
+            appendLog("Upload fallback HTTP ${SystemClock.elapsedRealtime() - startedAt}ms")
             return JSONObject(text)
         }
     }
@@ -1652,8 +1731,11 @@ class MainActivity : ComponentActivity() {
             .header("Content-Type", "application/json")
             .post(json.toRequestBody(jsonMediaType))
             .build()
+        val startedAt = SystemClock.elapsedRealtime()
         http.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
+            val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+            appendLog("HTTP POST ${requestPath(url)} ${response.code} ${elapsedMs}ms")
             if (!response.isSuccessful) error(apiErrorMessage(body, response.code))
             return JSONObject(body)
         }
@@ -1669,10 +1751,26 @@ class MainActivity : ComponentActivity() {
         return roomInfoFromJson(data.getJSONObject("room"), backend, room)
     }
 
+    private fun transitionRoomStateAsync(room: RoomInfo, status: String, label: String) {
+        pollExecutor.execute {
+            runCatching {
+                val updatedRoom = transitionRoomState(room, status)
+                updateState { current ->
+                    if (current.room?.id == updatedRoom.id) current.copy(room = updatedRoom) else current
+                }
+            }.onFailure {
+                appendLog("$label 실패: ${it.message}")
+            }
+        }
+    }
+
     private fun getJson(url: String): JSONObject {
         val request = Request.Builder().url(url).get().build()
+        val startedAt = SystemClock.elapsedRealtime()
         http.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
+            val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+            if (elapsedMs >= 900L) appendLog("HTTP GET ${requestPath(url)} ${response.code} ${elapsedMs}ms")
             if (!response.isSuccessful) error(apiErrorMessage(body, response.code))
             return JSONObject(body)
         }
@@ -1691,6 +1789,14 @@ private fun normalizedBackendUrl(value: String): String {
     val trimmed = value.trim().ifBlank { "https://voice.insightmedi.co.kr" }
     val withScheme = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) trimmed else "https://$trimmed"
     return withScheme.removeSuffix("/")
+}
+
+private fun requestPath(url: String): String {
+    return runCatching {
+        val httpUrl = url.toHttpUrl()
+        val query = httpUrl.encodedQuery?.let { "?$it" }.orEmpty()
+        "${httpUrl.encodedPath}$query"
+    }.getOrDefault(url.takeLast(48))
 }
 
 private fun apiErrorMessage(body: String, code: Int): String {
@@ -3064,7 +3170,7 @@ private fun MicControlBox(
             Spacer(Modifier.height(12.dp))
             Text(
                 when {
-                    state.speaking -> "말이 끝나면 다시 누르세요."
+                    state.speaking -> state.status
                     !patientReady -> "환자가 입장하면 마이크가 활성화됩니다."
                     !state.recordAudioGranted -> "마이크 권한이 필요합니다."
                     patientSpeaking -> "환자가 말하는 중입니다. 잠시 기다려주세요."
