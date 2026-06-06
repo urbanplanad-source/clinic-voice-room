@@ -133,6 +133,7 @@ export async function createRealtimeSessionToken(params: {
         session: {
           type: "realtime",
           model,
+          output_modalities: ["text"],
           instructions: buildRealtimeTranslationInstructions(inputLanguage, outputLanguage),
           audio: {
             input: {

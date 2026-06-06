@@ -108,6 +108,7 @@ import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -422,28 +423,37 @@ private class AndroidRealtimeTurnClient(
                 .put("type", "response.create")
                 .put(
                     "response",
-                    JSONObject().put("modalities", JSONArray().put("text"))
+                    JSONObject().put("output_modalities", JSONArray().put("text"))
                 )
         )
         responseRequestedAt = SystemClock.elapsedRealtime()
 
         val deadlineAt = System.currentTimeMillis() + timeoutMs
+        val doneLatch = turnDoneLatch
         var lastLength = -1
         var stableSince = 0L
         while (System.currentTimeMillis() < deadlineAt) {
             errorRef.get()?.let { throw it }
             val length = synchronized(this) { outputText.length }
             val now = System.currentTimeMillis()
+            var shouldFinish = false
             if (length > 0) {
                 if (length != lastLength) {
                     lastLength = length
                     stableSince = now
                 }
-                if (responseDone || now - stableSince >= RealtimeOutputQuietMs) break
+                shouldFinish = responseDone || now - stableSince >= RealtimeOutputQuietMs
             } else if (responseDone) {
-                break
+                shouldFinish = true
             }
-            Thread.sleep(50)
+            if (shouldFinish) break
+
+            val waitMs = if (length > 0 && stableSince > 0L) {
+                (RealtimeOutputQuietMs - (now - stableSince)).coerceIn(1L, 50L)
+            } else {
+                (deadlineAt - now).coerceIn(1L, 50L)
+            }
+            doneLatch.await(waitMs, TimeUnit.MILLISECONDS)
         }
         errorRef.get()?.let { throw it }
         val translated = synchronized(this) { outputText.toString().trim() }
@@ -474,6 +484,9 @@ private class AndroidRealtimeTurnClient(
                 "session.output_transcript.delta",
                 "response.output_audio_transcript.delta",
                 "response.output_text.delta" -> {
+                    if (type == "response.output_audio_transcript.delta" && !firstOutputLogged) {
+                        log("Realtime audio transcript event received")
+                    }
                     val delta = event.optString("delta")
                     if (delta.isNotBlank()) {
                         val isFirst = synchronized(this) {
@@ -491,6 +504,9 @@ private class AndroidRealtimeTurnClient(
                 "session.output_transcript.done",
                 "response.output_audio_transcript.done",
                 "response.output_text.done" -> {
+                    if (type == "response.output_audio_transcript.done") {
+                        log("Realtime audio transcript done received")
+                    }
                     val finalText = event.optString("transcript", event.optString("text"))
                     if (finalText.isNotBlank()) synchronized(this) {
                         outputText.clear()
@@ -1015,6 +1031,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 appendLog("$modeLabel 방 생성: ${roomInfo.id}")
+                warmTtsForRoom(roomInfo)
                 startRoomPolling()
                 prepareRealtimeTurnClientAsync(roomInfo, force = true)
             }.onFailure { caught ->
@@ -1105,6 +1122,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (joinedNow) appendLog("환자 입장 확인")
+                if (joinedNow) warmTtsForRoom(updatedRoom)
                 if (ended) {
                     stopRoomPolling()
                 } else {
@@ -1139,12 +1157,11 @@ class MainActivity : ComponentActivity() {
 
     private fun rememberMessage(message: JSONObject): Boolean {
         val id = message.optString("id")
-        if (id.isNotBlank() && !seenMessageIds.add(id)) return false
-
         val createdAt = message.optString("createdAt")
         if (createdAt.isNotBlank() && (messageCursor == null || createdAt > (messageCursor ?: ""))) {
             messageCursor = createdAt
         }
+        if (id.isNotBlank() && !seenMessageIds.add(id)) return false
         return true
     }
 
@@ -1531,7 +1548,9 @@ class MainActivity : ComponentActivity() {
                         "\uD55C\uAD6D\uC5B4 \uC6D0\uBB38\uC744 \uD45C\uC2DC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4."
                     }
                     appendLog("Realtime translation complete ${SystemClock.elapsedRealtime() - startedAt}ms")
-                    return persistRealtimeStaffVoiceTurn(room, sourceText, result.translatedText)
+                    val messageId = "staff-realtime-android-${System.currentTimeMillis()}"
+                    persistRealtimeStaffVoiceTurnAsync(room, messageId, sourceText, result.translatedText)
+                    return localRealtimeStaffVoiceTurn(room, messageId, sourceText, result.translatedText)
                 }.onFailure {
                     appendLog("Realtime failed, falling back to upload: ${it.message}")
                     closeRealtimeTurnClient()
@@ -1544,10 +1563,47 @@ class MainActivity : ComponentActivity() {
         return uploadStaffVoiceTurn(room, wav)
     }
 
-    private fun persistRealtimeStaffVoiceTurn(room: RoomInfo, sourceText: String, translatedText: String): JSONObject {
+    private fun localRealtimeStaffVoiceTurn(room: RoomInfo, messageId: String, sourceText: String, translatedText: String): JSONObject {
+        val message = JSONObject()
+            .put("id", messageId)
+            .put("speaker", "staff")
+            .put("sourceText", sourceText)
+            .put("text", translatedText)
+            .put("targetLanguage", room.patientLanguage)
+            .put("createdAt", isoTimestampNow())
+            .put("readAt", JSONObject.NULL)
+        return JSONObject()
+            .put("message", message)
+            .put("sourceText", sourceText)
+            .put("translatedText", translatedText)
+            .put("model", "realtime-local")
+    }
+
+    private fun persistRealtimeStaffVoiceTurnAsync(room: RoomInfo, messageId: String, sourceText: String, translatedText: String) {
+        sessionExecutor.execute {
+            var lastError: Throwable? = null
+            var persisted = false
+            repeat(2) { attempt ->
+                if (persisted) return@repeat
+                runCatching {
+                    persistRealtimeStaffVoiceTurn(room, messageId, sourceText, translatedText)
+                }.onSuccess {
+                    persisted = true
+                }.onFailure {
+                    lastError = it
+                    if (attempt == 0) {
+                        appendLog("Realtime persist retry: ${it.message}")
+                        Thread.sleep(250)
+                    }
+                }
+            }
+            if (!persisted) appendLog("Realtime persist failed: ${lastError?.message ?: "unknown error"}")
+        }
+    }
+
+    private fun persistRealtimeStaffVoiceTurn(room: RoomInfo, messageId: String, sourceText: String, translatedText: String): JSONObject {
         val backend = normalizedBackendUrl(uiState.value.backendUrl)
         val endpoint = if (room.roomMode == "procedure") "procedure-turns" else "consultation-voice-turns"
-        val messageId = "staff-realtime-android-${System.currentTimeMillis()}"
         val payload = JSONObject()
             .put("roomId", room.id)
             .put("messageId", messageId)
@@ -1698,6 +1754,21 @@ class MainActivity : ComponentActivity() {
         appendLog("번역 다시 듣기")
     }
 
+    private fun warmTtsForRoom(room: RoomInfo) {
+        if (!uiState.value.ttsEnabled) return
+        warmTtsLanguage(Locale.KOREA, "한국어")
+        val language = patientLanguages.firstOrNull { it.code == room.patientLanguage } ?: return
+        warmTtsLanguage(language.ttsLocale, language.ko)
+    }
+
+    private fun warmTtsLanguage(locale: Locale, label: String) {
+        val tts = textToSpeech ?: return
+        val availability = tts.setLanguage(locale)
+        if (availability < TextToSpeech.LANG_AVAILABLE) return
+        val result = tts.playSilentUtterance(1L, TextToSpeech.QUEUE_ADD, "cvr-warm-${locale.toLanguageTag()}-${System.currentTimeMillis()}")
+        if (result != TextToSpeech.ERROR) appendLog("TTS warmup: $label")
+    }
+
     private fun speakTranslatedText(text: String, patientLanguage: String) {
         val language = patientLanguages.firstOrNull { it.code == patientLanguage } ?: patientLanguages.first()
         speakText(text, language.ttsLocale, language.ko)
@@ -1723,6 +1794,12 @@ class MainActivity : ComponentActivity() {
             return
         }
         updateState { it.copy(ttsStatus = "$label 재생 중") }
+    }
+
+    private fun isoTimestampNow(): String {
+        val formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+        formatter.timeZone = TimeZone.getTimeZone("UTC")
+        return formatter.format(Date())
     }
 
     private fun postJson(url: String, json: String): JSONObject {

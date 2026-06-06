@@ -112,7 +112,7 @@ export class OpenAIRealtimeClient {
         this.sendClientEvent({
           type: "response.create",
           response: {
-            modalities: ["text"]
+            output_modalities: ["text"]
           }
         }, { requireOpen: true });
       } catch (caught) {

@@ -74,14 +74,14 @@ cd "C:\Users\user\Desktop\개발 작업\clinic-voice-room\android-staff-app"
 Installable field-test APK after build:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/cvr-staff-0.3.5-field.apk
+android-staff-app/app/build/outputs/apk/field/cvr-staff-0.3.6-field.apk
 ```
 
 Latest local field-test APK:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/cvr-staff-0.3.5-field.apk
-SHA256: 18DA744737CE2832119C9892FC4C0B6C01436AAD0C0486811A45A98D76DC4299
+android-staff-app/app/build/outputs/apk/field/cvr-staff-0.3.6-field.apk
+SHA256: B6A16B38ADAB097683B5C45115FBB4E13B69B9DC84F6003F7CA22A685F79C154
 ```
 
 Release build sanity check:
@@ -201,6 +201,7 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
+- Android v0.3.6 forces Realtime responses to text-only output, returns Android Realtime turns before the persist POST finishes, retries that persist in the background, wakes the Realtime completion loop from `response.done`, and pre-warms Korean plus patient-language TTS after room setup.
 - Android v0.3.5 adds a non-debuggable `field` APK build, enables R8/resource shrinking for field testing, warms `/api/me` on app start, removes the blocking `translating_to_patient` state round-trip before TTS, shortens Realtime quiet completion to 300ms, and keeps the mic helper visible while Realtime prepares.
 - Android v0.3.4 changes the staff mic start UX to optimistic local recording: the button turns red immediately, recording starts before the server state transition returns, and the mic helper explains that Realtime can still be preparing.
 - Android v0.3.3 starts staff Realtime preconnect immediately after room creation, reduces recorder stop wait from 1500ms to 250ms, and adds timing logs for HTTP, Realtime token/socket/first text/local result, persist, and upload fallback.
@@ -216,6 +217,6 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 - Android v0.2.3 makes Android and web staff QR links both include `?mode=consultation|procedure` for clearer field-test handoff. The server still uses `TranslationRoom.roomMode` as the source of truth.
 - Android v0.2.2 puts the active translation panel before room metadata after the patient joins, so staff see chat/mic controls first.
 - Android v0.2.1 and later use the phone's normal media volume/output route for TTS and request no Bluetooth permission.
-- The v0.3.5 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
+- The v0.3.6 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
 - A real two-phone field test is required before marking the app production-ready.
 
