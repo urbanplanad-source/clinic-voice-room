@@ -143,9 +143,6 @@ export async function createRealtimeSessionToken(params: {
                 : { model: transcriptionModel, language: realtimeInputLanguageHints[inputLanguage] },
               noise_reduction: { type: "near_field" },
               turn_detection: params.manualTurn ? null : undefined
-            },
-            output: {
-              voice: process.env.OPENAI_REALTIME_VOICE ?? "marin"
             }
           }
         }
