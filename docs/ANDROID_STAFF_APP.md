@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`android-staff-app/` is the native hospital-phone app for Clinic Voice Room staff.
+`android-staff-app/` is the native hospital-phone app for MediVoice hospital staff.
 
 It is not a WebView wrapper. It is a Kotlin + Jetpack Compose app that signs in to the existing Next.js backend, creates a QR room for the patient web app, streams short staff turns through OpenAI Realtime with manual push-to-talk turn boundaries, falls back to server STT/translation upload when Realtime fails, then plays the translated result with Android/Google TTS.
 
@@ -68,20 +68,20 @@ Expected local environment:
 $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
 $env:ANDROID_HOME='C:\Users\user\AppData\Local\Android\Sdk'
 cd "C:\Users\user\Desktop\개발 작업\clinic-voice-room\android-staff-app"
-.\gradlew.bat :app:assembleField
+.\gradlew.bat :app:copyBrandedFieldApk
 ```
 
 Installable field-test APK after build:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/cvr-staff-0.3.9-field.apk
+android-staff-app/app/build/outputs/apk/field/medivoice-0.3.9-field.apk
 ```
 
 Latest local field-test APK:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/cvr-staff-0.3.9-field.apk
-SHA256: FB4C68615F757B522049A96B6DC802D3423F3093EF60288233DF3920763543D3
+android-staff-app/app/build/outputs/apk/field/medivoice-0.3.9-field.apk
+SHA256: E00F1A2FE2D19BBD81E6D79709B8FC6E01D7FF2007B06556C86F41A85D808A2F
 ```
 
 Release build sanity check:
@@ -89,6 +89,21 @@ Release build sanity check:
 ```powershell
 .\gradlew.bat :app:assembleRelease
 ```
+
+Google Play upload bundle build:
+
+```powershell
+.\gradlew.bat :app:copyBrandedReleaseBundle
+```
+
+Store listing image assets:
+
+```text
+docs/play-store-assets/medivoice-hires-icon-512.png
+docs/play-store-assets/medivoice-feature-graphic-1024x500.png
+```
+
+Google Play does not require a separate splash image upload. Android 12+ derives the launch splash from the app icon and theme; the Android app uses an adaptive launcher icon for that path.
 
 If release signing env vars are not set, Gradle produces an unsigned packaging artifact:
 
@@ -111,6 +126,9 @@ Pinned build stack:
 - Compose BOM: 2024.12.01
 - minSdk: 26
 - compileSdk/targetSdk: 35
+- Google Play field APK: `android-staff-app/app/build/outputs/apk/field/medivoice-0.3.9-field.apk`
+- Google Play release AAB filename after bundle build: `android-staff-app/app/build/outputs/bundle/release/medivoice-0.3.9-release.aab`
+- Store privacy policy page draft: `/privacy`
 
 `android.overridePathCheck=true` is set for Korean workspace paths.
 
@@ -119,9 +137,9 @@ Pinned build stack:
 Do not commit keystores or passwords. For a signed release build, set these environment variables before running `:app:assembleRelease`:
 
 ```powershell
-$env:CVR_ANDROID_KEYSTORE='C:\secure\cvr-staff-release.jks'
+$env:CVR_ANDROID_KEYSTORE='C:\secure\medivoice-release.jks'
 $env:CVR_ANDROID_KEYSTORE_PASSWORD='...'
-$env:CVR_ANDROID_KEY_ALIAS='cvr-staff'
+$env:CVR_ANDROID_KEY_ALIAS='medivoice'
 $env:CVR_ANDROID_KEY_PASSWORD='...'
 .\gradlew.bat :app:assembleRelease
 ```
@@ -135,7 +153,7 @@ Before field testing against `voice.insightmedi.co.kr`:
 1. Deploy the current Next.js web/API changes to Vercel.
 2. Confirm `OPENAI_API_KEY` and OpenAI model env vars are set on Vercel.
 3. Build the Android APK.
-4. Install `CVR Staff` on the hospital phone.
+4. Install `MediVoice` on the hospital phone.
 5. Use the phone's normal media volume for TTS loudness. If a Bluetooth speaker is needed, pair it in Android system settings before opening the room. The staff app itself must not request Bluetooth/nearby-device permission.
 6. Grant microphone permission when the in-room mic panel asks for it. The app should not show a permission prompt immediately on login.
 7. Connect the USB-C or wired pin microphone.
@@ -201,7 +219,7 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
-- Android v0.3.9 intercepts Android system back navigation, waits briefly for Realtime input transcripts before saving staff voice turns, avoids the Korean-source fallback sentence when transcription is missing, and strengthens Rejuran Healer/Juvelook brand normalization.
+- Android v0.3.9 intercepts Android system back navigation, waits briefly for Realtime input transcripts before saving staff voice turns, avoids the Korean-source fallback sentence when transcription is missing, strengthens Rejuran Healer/Juvelook brand normalization, tightens the native setup/conversation UI for small mobile screens, and shows login progress/failure text directly on the Android login screen.
 - Android v0.3.8 increases the staff recording safety limit from 12 seconds to 60 seconds so longer explanations are not auto-submitted prematurely.
 - Android v0.3.7 reduces patient-to-staff receive latency by polling messages before room state, using a 300ms poll window while the patient is speaking/translating, and letting patient web upload start without waiting for noncritical state-transition POSTs.
 - Android v0.3.6 forces Realtime responses to text-only output, returns Android Realtime turns before the persist POST finishes, retries that persist in the background, wakes the Realtime completion loop from `response.done`, and pre-warms Korean plus patient-language TTS after room setup.

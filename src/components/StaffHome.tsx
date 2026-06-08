@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Languages, Loader2, LogOut, MessageSquareText, Stethoscope } from "lucide-react";
 import { languageLabels, patientLanguages, type PatientLanguage } from "@/lib/languages";
 import type { RoomMode } from "@/lib/room-mode";
+import type { RoomStatus } from "@/lib/room-state";
+import { StaffRoom } from "./StaffRoom";
 
 const modeCopy: Record<RoomMode, { title: string; body: string; button: string }> = {
   consultation: {
@@ -19,6 +21,16 @@ const modeCopy: Record<RoomMode, { title: string; body: string; button: string }
   }
 };
 
+type CreatedRoom = {
+  id: string;
+  status: RoomStatus;
+  patientLanguage: PatientLanguage;
+  patientJoinCode?: string | null;
+  patientJoinedAt?: string | null;
+  roomMode: RoomMode;
+  hospital?: { name?: string | null };
+};
+
 export function StaffHome({
   staff
 }: {
@@ -28,39 +40,72 @@ export function StaffHome({
   const [patientLanguage, setPatientLanguage] = useState<PatientLanguage>("zh");
   const [selectedMode, setSelectedMode] = useState<RoomMode | null>(null);
   const [loadingMode, setLoadingMode] = useState<RoomMode | null>(null);
+  const [createdRoom, setCreatedRoom] = useState<CreatedRoom | null>(null);
   const [error, setError] = useState("");
 
   async function createRoom(mode: RoomMode) {
     setLoadingMode(mode);
     setError("");
-    const response = await fetch("/api/rooms", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ patientLanguage, roomMode: mode })
-    });
-    setLoadingMode(null);
-    if (!response.ok) {
-      const data = await response.json().catch(() => null);
-      if (response.status === 429 && data?.activeRoomLimit) {
-        setError(`현재 열린 통역방이 ${data.activeRoomCount}개입니다. 병원 동시 사용 한도 ${data.activeRoomLimit}개에 도달했습니다. 사용하지 않는 방을 종료하거나 관리자에게 한도 상향을 요청해주세요.`);
+    try {
+      const response = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patientLanguage, roomMode: mode })
+      });
+      setLoadingMode(null);
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        if (response.status === 429 && data?.activeRoomLimit) {
+          setError(`현재 열린 통역방이 ${data.activeRoomCount}개입니다. 병원 동시 사용 한도 ${data.activeRoomLimit}개에 도달했습니다. 사용하지 않는 방을 종료하거나 관리자에게 한도 상향을 요청해주세요.`);
+          return;
+        }
+        if (response.status === 401) {
+          setError("로그인이 만료되었습니다. 다시 로그인해주세요.");
+          router.replace("/login");
+          return;
+        }
+        setError(data?.error ?? "통역방을 만들지 못했습니다. 잠시 후 다시 시도해주세요.");
         return;
       }
-      if (response.status === 401) {
-        setError("로그인이 만료되었습니다. 다시 로그인해주세요.");
-        router.replace("/login");
+      const data = (await response.json()) as { room: CreatedRoom };
+      if (!data.room?.patientJoinCode) {
+        router.push(`/staff/rooms/${data.room.id}`);
         return;
       }
-      setError(data?.error ?? "통역방을 만들지 못했습니다. 잠시 후 다시 시도해주세요.");
-      return;
+      setCreatedRoom(data.room);
+      window.history.pushState(null, "", `/staff/rooms/${data.room.id}`);
+    } catch {
+      setLoadingMode(null);
+      setError("네트워크가 지연되고 있습니다. 잠시 후 다시 시도해주세요.");
     }
-    const data = await response.json();
-    router.push(`/staff/rooms/${data.room.id}`);
   }
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
     router.refresh();
+  }
+
+  if (createdRoom) {
+    const baseUrl = window.location.origin;
+    const roomMode = createdRoom.roomMode ?? selectedMode ?? "consultation";
+    const joinUrl = `${baseUrl}/room/join/${createdRoom.patientJoinCode}?mode=${roomMode}`;
+    const androidJoinUrl = `clinicvoiceroom://room/join?joinCode=${encodeURIComponent(createdRoom.patientJoinCode ?? "")}&mode=${roomMode}&backend=${encodeURIComponent(baseUrl)}`;
+
+    return (
+      <StaffRoom
+        room={{
+          id: createdRoom.id,
+          status: createdRoom.status,
+          patientLanguage: createdRoom.patientLanguage,
+          patientJoinedAt: createdRoom.patientJoinedAt ?? null,
+          hospital: { name: createdRoom.hospital?.name ?? staff.hospital.name }
+        }}
+        joinUrl={joinUrl}
+        androidJoinUrl={androidJoinUrl}
+        roomMode={roomMode}
+      />
+    );
   }
 
   return (

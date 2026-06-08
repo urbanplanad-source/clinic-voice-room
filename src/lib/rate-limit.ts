@@ -56,6 +56,16 @@ function redisRestConfig(): RedisRestConfig | null {
   return { url, token };
 }
 
+function redisTimeoutMs() {
+  const value = Number.parseInt(process.env.RATE_LIMIT_REDIS_TIMEOUT_MS ?? "", 10);
+  if (!Number.isFinite(value) || value < 100) return 800;
+  return value;
+}
+
+function requireRedisRateLimit() {
+  return process.env.REQUIRE_REDIS_RATE_LIMIT === "true";
+}
+
 const redisRateLimitScript = `
 local current = redis.call("INCR", KEYS[1])
 if current == 1 then
@@ -132,6 +142,8 @@ async function redisRateLimit(
   { key, limit, windowMs }: RateLimitOptions,
   config: RedisRestConfig
 ): Promise<RateLimitResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), redisTimeoutMs());
   const response = await fetch(config.url, {
     method: "POST",
     headers: {
@@ -139,8 +151,9 @@ async function redisRateLimit(
       "Content-Type": "application/json"
     },
     body: JSON.stringify(["EVAL", redisRateLimitScript, 1, `cvr:rate-limit:${key}`, String(windowMs)]),
-    cache: "no-store"
-  });
+    cache: "no-store",
+    signal: controller.signal
+  }).finally(() => clearTimeout(timeout));
 
   if (!response.ok) {
     throw new Error(`Redis rate-limit request failed with ${response.status}`);
@@ -180,12 +193,15 @@ export async function rateLimit(options: RateLimitOptions): Promise<RateLimitRes
       return await redisRateLimit(options, config);
     } catch (caught) {
       console.error("[rate-limit] Redis backend failed.", caught);
+      if (requireRedisRateLimit()) {
+        return { ok: false, remaining: 0, retryAfter: 5 };
+      }
     }
   }
 
-  if (process.env.NODE_ENV === "production" && process.env.ALLOW_IN_MEMORY_RATE_LIMIT_IN_PRODUCTION !== "true") {
+  if (process.env.NODE_ENV === "production" && requireRedisRateLimit()) {
     console.error("[rate-limit] Redis backend is required in production.");
-    return { ok: false, remaining: 0, retryAfter: 60 };
+    return { ok: false, remaining: 0, retryAfter: 5 };
   }
 
   return memoryRateLimit(options);
