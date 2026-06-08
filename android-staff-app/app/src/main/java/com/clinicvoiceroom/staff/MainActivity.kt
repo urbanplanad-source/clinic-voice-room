@@ -731,6 +731,8 @@ class MainActivity : ComponentActivity() {
     private var activeRealtimeTurnClient: AndroidRealtimeTurnClient? = null
     @Volatile
     private var ttsPlaybackActive = false
+    @Volatile
+    private var activeTtsUtteranceId = ""
     private val localRealtimeLock = Any()
     private val localRealtimeTurnClients = mutableMapOf<String, AndroidRealtimeTurnClient>()
     private val localRealtimePreparingKeys = mutableSetOf<String>()
@@ -1120,26 +1122,26 @@ class MainActivity : ComponentActivity() {
     private fun ttsProgressListener() = object : UtteranceProgressListener() {
         override fun onStart(utteranceId: String?) {
             if (utteranceId?.startsWith(TtsSpeechUtterancePrefix) == true) {
-                mainHandler.post { setTtsPlaybackActive(true) }
+                mainHandler.post { handleTtsStarted(utteranceId) }
             }
         }
 
         override fun onDone(utteranceId: String?) {
             if (utteranceId?.startsWith(TtsSpeechUtterancePrefix) == true) {
-                mainHandler.post { setTtsPlaybackActive(false) }
+                mainHandler.post { handleTtsFinished(utteranceId) }
             }
         }
 
         @Deprecated("Deprecated in Java")
         override fun onError(utteranceId: String?) {
             if (utteranceId?.startsWith(TtsSpeechUtterancePrefix) == true) {
-                mainHandler.post { setTtsPlaybackActive(false) }
+                mainHandler.post { handleTtsFinished(utteranceId) }
             }
         }
 
         override fun onError(utteranceId: String?, errorCode: Int) {
             if (utteranceId?.startsWith(TtsSpeechUtterancePrefix) == true) {
-                mainHandler.post { setTtsPlaybackActive(false) }
+                mainHandler.post { handleTtsFinished(utteranceId) }
             }
         }
     }
@@ -1150,8 +1152,34 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopTtsPlayback() {
+        activeTtsUtteranceId = ""
         runCatching { textToSpeech?.stop() }
         setTtsPlaybackActive(false)
+    }
+
+    private fun handleTtsStarted(utteranceId: String) {
+        activeTtsUtteranceId = utteranceId
+        setTtsPlaybackActive(true)
+    }
+
+    private fun handleTtsFinished(utteranceId: String) {
+        if (activeTtsUtteranceId != utteranceId) return
+        activeTtsUtteranceId = ""
+        setTtsPlaybackActive(false)
+    }
+
+    private fun scheduleTtsWatchdog(utteranceId: String, text: String) {
+        val delayMs = ttsWatchdogDelayMs(text)
+        mainHandler.postDelayed({
+            if (activeTtsUtteranceId == utteranceId && ttsPlaybackActive) {
+                appendLog("TTS watchdog released mic lock")
+                handleTtsFinished(utteranceId)
+            }
+        }, delayMs)
+    }
+
+    private fun ttsWatchdogDelayMs(text: String): Long {
+        return (3_500L + text.length * 90L).coerceIn(5_000L, 45_000L)
     }
 
     private fun setTtsPlaybackActive(active: Boolean) {
@@ -2488,14 +2516,17 @@ class MainActivity : ComponentActivity() {
             return
         }
         val utteranceId = "$TtsSpeechUtterancePrefix-${System.currentTimeMillis()}"
+        activeTtsUtteranceId = utteranceId
         val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
         if (result == TextToSpeech.ERROR) {
+            activeTtsUtteranceId = ""
             setTtsPlaybackActive(false)
             updateState { it.copy(ttsStatus = "$label 재생 실패") }
             appendLog("TTS 재생 실패: $label")
             return
         }
         setTtsPlaybackActive(true)
+        scheduleTtsWatchdog(utteranceId, text)
         updateState { it.copy(ttsStatus = "$label 재생 중") }
     }
 

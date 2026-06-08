@@ -115,7 +115,7 @@ export async function getAdminUsageSummary() {
   return {
     totalHospitals: visibleHospitals.length,
     planCounts,
-    monthlyRoomCount: monthlyTotals._count.id + monthlyLocalTurnCount,
+    monthlyRoomCount: monthlyTotals._count.id,
     monthlyLocalTurnCount,
     monthlyActiveMinutes: Math.round(((monthlyTotals._sum.totalRoomSeconds ?? 0) + monthlyLocalSeconds) / 60),
     languageDistribution: combinedLanguageCodes.map((patientLanguage) => {
@@ -139,7 +139,7 @@ export async function getAdminUsageSummary() {
         id: hospital.id,
         name: hospital.name,
         planType: hospital.planType,
-        sessions: (usage?._count.id ?? 0) + localTurnCount,
+        sessions: usage?._count.id ?? 0,
         localTurns: localTurnCount,
         minutes: Math.round(((usage?._sum.totalRoomSeconds ?? 0) + localSeconds) / 60),
         lastUsed:
