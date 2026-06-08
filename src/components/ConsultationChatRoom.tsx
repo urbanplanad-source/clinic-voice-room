@@ -225,6 +225,7 @@ export function ConsultationChatRoom({
   }, [findBrowserVoice]);
 
   const playQueuedTranslatedSpeech = useCallback((message: TranslationMessage) => {
+    if (message.speaker === role) return;
     if (spokenMessageIdsRef.current.has(message.id)) return;
     spokenMessageIdsRef.current.add(message.id);
     const targetLanguage = targetLanguageForMessage(message);
@@ -233,7 +234,7 @@ export function ConsultationChatRoom({
       .then(async () => {
         playBrowserTranslatedSpeech(message.text, targetLanguage);
       });
-  }, [playBrowserTranslatedSpeech, targetLanguageForMessage]);
+  }, [playBrowserTranslatedSpeech, role, targetLanguageForMessage]);
 
   const markIncomingMessagesRead = useCallback((incomingMessages: TranslationMessage[]) => {
     if (!incomingMessages.some((message) => message.speaker !== role)) return;
@@ -643,7 +644,6 @@ export function ConsultationChatRoom({
 
       appendMessage(message);
       void broadcastTranslationMessage(room.id, message);
-      playQueuedTranslatedSpeech(message);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Translation failed.");
     } finally {

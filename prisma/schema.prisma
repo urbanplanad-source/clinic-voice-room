@@ -119,6 +119,8 @@ model TranslationRoom {
   participants         RoomParticipant[]
   usageSession         UsageSession?
   consultationMessages ConsultationMessage[]
+
+  @@index([hospitalId, status, lastActiveAt])
 }
 
 model RoomParticipant {
