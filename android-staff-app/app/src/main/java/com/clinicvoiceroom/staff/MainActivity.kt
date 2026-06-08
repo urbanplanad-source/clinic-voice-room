@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.util.Base64
 import android.view.KeyEvent
 import android.view.WindowManager
@@ -70,6 +71,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -79,6 +81,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -224,6 +227,8 @@ private const val RealtimeOutputQuietMs = 300L
 private const val RealtimeInputTranscriptWaitMs = 1200L
 private const val RecordingStopJoinMs = 250L
 private const val StaffRecordingMaxMs = 60_000L
+private const val TtsSpeechUtterancePrefix = "cvr-speak"
+private const val TtsWarmUtterancePrefix = "cvr-warm"
 
 private data class PatientLanguageOption(
     val code: String,
@@ -285,6 +290,7 @@ private data class StaffUiState(
     val connected: Boolean = false,
     val speaking: Boolean = false,
     val ttsEnabled: Boolean = true,
+    val ttsPlaybackActive: Boolean = false,
     val ttsStatus: String = "휴대폰 미디어 출력 준비 중",
     val recordAudioGranted: Boolean = false,
     val sourceDraft: String = "",
@@ -721,7 +727,10 @@ class MainActivity : ComponentActivity() {
     private var recordedPcm: ByteArrayOutputStream? = null
     private var realtimeTurnClient: AndroidRealtimeTurnClient? = null
     private var realtimeTurnRoomId: String = ""
+    @Volatile
     private var activeRealtimeTurnClient: AndroidRealtimeTurnClient? = null
+    @Volatile
+    private var ttsPlaybackActive = false
     private val localRealtimeLock = Any()
     private val localRealtimeTurnClients = mutableMapOf<String, AndroidRealtimeTurnClient>()
     private val localRealtimePreparingKeys = mutableSetOf<String>()
@@ -783,7 +792,6 @@ class MainActivity : ComponentActivity() {
                             updateState { it.copy(selectedLanguage = code) }
                             if (uiState.value.selectedRoomMode == RoomModeLocalInterpreter) {
                                 closeLocalRealtimeTurnClients()
-                                prepareLocalRealtimeTurnClientsAsync(code, force = true)
                             }
                         },
                         onRoomMode = { mode ->
@@ -794,9 +802,6 @@ class MainActivity : ComponentActivity() {
                                     setupStep = SetupStepLanguage,
                                     status = languageSelectionStatus(mode)
                                 )
-                            }
-                            if (mode == RoomModeLocalInterpreter) {
-                                prepareLocalRealtimeTurnClientsAsync(uiState.value.selectedLanguage, force = true)
                             }
                         },
                         onCreateRoom = ::createRoom,
@@ -810,7 +815,7 @@ class MainActivity : ComponentActivity() {
                         onReplayTranslation = ::replayTranslation,
                         onTextInputChange = { value -> updateState { it.copy(textInput = value) } },
                         onSubmitText = ::submitTextMessage,
-                        onTtsEnabled = { enabled -> updateState { it.copy(ttsEnabled = enabled) } },
+                        onTtsEnabled = ::setTtsEnabled,
                         onRequestMicPermission = ::requestMicPermissionIfMissing
                     )
                 }
@@ -820,12 +825,40 @@ class MainActivity : ComponentActivity() {
         warmBackendConnection()
     }
 
+    override fun onStart() {
+        super.onStart()
+        maybePrepareLocalRealtimeAfterResume()
+    }
+
+    override fun onStop() {
+        if (uiState.value.setupStep == SetupStepLocalInterpreter && uiState.value.room == null) {
+            if (recordingActive || uiState.value.speaking) {
+                recordingActive = false
+                runCatching { recordingThread?.join(RecordingStopJoinMs) }
+                synchronized(recordingLock) {
+                    recordedPcm = null
+                }
+                updateState {
+                    it.copy(
+                        speaking = false,
+                        busy = false,
+                        status = "앱이 백그라운드로 이동해 대면 통역 녹음을 중지했습니다."
+                    )
+                }
+            }
+            closeLocalRealtimeTurnClients()
+            stopTtsPlayback()
+        }
+        super.onStop()
+    }
+
     override fun onDestroy() {
         stopRoomPolling()
         recordingActive = false
         runCatching { recordingThread?.join(500) }
         closeRealtimeTurnClient()
         closeLocalRealtimeTurnClients()
+        stopTtsPlayback()
         mediaSession?.isActive = false
         mediaSession?.release()
         mediaSession = null
@@ -1074,12 +1107,67 @@ class MainActivity : ComponentActivity() {
         textToSpeech = TextToSpeech(this, { status ->
             if (status == TextToSpeech.SUCCESS) {
                 textToSpeech?.setAudioAttributes(ttsAudioAttributes)
+                textToSpeech?.setOnUtteranceProgressListener(ttsProgressListener())
             }
             updateState {
                 it.copy(ttsStatus = if (status == TextToSpeech.SUCCESS) "휴대폰 미디어 출력으로 재생" else "TTS 초기화 실패")
             }
         }, "com.google.android.tts")
         textToSpeech?.setAudioAttributes(ttsAudioAttributes)
+        textToSpeech?.setOnUtteranceProgressListener(ttsProgressListener())
+    }
+
+    private fun ttsProgressListener() = object : UtteranceProgressListener() {
+        override fun onStart(utteranceId: String?) {
+            if (utteranceId?.startsWith(TtsSpeechUtterancePrefix) == true) {
+                mainHandler.post { setTtsPlaybackActive(true) }
+            }
+        }
+
+        override fun onDone(utteranceId: String?) {
+            if (utteranceId?.startsWith(TtsSpeechUtterancePrefix) == true) {
+                mainHandler.post { setTtsPlaybackActive(false) }
+            }
+        }
+
+        @Deprecated("Deprecated in Java")
+        override fun onError(utteranceId: String?) {
+            if (utteranceId?.startsWith(TtsSpeechUtterancePrefix) == true) {
+                mainHandler.post { setTtsPlaybackActive(false) }
+            }
+        }
+
+        override fun onError(utteranceId: String?, errorCode: Int) {
+            if (utteranceId?.startsWith(TtsSpeechUtterancePrefix) == true) {
+                mainHandler.post { setTtsPlaybackActive(false) }
+            }
+        }
+    }
+
+    private fun setTtsEnabled(enabled: Boolean) {
+        if (!enabled) stopTtsPlayback()
+        updateState { it.copy(ttsEnabled = enabled) }
+    }
+
+    private fun stopTtsPlayback() {
+        runCatching { textToSpeech?.stop() }
+        setTtsPlaybackActive(false)
+    }
+
+    private fun setTtsPlaybackActive(active: Boolean) {
+        ttsPlaybackActive = active
+        updateState { state ->
+            val localActive = state.setupStep == SetupStepLocalInterpreter && state.room == null
+            state.copy(
+                ttsPlaybackActive = active,
+                ttsStatus = if (active) "음성 재생 중" else "휴대폰 미디어 출력으로 재생",
+                status = when {
+                    active && localActive -> "음성 재생 중입니다. 끝난 뒤 다음 마이크를 눌러주세요."
+                    !active && localActive && state.status.startsWith("음성 재생 중") -> "재생 완료. 다음 발화 쪽의 마이크를 눌러주세요."
+                    else -> state.status
+                }
+            )
+        }
     }
 
     private fun login() {
@@ -1132,6 +1220,7 @@ class MainActivity : ComponentActivity() {
         resetMessagePolling()
         closeRealtimeTurnClient()
         closeLocalRealtimeTurnClients()
+        stopTtsPlayback()
         val backend = normalizedBackendUrl(uiState.value.backendUrl)
         executor.execute {
             runCatching {
@@ -1225,6 +1314,7 @@ class MainActivity : ComponentActivity() {
                 connected = true,
                 speaking = false,
                 busy = false,
+                ttsPlaybackActive = false,
                 sourceDraft = "",
                 translatedDraft = "",
                 lastMessageSpeaker = "",
@@ -1238,7 +1328,8 @@ class MainActivity : ComponentActivity() {
         patientLanguages.firstOrNull { it.code == state.selectedLanguage }?.let { language ->
             warmTtsLanguage(language.ttsLocale, language.ko)
         }
-        prepareLocalRealtimeTurnClientsAsync(state.selectedLanguage, force = true)
+        closeLocalRealtimeTurnClients()
+        prepareLocalRealtimeTurnClientAsync(state.selectedLanguage, LocalDirectionKoToPatient, force = true)
         appendLog("대면 통역 시작: ${state.selectedLanguage}")
     }
 
@@ -1246,6 +1337,7 @@ class MainActivity : ComponentActivity() {
         recordingActive = false
         runCatching { recordingThread?.join(RecordingStopJoinMs) }
         closeLocalRealtimeTurnClients()
+        stopTtsPlayback()
         synchronized(recordingLock) {
             recordedPcm = null
         }
@@ -1259,6 +1351,7 @@ class MainActivity : ComponentActivity() {
                 translatedDraft = "",
                 lastMessageSpeaker = "",
                 localTurnDirection = LocalDirectionKoToPatient,
+                ttsPlaybackActive = false,
                 status = languageSelectionStatus(it.selectedRoomMode)
             )
         }
@@ -1325,6 +1418,31 @@ class MainActivity : ComponentActivity() {
             runCatching { client.close() }
         }
         realtimeTurnActive = false
+    }
+
+    private fun maybePrepareLocalRealtimeAfterResume() {
+        val state = uiState.value
+        if (
+            state.loggedIn &&
+            state.setupStep == SetupStepLocalInterpreter &&
+            state.room == null &&
+            !state.busy &&
+            !state.speaking
+        ) {
+            prepareLocalRealtimeTurnClientAsync(state.selectedLanguage, preferredLocalRealtimeDirection(state))
+        }
+    }
+
+    private fun preferredLocalRealtimeDirection(state: StaffUiState): String {
+        return when (state.lastMessageSpeaker) {
+            "staff" -> LocalDirectionPatientToKo
+            "patient" -> LocalDirectionKoToPatient
+            else -> state.localTurnDirection
+        }
+    }
+
+    private fun nextLocalRealtimeDirection(direction: String): String {
+        return if (direction == LocalDirectionKoToPatient) LocalDirectionPatientToKo else LocalDirectionKoToPatient
     }
 
     private fun localRealtimeKey(patientLanguage: String, direction: String): String {
@@ -1470,6 +1588,10 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (state.busy) return
+        if (state.ttsPlaybackActive || ttsPlaybackActive) {
+            updateState { it.copy(status = "음성 재생이 끝난 뒤 마이크를 눌러주세요.") }
+            return
+        }
         if (state.room == null) {
             updateState { it.copy(status = "먼저 통역방을 생성하세요.") }
             return
@@ -1511,6 +1633,10 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (state.busy) return
+        if (state.ttsPlaybackActive || ttsPlaybackActive) {
+            updateState { it.copy(status = "음성 재생이 끝난 뒤 마이크를 눌러주세요.") }
+            return
+        }
         if (state.setupStep != SetupStepLocalInterpreter || state.room != null) return
         if (!state.recordAudioGranted) {
             updateState { it.copy(status = "마이크 권한이 필요합니다.") }
@@ -1700,11 +1826,6 @@ class MainActivity : ComponentActivity() {
         }.getOrDefault(false)
     }
 
-    private fun prepareLocalRealtimeTurnClientsAsync(patientLanguage: String, force: Boolean = false) {
-        prepareLocalRealtimeTurnClientAsync(patientLanguage, LocalDirectionKoToPatient, force)
-        prepareLocalRealtimeTurnClientAsync(patientLanguage, LocalDirectionPatientToKo, force)
-    }
-
     private fun prepareLocalRealtimeTurnClientAsync(patientLanguage: String, direction: String, force: Boolean = false) {
         if (recordingActive || realtimeTurnActive) return
         val key = localRealtimeKey(patientLanguage, direction)
@@ -1732,12 +1853,18 @@ class MainActivity : ComponentActivity() {
                     !recordingActive &&
                     !realtimeTurnActive
                 ) {
-                    val previous = synchronized(localRealtimeLock) {
-                        val old = localRealtimeTurnClients.put(key, client)
+                    val previousClients = synchronized(localRealtimeLock) {
+                        val oldClients = localRealtimeTurnClients
+                            .filterKeys { existingKey -> existingKey != key }
+                            .values
+                            .toList()
+                        val old = localRealtimeTurnClients[key]
+                        localRealtimeTurnClients.clear()
+                        localRealtimeTurnClients[key] = client
                         localRealtimePreparingKeys.remove(key)
-                        old
+                        oldClients + listOfNotNull(old)
                     }
-                    runCatching { previous?.close() }
+                    previousClients.forEach { previous -> runCatching { previous.close() } }
                     appendLog("Local Realtime ready ${SystemClock.elapsedRealtime() - startedAt}ms: $direction")
                 } else {
                     client.close()
@@ -1937,7 +2064,8 @@ class MainActivity : ComponentActivity() {
                 }
                 if (pcm.size < 1600) error("녹음된 음성이 너무 짧습니다.")
 
-                val result = translateLocalVoiceTurn(direction, patientLanguage, pcm)
+                val durationSeconds = localRecordingDurationSeconds(pcm)
+                val result = translateLocalVoiceTurn(direction, patientLanguage, pcm, durationSeconds)
                 val sourceLanguage = result.optString("sourceLanguage")
                 val targetLanguage = result.optString("targetLanguage")
                 val source = if (sourceLanguage == "ko") {
@@ -1965,16 +2093,23 @@ class MainActivity : ComponentActivity() {
                 } else {
                     speakKoreanText(translated)
                 }
+                prepareLocalRealtimeTurnClientAsync(patientLanguage, nextLocalRealtimeDirection(direction))
                 appendLog("대면 통역 완료")
             }.onFailure { caught ->
                 val message = userFacingError(caught)
                 updateState { it.copy(busy = false, speaking = false, status = "대면 통역 실패: $message") }
+                prepareLocalRealtimeTurnClientAsync(patientLanguage, direction, force = true)
                 appendLog("대면 통역 실패: $message")
             }
         }
     }
 
-    private fun translateLocalVoiceTurn(direction: String, patientLanguage: String, pcm: ByteArray): JSONObject {
+    private fun localRecordingDurationSeconds(pcm: ByteArray): Int {
+        val samples = pcm.size / 2
+        return max(1, (samples + RealtimePcmSampleRate - 1) / RealtimePcmSampleRate)
+    }
+
+    private fun translateLocalVoiceTurn(direction: String, patientLanguage: String, pcm: ByteArray, durationSeconds: Int): JSONObject {
         val realtimeWasActive = realtimeTurnActive
         realtimeTurnActive = false
 
@@ -1987,6 +2122,14 @@ class MainActivity : ComponentActivity() {
                     val startedAt = SystemClock.elapsedRealtime()
                     val result = realtime.stopTurnAndTranslate()
                     appendLog("Local Realtime translation complete ${SystemClock.elapsedRealtime() - startedAt}ms")
+                    recordLocalInterpreterUsageAsync(
+                        direction = direction,
+                        patientLanguage = patientLanguage,
+                        transport = "realtime",
+                        durationSeconds = durationSeconds,
+                        sourceText = result.sourceText,
+                        translatedText = result.translatedText
+                    )
                     return localRealtimeVoiceTurn(direction, patientLanguage, result.sourceText, result.translatedText)
                 }.onFailure {
                     appendLog("Local Realtime failed, falling back to upload: ${it.message}")
@@ -2000,7 +2143,7 @@ class MainActivity : ComponentActivity() {
 
         val wav = pcm16ToWav(pcm, RealtimePcmSampleRate, 1)
         appendLog("Local voice upload (${wav.size} bytes)")
-        return uploadLocalVoiceTurn(direction, patientLanguage, wav)
+        return uploadLocalVoiceTurn(direction, patientLanguage, wav, durationSeconds)
     }
 
     private fun localRealtimeVoiceTurn(direction: String, patientLanguage: String, sourceText: String, translatedText: String): JSONObject {
@@ -2135,7 +2278,35 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun uploadLocalVoiceTurn(direction: String, patientLanguage: String, wav: ByteArray): JSONObject {
+    private fun recordLocalInterpreterUsageAsync(
+        direction: String,
+        patientLanguage: String,
+        transport: String,
+        durationSeconds: Int,
+        sourceText: String,
+        translatedText: String
+    ) {
+        val backend = normalizedBackendUrl(uiState.value.backendUrl)
+        val payload = JSONObject()
+            .put("direction", direction)
+            .put("patientLanguage", patientLanguage)
+            .put("transport", transport)
+            .put("durationSeconds", durationSeconds)
+            .put("sourceTextCharacters", sourceText.length)
+            .put("translatedTextCharacters", translatedText.length)
+            .toString()
+        sessionExecutor.execute {
+            runCatching {
+                postJson("$backend/api/local-voice-turns/usage", payload)
+            }.onSuccess {
+                appendLog("Local usage logged: $transport ${durationSeconds}s")
+            }.onFailure {
+                appendLog("Local usage log failed: ${it.message}")
+            }
+        }
+    }
+
+    private fun uploadLocalVoiceTurn(direction: String, patientLanguage: String, wav: ByteArray, durationSeconds: Int): JSONObject {
         val backend = normalizedBackendUrl(uiState.value.backendUrl)
         val clientTurnId = "local-android-${System.currentTimeMillis()}"
         val body = MultipartBody.Builder()
@@ -2143,6 +2314,7 @@ class MainActivity : ComponentActivity() {
             .addFormDataPart("clientTurnId", clientTurnId)
             .addFormDataPart("direction", direction)
             .addFormDataPart("patientLanguage", patientLanguage)
+            .addFormDataPart("durationSeconds", durationSeconds.toString())
             .addFormDataPart("audio", "local-$clientTurnId.wav", wav.toRequestBody("audio/wav".toMediaType()))
             .build()
         val request = Request.Builder()
@@ -2293,7 +2465,7 @@ class MainActivity : ComponentActivity() {
         val tts = textToSpeech ?: return
         val availability = tts.setLanguage(locale)
         if (availability < TextToSpeech.LANG_AVAILABLE) return
-        val result = tts.playSilentUtterance(1L, TextToSpeech.QUEUE_ADD, "cvr-warm-${locale.toLanguageTag()}-${System.currentTimeMillis()}")
+        val result = tts.playSilentUtterance(1L, TextToSpeech.QUEUE_ADD, "$TtsWarmUtterancePrefix-${locale.toLanguageTag()}-${System.currentTimeMillis()}")
         if (result != TextToSpeech.ERROR) appendLog("TTS warmup: $label")
     }
 
@@ -2315,12 +2487,15 @@ class MainActivity : ComponentActivity() {
             appendLog("TTS 미지원: $label")
             return
         }
-        val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "cvr-${System.currentTimeMillis()}")
+        val utteranceId = "$TtsSpeechUtterancePrefix-${System.currentTimeMillis()}"
+        val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
         if (result == TextToSpeech.ERROR) {
+            setTtsPlaybackActive(false)
             updateState { it.copy(ttsStatus = "$label 재생 실패") }
             appendLog("TTS 재생 실패: $label")
             return
         }
+        setTtsPlaybackActive(true)
         updateState { it.copy(ttsStatus = "$label 재생 중") }
     }
 
@@ -3160,6 +3335,17 @@ private fun LanguageTile(
     }
 }
 
+private fun localInterpreterDisabledReason(state: StaffUiState, active: Boolean): String {
+    return when {
+        active -> ""
+        !state.recordAudioGranted -> "마이크 권한 필요"
+        state.speaking -> "상대방 말하는 중"
+        state.ttsPlaybackActive -> "음성 재생 중"
+        state.busy -> "번역 중"
+        else -> ""
+    }
+}
+
 @Composable
 private fun LocalInterpreterScreen(
     state: StaffUiState,
@@ -3185,7 +3371,9 @@ private fun LocalInterpreterScreen(
         else -> ""
     }
     val patientLanguageLabel = languageNativeLabel(language)
-    val canStart = !state.busy && !state.speaking
+    val canStart = !state.busy && !state.speaking && !state.ttsPlaybackActive
+    val patientDisabledReason = localInterpreterDisabledReason(state, patientActive)
+    val staffDisabledReason = localInterpreterDisabledReason(state, staffActive)
 
     BoxWithConstraints(modifier = modifier) {
         val landscape = maxWidth > maxHeight && maxWidth >= 720.dp
@@ -3200,6 +3388,7 @@ private fun LocalInterpreterScreen(
                 secondaryText = koreanText,
                 active = patientActive,
                 busy = state.busy,
+                disabledReason = patientDisabledReason,
                 micEnabled = patientActive || canStart || !state.recordAudioGranted,
                 buttonColor = Mint,
                 landscape = landscape,
@@ -3229,6 +3418,7 @@ private fun LocalInterpreterScreen(
                 secondaryText = patientLanguageText,
                 active = staffActive,
                 busy = state.busy,
+                disabledReason = staffDisabledReason,
                 micEnabled = staffActive || canStart || !state.recordAudioGranted,
                 buttonColor = Trust,
                 landscape = landscape,
@@ -3252,6 +3442,7 @@ private fun LocalInterpreterHalf(
     secondaryText: String,
     active: Boolean,
     busy: Boolean,
+    disabledReason: String,
     micEnabled: Boolean,
     buttonColor: Color,
     landscape: Boolean,
@@ -3286,6 +3477,7 @@ private fun LocalInterpreterHalf(
                 )
                 LocalInterpreterMicButton(
                     active = active,
+                    disabledReason = disabledReason,
                     busy = busy,
                     micEnabled = micEnabled,
                     buttonColor = buttonColor,
@@ -3311,6 +3503,7 @@ private fun LocalInterpreterHalf(
                 )
                 LocalInterpreterMicButton(
                     active = active,
+                    disabledReason = disabledReason,
                     busy = busy,
                     micEnabled = micEnabled,
                     buttonColor = buttonColor,
@@ -3361,6 +3554,11 @@ private fun LocalInterpreterTextPane(
     active: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val scrollState = rememberScrollState()
+    LaunchedEffect(text) {
+        scrollState.scrollTo(0)
+    }
+
     Box(
         modifier = modifier
             .background(Panel, RoundedCornerShape(10.dp))
@@ -3382,7 +3580,7 @@ private fun LocalInterpreterTextPane(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = 34.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scrollState),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -3399,30 +3597,52 @@ private fun LocalInterpreterTextPane(
 @Composable
 private fun LocalInterpreterMicButton(
     active: Boolean,
+    disabledReason: String,
     busy: Boolean,
     micEnabled: Boolean,
     buttonColor: Color,
     buttonSize: Dp,
     onMic: () -> Unit
 ) {
-    Button(
-        onClick = onMic,
-        enabled = micEnabled,
-        modifier = Modifier.size(buttonSize),
-        shape = RoundedCornerShape(buttonSize / 2),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (active) Coral else buttonColor,
-            disabledContainerColor = if (busy) Color(0xFFCBD5E1) else buttonColor.copy(alpha = 0.45f),
-            contentColor = Color.White,
-            disabledContentColor = Color.White
-        ),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
-    ) {
-        Icon(
-            if (active) Icons.Filled.Stop else Icons.Filled.Mic,
-            contentDescription = null,
-            modifier = Modifier.size(if (buttonSize < 90.dp) 36.dp else 42.dp)
-        )
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Button(
+            onClick = onMic,
+            enabled = micEnabled,
+            modifier = Modifier.size(buttonSize),
+            shape = RoundedCornerShape(buttonSize / 2),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (active) Coral else buttonColor,
+                disabledContainerColor = if (busy) Color(0xFFCBD5E1) else buttonColor.copy(alpha = 0.45f),
+                contentColor = Color.White,
+                disabledContentColor = Color.White
+            ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+        ) {
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(if (buttonSize < 90.dp) 32.dp else 38.dp),
+                    color = Color.White,
+                    strokeWidth = 3.dp
+                )
+            } else {
+                Icon(
+                    if (active) Icons.Filled.Stop else Icons.Filled.Mic,
+                    contentDescription = null,
+                    modifier = Modifier.size(if (buttonSize < 90.dp) 36.dp else 42.dp)
+                )
+            }
+        }
+        if (!micEnabled && disabledReason.isNotBlank()) {
+            Text(
+                disabledReason,
+                color = SlateText,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -3461,7 +3681,7 @@ private fun LocalInterpreterControlStrip(
         }
         OutlinedButton(
             onClick = onReplayTranslation,
-            enabled = state.translatedDraft.isNotBlank() && !state.busy && !state.speaking,
+            enabled = state.translatedDraft.isNotBlank() && !state.busy && !state.speaking && !state.ttsPlaybackActive,
             shape = RoundedCornerShape(10.dp)
         ) {
             Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -3469,7 +3689,7 @@ private fun LocalInterpreterControlStrip(
         Switch(checked = state.ttsEnabled, onCheckedChange = onTtsEnabled)
         TextButton(
             onClick = onExit,
-            enabled = !state.busy && !state.speaking
+            enabled = !state.busy && !state.speaking && !state.ttsPlaybackActive
         ) {
             Text("나가기", color = Color.White, fontWeight = FontWeight.Bold)
         }
@@ -4079,7 +4299,7 @@ private fun TranslationPanel(
 ) {
     val room = state.room
     val patientReady = room?.patientJoinedAt != null && room.status != "ended"
-    val canSpeak = patientReady && canStaffStartTurn(room.status) && state.recordAudioGranted && !state.busy
+    val canSpeak = patientReady && canStaffStartTurn(room.status) && state.recordAudioGranted && !state.busy && !state.ttsPlaybackActive
     val patientSpeaking = room?.status == "patient_speaking"
     val showingPatientTurn = state.lastMessageSpeaker == "patient"
     val sourceLabel = if (showingPatientTurn) "환자 발화" else "한국어 인식"

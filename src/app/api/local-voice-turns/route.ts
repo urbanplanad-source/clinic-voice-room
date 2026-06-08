@@ -3,6 +3,7 @@ import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { buildClinicGlossaryInstructions, normalizeClinicTranslation } from "@/lib/clinic-glossary";
 import { isPatientLanguage, languageLabels, sourceTargetFor, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
+import { recordLocalInterpreterUsageTurn } from "@/lib/local-interpreter-usage";
 import { normalizedTextTranslationModel, normalizedTranscriptionModel } from "@/lib/openai-models";
 
 type LocalDirection = "ko_to_patient" | "patient_to_ko";
@@ -45,6 +46,11 @@ function textField(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function numberField(formData: FormData, key: string) {
+  const value = Number(textField(formData, key));
+  return Number.isFinite(value) ? value : 0;
+}
+
 function directionRole(direction: LocalDirection): ParticipantRole {
   return direction === "ko_to_patient" ? "staff" : "patient";
 }
@@ -64,6 +70,7 @@ export async function POST(request: Request) {
   const clientTurnId = textField(formData, "clientTurnId");
   const patientLanguage = textField(formData, "patientLanguage");
   const direction = textField(formData, "direction") as LocalDirection;
+  const durationSeconds = numberField(formData, "durationSeconds");
   const audio = formData.get("audio");
 
   if (
@@ -181,10 +188,23 @@ export async function POST(request: Request) {
   if (!translatedText) {
     return NextResponse.json({ error: "No translated text was returned" }, { status: 502 });
   }
+  const normalizedTranslatedText = normalizeClinicTranslation(translatedText, targetLanguage);
+
+  await recordLocalInterpreterUsageTurn({
+    staff,
+    patientLanguage,
+    direction,
+    transport: "upload",
+    durationSeconds,
+    sourceTextCharacters: sourceText.length,
+    translatedTextCharacters: normalizedTranslatedText.length
+  }).catch((caught) => {
+    console.error("[local-voice-turns usage]", caught);
+  });
 
   return NextResponse.json({
     sourceText,
-    translatedText: normalizeClinicTranslation(translatedText, targetLanguage),
+    translatedText: normalizedTranslatedText,
     sourceLanguage,
     targetLanguage,
     direction,

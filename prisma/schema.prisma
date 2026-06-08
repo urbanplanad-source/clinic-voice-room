@@ -71,34 +71,36 @@ enum ConnectionState {
 }
 
 model Hospital {
-  id                     String            @id @default(cuid())
-  name                   String
-  slug                   String            @unique
-  planType               PlanType          @default(partner_free)
-  status                 HospitalStatus    @default(active)
-  monthlyIncludedMinutes Int?
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
-  staffUsers             StaffUser[]
-  rooms                  TranslationRoom[]
-  usageSessions          UsageSession[]
+  id                         String                      @id @default(cuid())
+  name                       String
+  slug                       String                      @unique
+  planType                   PlanType                    @default(partner_free)
+  status                     HospitalStatus              @default(active)
+  monthlyIncludedMinutes     Int?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  staffUsers                 StaffUser[]
+  rooms                      TranslationRoom[]
+  usageSessions              UsageSession[]
+  localInterpreterUsageTurns LocalInterpreterUsageTurn[]
 }
 
 model StaffUser {
-  id            String            @id @default(cuid())
-  hospitalId    String
-  hospital      Hospital          @relation(fields: [hospitalId], references: [id])
-  name          String
-  email         String            @unique
-  passwordHash  String
-  sessionVersion Int               @default(1)
-  role          StaffRole         @default(staff)
-  isActive      Boolean           @default(true)
-  lastLoginAt   DateTime?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  rooms         TranslationRoom[] @relation("RoomHost")
-  usageSessions UsageSession[]
+  id                         String                      @id @default(cuid())
+  hospitalId                 String
+  hospital                   Hospital                    @relation(fields: [hospitalId], references: [id])
+  name                       String
+  email                      String                      @unique
+  passwordHash               String
+  sessionVersion             Int                         @default(1)
+  role                       StaffRole                   @default(staff)
+  isActive                   Boolean                     @default(true)
+  lastLoginAt                DateTime?
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  rooms                      TranslationRoom[]           @relation("RoomHost")
+  usageSessions              UsageSession[]
+  localInterpreterUsageTurns LocalInterpreterUsageTurn[]
 }
 
 model TranslationRoom {
@@ -166,4 +168,23 @@ model ConsultationMessage {
   readAt         DateTime?
 
   @@index([roomId, createdAt])
+}
+
+model LocalInterpreterUsageTurn {
+  id                       String          @id @default(cuid())
+  hospitalId               String
+  hospital                 Hospital        @relation(fields: [hospitalId], references: [id])
+  staffId                  String
+  staff                    StaffUser       @relation(fields: [staffId], references: [id])
+  patientLanguage          PatientLanguage
+  direction                String
+  transport                String
+  durationSeconds          Int             @default(0)
+  sourceTextCharacters     Int?
+  translatedTextCharacters Int?
+  createdAt                DateTime        @default(now())
+
+  @@index([hospitalId, createdAt])
+  @@index([staffId, createdAt])
+  @@index([patientLanguage, createdAt])
 }
