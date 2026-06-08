@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -171,9 +172,9 @@ private val CompactStaffLayoutMetrics = StaffLayoutMetrics(
     headerPadding = 22.dp,
     cardPadding = 14.dp,
     statusPadding = 14.dp,
-    modeCardHeight = 196.dp,
-    modeIconBoxSize = 58.dp,
-    modeIconSize = 34.dp,
+    modeCardHeight = 104.dp,
+    modeIconBoxSize = 52.dp,
+    modeIconSize = 28.dp,
     languageTileHeight = 68.dp,
     languageGridGap = 7.dp,
     primaryButtonHeight = 56.dp,
@@ -195,9 +196,9 @@ private val TabletStaffLayoutMetrics = StaffLayoutMetrics(
     headerPadding = 28.dp,
     cardPadding = 20.dp,
     statusPadding = 18.dp,
-    modeCardHeight = 238.dp,
-    modeIconBoxSize = 70.dp,
-    modeIconSize = 40.dp,
+    modeCardHeight = 122.dp,
+    modeIconBoxSize = 60.dp,
+    modeIconSize = 34.dp,
     languageTileHeight = 88.dp,
     languageGridGap = 10.dp,
     primaryButtonHeight = 62.dp,
@@ -3009,6 +3010,7 @@ private fun StaffAppScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Mist)
+            .systemBarsPadding()
     ) {
         val metrics = staffLayoutMetrics(maxWidth)
         if (screenKey == "local_interpreter") {
@@ -3223,11 +3225,12 @@ private fun ModeLargeCard(
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
         contentPadding = PaddingValues(0.dp)
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(metrics.cardPadding),
-            verticalArrangement = Arrangement.SpaceBetween
+                .padding(horizontal = metrics.cardPadding, vertical = if (metrics.isTablet) 14.dp else 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(if (metrics.isTablet) 16.dp else 14.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -3237,11 +3240,14 @@ private fun ModeLargeCard(
             ) {
                 icon()
             }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(if (metrics.isTablet) 6.dp else 4.dp)
+            ) {
                 Text(
                     title,
                     color = Ink,
-                    style = if (metrics.isTablet) MaterialTheme.typography.displaySmall else MaterialTheme.typography.headlineMedium,
+                    style = if (metrics.isTablet) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -3249,9 +3255,9 @@ private fun ModeLargeCard(
                 Text(
                     body,
                     color = SlateText,
-                    style = if (metrics.isTablet) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
+                    style = if (metrics.isTablet) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
