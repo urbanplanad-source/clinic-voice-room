@@ -2092,6 +2092,25 @@ class MainActivity : ComponentActivity() {
                 val translated = normalizeClinicText(result.optString("translatedText"), targetLanguage)
                 val speaker = if (direction == LocalDirectionKoToPatient) "staff" else "patient"
 
+                if (localTranslationNeedsRetry(direction, patientLanguage, source, translated)) {
+                    val retryKorean = localRetryPromptKorean()
+                    val retryPatient = localRetryPromptForPatientLanguage(patientLanguage)
+                    updateState {
+                        it.copy(
+                            busy = false,
+                            speaking = false,
+                            sourceDraft = if (direction == LocalDirectionKoToPatient) retryKorean else retryPatient,
+                            translatedDraft = if (direction == LocalDirectionKoToPatient) retryPatient else retryKorean,
+                            lastMessageSpeaker = speaker,
+                            localTurnDirection = direction,
+                            status = "번역 내용이 서로 맞지 않아 다시 말해주세요."
+                        )
+                    }
+                    prepareLocalRealtimeTurnClientsAsync(patientLanguage)
+                    appendLog("대면 통역 의미 불일치: 다시 말하기 요청")
+                    return@runCatching
+                }
+
                 updateState {
                     it.copy(
                         busy = false,
@@ -2123,6 +2142,63 @@ class MainActivity : ComponentActivity() {
     private fun localRecordingDurationSeconds(pcm: ByteArray): Int {
         val samples = pcm.size / 2
         return max(1, (samples + RealtimePcmSampleRate - 1) / RealtimePcmSampleRate)
+    }
+
+    private fun localTranslationNeedsRetry(
+        direction: String,
+        patientLanguage: String,
+        sourceText: String,
+        translatedText: String
+    ): Boolean {
+        if (!shouldValidateLocalTranslation(sourceText, translatedText)) return false
+
+        return runCatching {
+            val backend = normalizedBackendUrl(uiState.value.backendUrl)
+            val payload = JSONObject()
+                .put("direction", direction)
+                .put("patientLanguage", patientLanguage)
+                .put("sourceText", sourceText)
+                .put("translatedText", translatedText)
+                .toString()
+            val data = postJson("$backend/api/local-voice-turns/validate", payload)
+            val checked = data.optBoolean("checked", false)
+            val ok = data.optBoolean("ok", true)
+            if (checked) appendLog("Local consistency ${if (ok) "ok" else "retry"}: ${data.optString("reason")}")
+            checked && !ok
+        }.onFailure {
+            appendLog("Local consistency skipped: ${it.message}")
+        }.getOrDefault(false)
+    }
+
+    private fun shouldValidateLocalTranslation(sourceText: String, translatedText: String): Boolean {
+        val source = sourceText.trim()
+        val translated = translatedText.trim()
+        if (source.isBlank() || translated.isBlank()) return false
+        val sourceWords = source.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+        return source.length <= 40 || translated.length <= 70 || sourceWords <= 5
+    }
+
+    private fun localRetryPromptKorean(): String = "다시 한 번 말씀해주세요."
+
+    private fun localRetryPromptForPatientLanguage(patientLanguage: String): String {
+        return when (patientLanguage) {
+            "zh" -> "请再说一遍。"
+            "zh_tw" -> "請再說一遍。"
+            "ja" -> "もう一度お話しください。"
+            "en" -> "Please say that again."
+            "th" -> "กรุณาพูดอีกครั้ง"
+            "ms" -> "Sila ulang sekali lagi."
+            "mn" -> "Дахин хэлнэ үү."
+            "ru" -> "Пожалуйста, повторите."
+            "vi" -> "Vui lòng nói lại."
+            "id" -> "Tolong ulangi sekali lagi."
+            "fr" -> "Veuillez répéter."
+            "es" -> "Por favor, repítalo."
+            "de" -> "Bitte sagen Sie es noch einmal."
+            "it" -> "Per favore, ripeta."
+            "pt" -> "Por favor, repita."
+            else -> "Please say that again."
+        }
     }
 
     private fun translateLocalVoiceTurn(direction: String, patientLanguage: String, pcm: ByteArray, durationSeconds: Int): JSONObject {
