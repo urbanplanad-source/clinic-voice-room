@@ -744,7 +744,7 @@ class MainActivity : ComponentActivity() {
     private var roomPollingActive = false
     @Volatile
     private var roomPollInFlight = false
-    private val realtimeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val realtimeExecutor: ExecutorService = Executors.newFixedThreadPool(2)
     private val pollExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var messageCursor: String? = null
     private var messagePollingInitialized = false
@@ -1179,7 +1179,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ttsWatchdogDelayMs(text: String): Long {
-        return (3_500L + text.length * 90L).coerceIn(5_000L, 45_000L)
+        return (4_000L + text.length * 220L).coerceIn(6_000L, 60_000L)
     }
 
     private fun setTtsPlaybackActive(active: Boolean) {
@@ -1357,7 +1357,7 @@ class MainActivity : ComponentActivity() {
             warmTtsLanguage(language.ttsLocale, language.ko)
         }
         closeLocalRealtimeTurnClients()
-        prepareLocalRealtimeTurnClientAsync(state.selectedLanguage, LocalDirectionKoToPatient, force = true)
+        prepareLocalRealtimeTurnClientsAsync(state.selectedLanguage, force = true)
         appendLog("대면 통역 시작: ${state.selectedLanguage}")
     }
 
@@ -1457,20 +1457,8 @@ class MainActivity : ComponentActivity() {
             !state.busy &&
             !state.speaking
         ) {
-            prepareLocalRealtimeTurnClientAsync(state.selectedLanguage, preferredLocalRealtimeDirection(state))
+            prepareLocalRealtimeTurnClientsAsync(state.selectedLanguage)
         }
-    }
-
-    private fun preferredLocalRealtimeDirection(state: StaffUiState): String {
-        return when (state.lastMessageSpeaker) {
-            "staff" -> LocalDirectionPatientToKo
-            "patient" -> LocalDirectionKoToPatient
-            else -> state.localTurnDirection
-        }
-    }
-
-    private fun nextLocalRealtimeDirection(direction: String): String {
-        return if (direction == LocalDirectionKoToPatient) LocalDirectionPatientToKo else LocalDirectionKoToPatient
     }
 
     private fun localRealtimeKey(patientLanguage: String, direction: String): String {
@@ -1854,6 +1842,11 @@ class MainActivity : ComponentActivity() {
         }.getOrDefault(false)
     }
 
+    private fun prepareLocalRealtimeTurnClientsAsync(patientLanguage: String, force: Boolean = false) {
+        prepareLocalRealtimeTurnClientAsync(patientLanguage, LocalDirectionKoToPatient, force)
+        prepareLocalRealtimeTurnClientAsync(patientLanguage, LocalDirectionPatientToKo, force)
+    }
+
     private fun prepareLocalRealtimeTurnClientAsync(patientLanguage: String, direction: String, force: Boolean = false) {
         if (recordingActive || realtimeTurnActive) return
         val key = localRealtimeKey(patientLanguage, direction)
@@ -1881,18 +1874,13 @@ class MainActivity : ComponentActivity() {
                     !recordingActive &&
                     !realtimeTurnActive
                 ) {
-                    val previousClients = synchronized(localRealtimeLock) {
-                        val oldClients = localRealtimeTurnClients
-                            .filterKeys { existingKey -> existingKey != key }
-                            .values
-                            .toList()
+                    val previous = synchronized(localRealtimeLock) {
                         val old = localRealtimeTurnClients[key]
-                        localRealtimeTurnClients.clear()
                         localRealtimeTurnClients[key] = client
                         localRealtimePreparingKeys.remove(key)
-                        oldClients + listOfNotNull(old)
+                        old
                     }
-                    previousClients.forEach { previous -> runCatching { previous.close() } }
+                    runCatching { previous?.close() }
                     appendLog("Local Realtime ready ${SystemClock.elapsedRealtime() - startedAt}ms: $direction")
                 } else {
                     client.close()
@@ -2121,12 +2109,12 @@ class MainActivity : ComponentActivity() {
                 } else {
                     speakKoreanText(translated)
                 }
-                prepareLocalRealtimeTurnClientAsync(patientLanguage, nextLocalRealtimeDirection(direction))
+                prepareLocalRealtimeTurnClientsAsync(patientLanguage)
                 appendLog("대면 통역 완료")
             }.onFailure { caught ->
                 val message = userFacingError(caught)
                 updateState { it.copy(busy = false, speaking = false, status = "대면 통역 실패: $message") }
-                prepareLocalRealtimeTurnClientAsync(patientLanguage, direction, force = true)
+                prepareLocalRealtimeTurnClientsAsync(patientLanguage)
                 appendLog("대면 통역 실패: $message")
             }
         }
@@ -2169,9 +2157,55 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        translateLocalPcmWithPreparedRealtime(direction, patientLanguage, pcm, durationSeconds)?.let { return it }
+
         val wav = pcm16ToWav(pcm, RealtimePcmSampleRate, 1)
         appendLog("Local voice upload (${wav.size} bytes)")
         return uploadLocalVoiceTurn(direction, patientLanguage, wav, durationSeconds)
+    }
+
+    private fun translateLocalPcmWithPreparedRealtime(
+        direction: String,
+        patientLanguage: String,
+        pcm: ByteArray,
+        durationSeconds: Int
+    ): JSONObject? {
+        val key = localRealtimeKey(patientLanguage, direction)
+        val realtime = synchronized(localRealtimeLock) { localRealtimeTurnClients[key] }
+        if (realtime == null || !realtime.isReady()) return null
+
+        return runCatching {
+            val startedAt = SystemClock.elapsedRealtime()
+            realtime.startTurn()
+            streamPcmToRealtime(realtime, pcm)
+            val result = realtime.stopTurnAndTranslate()
+            appendLog("Local buffered Realtime complete ${SystemClock.elapsedRealtime() - startedAt}ms")
+            recordLocalInterpreterUsageAsync(
+                direction = direction,
+                patientLanguage = patientLanguage,
+                transport = "realtime",
+                durationSeconds = durationSeconds,
+                sourceText = result.sourceText,
+                translatedText = result.translatedText
+            )
+            localRealtimeVoiceTurn(direction, patientLanguage, result.sourceText, result.translatedText)
+        }.onFailure {
+            appendLog("Local buffered Realtime failed, falling back to upload: ${it.message}")
+            synchronized(localRealtimeLock) {
+                localRealtimeTurnClients.remove(key)
+            }?.close()
+            prepareLocalRealtimeTurnClientAsync(patientLanguage, direction, force = true)
+        }.getOrNull()
+    }
+
+    private fun streamPcmToRealtime(realtime: AndroidRealtimeTurnClient, pcm: ByteArray) {
+        val chunkBytes = 24_000
+        var offset = 0
+        while (offset < pcm.size) {
+            val length = minOf(chunkBytes, pcm.size - offset)
+            realtime.appendPcm(pcm.copyOfRange(offset, offset + length), length)
+            offset += length
+        }
     }
 
     private fun localRealtimeVoiceTurn(direction: String, patientLanguage: String, sourceText: String, translatedText: String): JSONObject {
@@ -3413,10 +3447,8 @@ private fun LocalInterpreterScreen(
             verticalArrangement = Arrangement.spacedBy(if (landscape) 8.dp else if (metrics.isTablet) 10.dp else 8.dp)
         ) {
             LocalInterpreterHalf(
-                primaryLabel = patientLanguageLabel,
-                primaryText = patientLanguageText,
-                secondaryLabel = "한국어",
-                secondaryText = koreanText,
+                label = patientLanguageLabel,
+                text = patientLanguageText,
                 active = patientActive,
                 busy = state.busy,
                 disabledReason = patientDisabledReason,
@@ -3443,10 +3475,8 @@ private fun LocalInterpreterScreen(
             )
 
             LocalInterpreterHalf(
-                primaryLabel = "한국어",
-                primaryText = koreanText,
-                secondaryLabel = patientLanguageLabel,
-                secondaryText = patientLanguageText,
+                label = "한국어",
+                text = koreanText,
                 active = staffActive,
                 busy = state.busy,
                 disabledReason = staffDisabledReason,
@@ -3467,10 +3497,8 @@ private fun LocalInterpreterScreen(
 
 @Composable
 private fun LocalInterpreterHalf(
-    primaryLabel: String,
-    primaryText: String,
-    secondaryLabel: String,
-    secondaryText: String,
+    label: String,
+    text: String,
     active: Boolean,
     busy: Boolean,
     disabledReason: String,
@@ -3498,13 +3526,14 @@ private fun LocalInterpreterHalf(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(contentGap)
             ) {
-                LocalInterpreterTextStack(
-                    primaryLabel = primaryLabel,
-                    primaryText = primaryText,
-                    secondaryLabel = secondaryLabel,
-                    secondaryText = secondaryText,
+                LocalInterpreterTextPane(
+                    label = label,
+                    text = text,
                     active = active,
-                    modifier = Modifier.weight(1f)
+                    landscape = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
                 )
                 LocalInterpreterMicButton(
                     active = active,
@@ -3522,12 +3551,11 @@ private fun LocalInterpreterHalf(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(contentGap)
             ) {
-                LocalInterpreterTextStack(
-                    primaryLabel = primaryLabel,
-                    primaryText = primaryText,
-                    secondaryLabel = secondaryLabel,
-                    secondaryText = secondaryText,
+                LocalInterpreterTextPane(
+                    label = label,
+                    text = text,
                     active = active,
+                    landscape = false,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
@@ -3547,42 +3575,11 @@ private fun LocalInterpreterHalf(
 }
 
 @Composable
-private fun LocalInterpreterTextStack(
-    primaryLabel: String,
-    primaryText: String,
-    secondaryLabel: String,
-    secondaryText: String,
-    active: Boolean,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        LocalInterpreterTextPane(
-            label = primaryLabel,
-            text = primaryText,
-            active = active,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        )
-        LocalInterpreterTextPane(
-            label = secondaryLabel,
-            text = secondaryText,
-            active = false,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        )
-    }
-}
-
-@Composable
 private fun LocalInterpreterTextPane(
     label: String,
     text: String,
     active: Boolean,
+    landscape: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -3617,7 +3614,7 @@ private fun LocalInterpreterTextPane(
             Text(
                 text.ifBlank { if (active) "듣는 중" else " " },
                 color = if (text.isBlank()) SlateText else Ink,
-                style = MaterialTheme.typography.headlineSmall,
+                style = if (landscape) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )

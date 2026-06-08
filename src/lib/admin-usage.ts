@@ -123,7 +123,7 @@ export async function getAdminUsageSummary() {
       const localGroup = localLanguageByCode.get(patientLanguage);
       return {
         patientLanguage,
-        roomCount: (roomGroup?._count.id ?? 0) + numeric(localGroup?.turnCount),
+        roomCount: roomGroup?._count.id ?? 0,
         localTurnCount: numeric(localGroup?.turnCount),
         minutes: Math.round(((roomGroup?._sum.totalRoomSeconds ?? 0) + numeric(localGroup?.totalSeconds)) / 60)
       };
