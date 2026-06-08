@@ -38,6 +38,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -49,6 +50,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -87,6 +89,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
@@ -129,6 +132,82 @@ private val Panel = Color(0xFFF8FAFC)
 private val BlueTint = Color(0xFFEFF6FF)
 private val GreenTint = Color(0xFFEFFCF7)
 private val RoseTint = Color(0xFFFFF1F2)
+
+private data class StaffLayoutMetrics(
+    val isTablet: Boolean,
+    val contentMaxWidth: Dp,
+    val outerHorizontalPadding: Dp,
+    val outerVerticalPadding: Dp,
+    val screenSpacing: Dp,
+    val contentSpacing: Dp,
+    val headerPadding: Dp,
+    val cardPadding: Dp,
+    val statusPadding: Dp,
+    val modeCardHeight: Dp,
+    val modeIconBoxSize: Dp,
+    val modeIconSize: Dp,
+    val languageTileHeight: Dp,
+    val languageGridGap: Dp,
+    val primaryButtonHeight: Dp,
+    val qrMaxSize: Dp,
+    val qrPadding: Dp,
+    val micSmallSize: Dp,
+    val micLargeSize: Dp,
+    val conversationMinHeight: Dp,
+    val conversationEmptyHeight: Dp
+)
+
+private val CompactStaffLayoutMetrics = StaffLayoutMetrics(
+    isTablet = false,
+    contentMaxWidth = 560.dp,
+    outerHorizontalPadding = 14.dp,
+    outerVerticalPadding = 12.dp,
+    screenSpacing = 10.dp,
+    contentSpacing = 12.dp,
+    headerPadding = 22.dp,
+    cardPadding = 14.dp,
+    statusPadding = 14.dp,
+    modeCardHeight = 196.dp,
+    modeIconBoxSize = 58.dp,
+    modeIconSize = 34.dp,
+    languageTileHeight = 68.dp,
+    languageGridGap = 7.dp,
+    primaryButtonHeight = 56.dp,
+    qrMaxSize = 332.dp,
+    qrPadding = 16.dp,
+    micSmallSize = 104.dp,
+    micLargeSize = 168.dp,
+    conversationMinHeight = 280.dp,
+    conversationEmptyHeight = 220.dp
+)
+
+private val TabletStaffLayoutMetrics = StaffLayoutMetrics(
+    isTablet = true,
+    contentMaxWidth = 680.dp,
+    outerHorizontalPadding = 32.dp,
+    outerVerticalPadding = 20.dp,
+    screenSpacing = 14.dp,
+    contentSpacing = 16.dp,
+    headerPadding = 28.dp,
+    cardPadding = 20.dp,
+    statusPadding = 18.dp,
+    modeCardHeight = 238.dp,
+    modeIconBoxSize = 70.dp,
+    modeIconSize = 40.dp,
+    languageTileHeight = 88.dp,
+    languageGridGap = 10.dp,
+    primaryButtonHeight = 62.dp,
+    qrMaxSize = 420.dp,
+    qrPadding = 22.dp,
+    micSmallSize = 120.dp,
+    micLargeSize = 204.dp,
+    conversationMinHeight = 420.dp,
+    conversationEmptyHeight = 320.dp
+)
+
+private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
+    return if (maxWidth >= 600.dp) TabletStaffLayoutMetrics else CompactStaffLayoutMetrics
+}
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 private const val StaffSessionCookieName = "cvr_session"
@@ -2208,87 +2287,107 @@ private fun StaffAppScreen(
 ) {
     val room = state.room
     val screenKey = staffScreenKey(state)
-    Column(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .background(Mist)
     ) {
-        if (screenKey != "conversation" && screenKey != "ended") {
-            Header(state)
-        }
+        val metrics = staffLayoutMetrics(maxWidth)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = metrics.outerHorizontalPadding, vertical = metrics.outerVerticalPadding),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Column(
+                modifier = Modifier
+                    .widthIn(max = metrics.contentMaxWidth)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(metrics.screenSpacing)
+            ) {
+                if (screenKey != "conversation" && screenKey != "ended") {
+                    Header(state, metrics)
+                }
 
-        AnimatedContent(
-            targetState = screenKey,
-            label = "staff-flow-screen",
-            transitionSpec = {
-                val forward = staffScreenOrder(targetState) >= staffScreenOrder(initialState)
-                (slideInHorizontally(animationSpec = tween(220)) { width -> if (forward) width / 4 else -width / 4 } + fadeIn(tween(180)))
-                    .togetherWith(slideOutHorizontally(animationSpec = tween(180)) { width -> if (forward) -width / 5 else width / 5 } + fadeOut(tween(140)))
-            }
-        ) { screen ->
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                when (screen) {
-                    "login" -> LoginPanel(
-                        state = state,
-                        onBackendUrl = onBackendUrl,
-                        onBackendChange = onBackendChange,
-                        onEmailChange = onEmailChange,
-                        onPasswordChange = onPasswordChange,
-                        onRememberEmailChange = onRememberEmailChange,
-                        onLogin = onLogin
-                    )
-
-                    "mode" -> ModeSelectionScreen(
-                        onRoomMode = onRoomMode,
-                        onLogout = onLogout
-                    )
-
-                    "language" -> LanguageSelectionScreen(
-                        state = state,
-                        onLanguage = onLanguage,
-                        onCreateRoom = onCreateRoom
-                    )
-
-                    "qr" -> QrWaitingScreen(
-                        state = state,
-                        onCopyLink = onCopyLink,
-                        onEndRoom = onRequestEndRoom
-                    )
-
-                    "ended" -> {
-                        StatusPanel(state)
-                        TranslationPanel(
-                            state = state,
-                            onToggleSpeak = onToggleSpeak,
-                            onReplayTranslation = onReplayTranslation,
-                            onTextInputChange = onTextInputChange,
-                            onSubmitText = onSubmitText,
-                            onTtsEnabled = onTtsEnabled,
-                            onRequestMicPermission = onRequestMicPermission
-                        )
-                        RoomActionBar(
-                            onCopyLink = onCopyLink,
-                            onEndRoom = onRequestEndRoom
-                        )
+                AnimatedContent(
+                    targetState = screenKey,
+                    label = "staff-flow-screen",
+                    transitionSpec = {
+                        val forward = staffScreenOrder(targetState) >= staffScreenOrder(initialState)
+                        (slideInHorizontally(animationSpec = tween(220)) { width -> if (forward) width / 4 else -width / 4 } + fadeIn(tween(180)))
+                            .togetherWith(slideOutHorizontally(animationSpec = tween(180)) { width -> if (forward) -width / 5 else width / 5 } + fadeOut(tween(140)))
                     }
+                ) { screen ->
+                    Column(verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)) {
+                        when (screen) {
+                            "login" -> LoginPanel(
+                                state = state,
+                                metrics = metrics,
+                                onBackendUrl = onBackendUrl,
+                                onBackendChange = onBackendChange,
+                                onEmailChange = onEmailChange,
+                                onPasswordChange = onPasswordChange,
+                                onRememberEmailChange = onRememberEmailChange,
+                                onLogin = onLogin
+                            )
 
-                    else -> {
-                        StatusPanel(state)
-                        TranslationPanel(
-                            state = state,
-                            onToggleSpeak = onToggleSpeak,
-                            onReplayTranslation = onReplayTranslation,
-                            onTextInputChange = onTextInputChange,
-                            onSubmitText = onSubmitText,
-                            onTtsEnabled = onTtsEnabled,
-                            onRequestMicPermission = onRequestMicPermission
-                        )
-                        RoomActionBar(
-                            onCopyLink = onCopyLink,
-                            onEndRoom = onRequestEndRoom
-                        )
+                            "mode" -> ModeSelectionScreen(
+                                metrics = metrics,
+                                onRoomMode = onRoomMode,
+                                onLogout = onLogout
+                            )
+
+                            "language" -> LanguageSelectionScreen(
+                                state = state,
+                                metrics = metrics,
+                                onLanguage = onLanguage,
+                                onCreateRoom = onCreateRoom
+                            )
+
+                            "qr" -> QrWaitingScreen(
+                                state = state,
+                                metrics = metrics,
+                                onCopyLink = onCopyLink,
+                                onEndRoom = onRequestEndRoom
+                            )
+
+                            "ended" -> {
+                                StatusPanel(state, metrics)
+                                TranslationPanel(
+                                    state = state,
+                                    metrics = metrics,
+                                    onToggleSpeak = onToggleSpeak,
+                                    onReplayTranslation = onReplayTranslation,
+                                    onTextInputChange = onTextInputChange,
+                                    onSubmitText = onSubmitText,
+                                    onTtsEnabled = onTtsEnabled,
+                                    onRequestMicPermission = onRequestMicPermission
+                                )
+                                RoomActionBar(
+                                    onCopyLink = onCopyLink,
+                                    onEndRoom = onRequestEndRoom
+                                )
+                            }
+
+                            else -> {
+                                StatusPanel(state, metrics)
+                                TranslationPanel(
+                                    state = state,
+                                    metrics = metrics,
+                                    onToggleSpeak = onToggleSpeak,
+                                    onReplayTranslation = onReplayTranslation,
+                                    onTextInputChange = onTextInputChange,
+                                    onSubmitText = onSubmitText,
+                                    onTtsEnabled = onTtsEnabled,
+                                    onRequestMicPermission = onRequestMicPermission
+                                )
+                                RoomActionBar(
+                                    onCopyLink = onCopyLink,
+                                    onEndRoom = onRequestEndRoom
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -2306,11 +2405,13 @@ private fun StaffAppScreen(
 
 @Composable
 private fun ModeSelectionScreen(
+    metrics: StaffLayoutMetrics,
     onRoomMode: (String) -> Unit,
     onLogout: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)) {
         ModeLargeCard(
+            metrics = metrics,
             title = "상담방 만들기",
             body = "음성 중심 AI 번역 상담",
             icon = {
@@ -2318,13 +2419,14 @@ private fun ModeSelectionScreen(
                     Icons.Outlined.ChatBubbleOutline,
                     contentDescription = null,
                     tint = Trust,
-                    modifier = Modifier.size(34.dp)
+                    modifier = Modifier.size(metrics.modeIconSize)
                 )
             },
             onClick = { onRoomMode("consultation") }
         )
 
         ModeLargeCard(
+            metrics = metrics,
             title = "시술방 만들기",
             body = "시술 중 안내 번역",
             icon = {
@@ -2332,7 +2434,7 @@ private fun ModeSelectionScreen(
                     Icons.Outlined.MedicalServices,
                     contentDescription = null,
                     tint = Ink,
-                    modifier = Modifier.size(34.dp)
+                    modifier = Modifier.size(metrics.modeIconSize)
                 )
             },
             onClick = { onRoomMode("procedure") }
@@ -2342,7 +2444,7 @@ private fun ModeSelectionScreen(
             onClick = onLogout,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
+                .height(metrics.primaryButtonHeight),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = RoseTint, contentColor = Coral),
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
@@ -2357,6 +2459,7 @@ private fun ModeSelectionScreen(
 
 @Composable
 private fun ModeLargeCard(
+    metrics: StaffLayoutMetrics,
     title: String,
     body: String,
     icon: @Composable () -> Unit,
@@ -2366,7 +2469,7 @@ private fun ModeLargeCard(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .height(196.dp),
+            .height(metrics.modeCardHeight),
         shape = RoundedCornerShape(12.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Ink),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
@@ -2375,12 +2478,12 @@ private fun ModeLargeCard(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
+                .padding(metrics.cardPadding),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Box(
                 modifier = Modifier
-                    .size(58.dp)
+                    .size(metrics.modeIconBoxSize)
                     .background(BlueTint, RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
@@ -2390,7 +2493,7 @@ private fun ModeLargeCard(
                 Text(
                     title,
                     color = Ink,
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = if (metrics.isTablet) MaterialTheme.typography.displaySmall else MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -2398,7 +2501,7 @@ private fun ModeLargeCard(
                 Text(
                     body,
                     color = SlateText,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = if (metrics.isTablet) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -2496,10 +2599,11 @@ private fun qrWaitingBody(languageCode: String): String {
 @Composable
 private fun LanguageSelectionScreen(
     state: StaffUiState,
+    metrics: StaffLayoutMetrics,
     onLanguage: (String) -> Unit,
     onCreateRoom: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)) {
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
@@ -2507,8 +2611,8 @@ private fun LanguageSelectionScreen(
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.padding(metrics.cardPadding),
+                verticalArrangement = Arrangement.spacedBy(if (metrics.isTablet) 14.dp else 10.dp)
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Text(
@@ -2524,15 +2628,16 @@ private fun LanguageSelectionScreen(
                 Text(
                     languageRoomTitle(state.selectedRoomMode),
                     color = Ink,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = if (metrics.isTablet) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
 
-                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(metrics.languageGridGap)) {
                     patientLanguages.chunked(3).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(metrics.languageGridGap), modifier = Modifier.fillMaxWidth()) {
                             row.forEach { language ->
                                 LanguageTile(
+                                    metrics = metrics,
                                     language = language,
                                     selected = state.selectedLanguage == language.code,
                                     onClick = { onLanguage(language.code) },
@@ -2549,7 +2654,7 @@ private fun LanguageSelectionScreen(
                     enabled = !state.busy,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp),
+                        .height(metrics.primaryButtonHeight),
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Trust, contentColor = Color.White)
                 ) {
@@ -2569,6 +2674,7 @@ private fun LanguageSelectionScreen(
 
 @Composable
 private fun LanguageTile(
+    metrics: StaffLayoutMetrics,
     language: PatientLanguageOption,
     selected: Boolean,
     onClick: () -> Unit,
@@ -2577,7 +2683,7 @@ private fun LanguageTile(
     Button(
         onClick = onClick,
         modifier = modifier
-            .height(68.dp)
+            .height(metrics.languageTileHeight)
             .border(
                 width = if (selected) 2.dp else 1.dp,
                 color = if (selected) Trust else Line,
@@ -2595,7 +2701,7 @@ private fun LanguageTile(
             Text(
                 languageNativeLabel(language),
                 fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.bodyLarge,
+                style = if (metrics.isTablet) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
@@ -2603,7 +2709,7 @@ private fun LanguageTile(
             Text(
                 languageEnglishLabel(language.code),
                 fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.bodySmall,
+                style = if (metrics.isTablet) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -2615,13 +2721,14 @@ private fun LanguageTile(
 @Composable
 private fun QrWaitingScreen(
     state: StaffUiState,
+    metrics: StaffLayoutMetrics,
     onCopyLink: () -> Unit,
     onEndRoom: () -> Unit
 ) {
     val room = state.room ?: return
-    val language = patientLanguages.firstOrNull { it.code == room.patientLanguage }
     val qrBitmap = rememberQrBitmap(room.joinUrl)
     val showLargeQr = androidx.compose.runtime.remember { mutableStateOf(false) }
+    val expandedQrSize = if (metrics.isTablet) 380.dp else 320.dp
 
     if (showLargeQr.value && qrBitmap != null) {
         AlertDialog(
@@ -2634,42 +2741,42 @@ private fun QrWaitingScreen(
             title = { Text(qrWaitingTitle(room.patientLanguage), fontWeight = FontWeight.Bold, color = Ink) },
             text = {
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = "환자 QR 크게 보기", modifier = Modifier.size(320.dp))
+                    Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = "환자 QR 크게 보기", modifier = Modifier.size(expandedQrSize))
                 }
             }
         )
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-        ) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(state.hospitalName, color = Trust, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                Text(qrInstructionTitle(room.patientLanguage), color = Ink, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-                Text(
-                    qrInstructionBody(room.patientLanguage),
-                    color = SlateText,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(metrics.cardPadding),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(18.dp)
+                verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)
             ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(state.hospitalName, color = Trust, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        qrInstructionTitle(room.patientLanguage),
+                        color = Ink,
+                        style = if (metrics.isTablet) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        qrInstructionBody(room.patientLanguage),
+                        color = SlateText,
+                        style = if (metrics.isTablet) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
                 if (room.joinUrl.isBlank()) {
                     Text("QR 링크를 만들 수 없습니다.", color = Coral, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                     Text(
@@ -2682,29 +2789,44 @@ private fun QrWaitingScreen(
                     Text("QR 코드를 그릴 수 없습니다.", color = Coral, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                     Text(room.joinUrl, color = SlateText, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
                 } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .background(Color.White, RoundedCornerShape(12.dp))
-                            .border(1.dp, Line, RoundedCornerShape(12.dp))
-                            .padding(22.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = "환자 QR", modifier = Modifier.fillMaxSize())
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Box(
+                            modifier = Modifier
+                                .widthIn(max = metrics.qrMaxSize)
+                                .fillMaxWidth()
+                                .aspectRatio(1f)
+                                .background(Color.White, RoundedCornerShape(12.dp))
+                                .border(1.dp, Line, RoundedCornerShape(12.dp))
+                                .padding(metrics.qrPadding),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = "환자 QR", modifier = Modifier.fillMaxSize())
+                        }
                     }
                 }
 
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(if (metrics.isTablet) 58.dp else 48.dp)
                         .background(BlueTint, RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Outlined.QrCodeScanner, contentDescription = null, tint = Trust, modifier = Modifier.size(30.dp))
+                    Icon(Icons.Outlined.QrCodeScanner, contentDescription = null, tint = Trust, modifier = Modifier.size(if (metrics.isTablet) 32.dp else 28.dp))
                 }
-                Text(qrWaitingTitle(room.patientLanguage), color = Ink, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                Text(qrWaitingBody(room.patientLanguage), color = SlateText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text(
+                    qrWaitingTitle(room.patientLanguage),
+                    color = Ink,
+                    style = if (metrics.isTablet) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    qrWaitingBody(room.patientLanguage),
+                    color = SlateText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     Button(
@@ -2712,13 +2834,13 @@ private fun QrWaitingScreen(
                         enabled = room.joinUrl.isNotBlank(),
                         modifier = Modifier
                             .weight(1f)
-                            .height(62.dp),
+                            .height(metrics.primaryButtonHeight),
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Trust, contentColor = Color.White)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(Icons.Outlined.ContentCopy, contentDescription = null)
-                            Text("환자 링크 복사", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("링크 복사", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                     Button(
@@ -2726,12 +2848,12 @@ private fun QrWaitingScreen(
                         enabled = qrBitmap != null,
                         modifier = Modifier
                             .weight(1f)
-                            .height(62.dp),
+                            .height(metrics.primaryButtonHeight),
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Panel, contentColor = Ink),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
                     ) {
-                        Text("QR 크게 보기", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("QR 크게", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -2741,7 +2863,7 @@ private fun QrWaitingScreen(
             onClick = onEndRoom,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(58.dp),
+                .height(metrics.primaryButtonHeight),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = RoseTint, contentColor = Coral),
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
@@ -2823,7 +2945,7 @@ private fun RoomActionBar(onCopyLink: () -> Unit, onEndRoom: () -> Unit) {
 }
 
 @Composable
-private fun Header(state: StaffUiState) {
+private fun Header(state: StaffUiState, metrics: StaffLayoutMetrics) {
     val room = state.room
     val subtitle = if (state.loggedIn && state.hospitalName.isNotBlank()) state.hospitalName else "병원 직원용 통역"
     val activeLanguage = room?.let { patientLanguages.firstOrNull { language -> language.code == it.patientLanguage } }
@@ -2851,20 +2973,25 @@ private fun Header(state: StaffUiState) {
         modifier = Modifier
             .fillMaxWidth()
             .background(bg, RoundedCornerShape(16.dp))
-            .padding(if (room == null) 22.dp else 16.dp)
+            .padding(if (room == null) metrics.headerPadding else metrics.statusPadding)
     ) {
         Text(subtitle, color = eyebrowColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(10.dp))
-        Text(title, color = titleColor, style = if (room == null) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(
+            title,
+            color = titleColor,
+            style = if (room == null && metrics.isTablet) MaterialTheme.typography.displaySmall else if (room == null) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
         if (helper.isNotBlank()) {
             Spacer(Modifier.height(16.dp))
-            Text(helper, color = helperColor, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(helper, color = helperColor, style = if (metrics.isTablet) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
-private fun StatusPanel(state: StaffUiState) {
+private fun StatusPanel(state: StaffUiState, metrics: StaffLayoutMetrics) {
     val room = state.room
     val color = when {
         state.speaking -> Coral
@@ -2886,12 +3013,12 @@ private fun StatusPanel(state: StaffUiState) {
         modifier = Modifier
             .fillMaxWidth()
             .background(Color.White, RoundedCornerShape(8.dp))
-            .padding(16.dp)
+            .padding(metrics.statusPadding)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(label, color = color, fontWeight = FontWeight.Bold)
-                Text(statusLine, color = Ink, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(statusLine, color = Ink, style = if (metrics.isTablet) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
             if (room != null) {
                 val roomColor = if (room.status == "ended") Coral else color
@@ -2906,6 +3033,7 @@ private fun StatusPanel(state: StaffUiState) {
 @Composable
 private fun LoginPanel(
     state: StaffUiState,
+    metrics: StaffLayoutMetrics,
     onBackendUrl: () -> Unit,
     onBackendChange: (String) -> Unit,
     onEmailChange: (String) -> Unit,
@@ -2914,7 +3042,7 @@ private fun LoginPanel(
     onLogin: () -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
-    SectionCard("직원 로그인") {
+    SectionCard("직원 로그인", metrics) {
         OutlinedTextField(
             value = state.backendUrl,
             onValueChange = onBackendChange,
@@ -2954,7 +3082,7 @@ private fun LoginPanel(
             enabled = !state.busy,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
+                .height(metrics.primaryButtonHeight),
             colors = ButtonDefaults.buttonColors(containerColor = Trust, contentColor = Color.White)
         ) {
             Text(if (state.busy) "처리 중" else "로그인", fontWeight = FontWeight.Bold)
@@ -3183,6 +3311,7 @@ private fun ModeChoiceButton(
 @Composable
 private fun TranslationPanel(
     state: StaffUiState,
+    metrics: StaffLayoutMetrics,
     onToggleSpeak: () -> Unit,
     onReplayTranslation: () -> Unit,
     onTextInputChange: (String) -> Unit,
@@ -3196,24 +3325,19 @@ private fun TranslationPanel(
     val patientSpeaking = room?.status == "patient_speaking"
     val showingPatientTurn = state.lastMessageSpeaker == "patient"
     val sourceLabel = if (showingPatientTurn) "환자 발화" else "한국어 인식"
-    val translatedLabel = if (showingPatientTurn) "직원에게 보여줄 한국어" else "환자에게 들려줄 번역"
+    val translatedLabel = if (showingPatientTurn) "직원용 한국어 번역" else "환자 언어 번역"
     val sourcePlaceholder = if (showingPatientTurn) "환자가 말하면 원문이 표시됩니다." else "말하면 한국어 원문이 표시됩니다."
-    val translatedPlaceholder = if (showingPatientTurn) "환자 발화의 한국어 번역이 표시됩니다." else "번역 결과가 표시되고 자동재생됩니다."
+    val translatedPlaceholder = if (showingPatientTurn) "환자 발화의 한국어 번역이 표시됩니다." else "번역 결과가 표시되고 직원폰에서 재생됩니다."
     val isConsultation = room?.roomMode == "consultation"
     if (isConsultation) {
-        SectionCard("상담 통역") {
-            Text(
-                "웹 상담방처럼 대화가 아래에 쌓이고, 하단 조작부에서 바로 말하거나 텍스트로 보낼 수 있습니다.",
-                color = SlateText,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(Modifier.height(10.dp))
+        SectionCard("상담 통역", metrics) {
             AutoPlayBar(state = state, onTtsEnabled = onTtsEnabled)
             Spacer(Modifier.height(12.dp))
-            ConversationList(state.messages)
+            ConversationList(state.messages, metrics)
             Spacer(Modifier.height(10.dp))
             MicControlBox(
                 state = state,
+                metrics = metrics,
                 patientReady = patientReady,
                 patientSpeaking = patientSpeaking,
                 canSpeak = canSpeak,
@@ -3224,6 +3348,7 @@ private fun TranslationPanel(
             Spacer(Modifier.height(8.dp))
             TextFallbackBox(
                 value = state.textInput,
+                metrics = metrics,
                 enabled = patientReady && canStaffSendText(room.status) && !state.busy && !state.speaking,
                 onValueChange = onTextInputChange,
                 onSubmit = onSubmitText
@@ -3236,17 +3361,12 @@ private fun TranslationPanel(
         return
     }
 
-    SectionCard("시술 통역") {
-        Text(
-            "짧게 말하면 환자 언어로 바로 재생됩니다. 놓친 안내는 다시 들을 수 있습니다.",
-            color = SlateText,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(Modifier.height(10.dp))
+    SectionCard("시술 통역", metrics) {
         AutoPlayBar(state = state, onTtsEnabled = onTtsEnabled)
         Spacer(Modifier.height(14.dp))
         MicControlBox(
             state = state,
+            metrics = metrics,
             patientReady = patientReady,
             patientSpeaking = patientSpeaking,
             canSpeak = canSpeak,
@@ -3255,9 +3375,9 @@ private fun TranslationPanel(
             onRequestMicPermission = onRequestMicPermission
         )
         Spacer(Modifier.height(14.dp))
-        TranscriptBox(sourceLabel, state.sourceDraft.ifBlank { sourcePlaceholder })
+        TranscriptBox(sourceLabel, state.sourceDraft.ifBlank { sourcePlaceholder }, metrics)
         Spacer(Modifier.height(8.dp))
-        TranscriptBox(translatedLabel, state.translatedDraft.ifBlank { translatedPlaceholder })
+        TranscriptBox(translatedLabel, state.translatedDraft.ifBlank { translatedPlaceholder }, metrics)
         Spacer(Modifier.height(8.dp))
         ReplayButton(onReplayTranslation, enabled = state.translatedDraft.isNotBlank())
     }
@@ -3275,7 +3395,7 @@ private fun AutoPlayBar(state: StaffUiState, onTtsEnabled: (Boolean) -> Unit) {
         Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = Trust, modifier = Modifier.size(20.dp))
         Spacer(Modifier.size(8.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text("자동재생", color = Ink, fontWeight = FontWeight.Bold)
+            Text("직원폰 자동재생", color = Ink, fontWeight = FontWeight.Bold)
             Text(state.ttsStatus, color = SlateText, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
         }
         Switch(checked = state.ttsEnabled, onCheckedChange = onTtsEnabled)
@@ -3292,13 +3412,14 @@ private fun ReplayButton(onReplayTranslation: () -> Unit, enabled: Boolean) {
     ) {
         Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(Modifier.size(8.dp))
-        Text("다시 듣기", fontWeight = FontWeight.Bold)
+        Text("직원폰 다시 듣기", fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
 private fun MicControlBox(
     state: StaffUiState,
+    metrics: StaffLayoutMetrics,
     patientReady: Boolean,
     patientSpeaking: Boolean,
     canSpeak: Boolean,
@@ -3306,9 +3427,13 @@ private fun MicControlBox(
     onToggleSpeak: () -> Unit,
     onRequestMicPermission: () -> Unit
 ) {
-    val buttonSize = if (large) 176.dp else 104.dp
-    val iconSize = if (large) 48.dp else 32.dp
-    val panelPadding = if (large) 20.dp else 12.dp
+    val buttonSize = if (large) metrics.micLargeSize else metrics.micSmallSize
+    val iconSize = if (large) {
+        if (metrics.isTablet) 56.dp else 46.dp
+    } else {
+        if (metrics.isTablet) 36.dp else 32.dp
+    }
+    val panelPadding = if (large) metrics.cardPadding else 12.dp
     val micButtonEnabled = state.speaking || (!state.busy && canSpeak)
     val disabledMicColor = if (state.busy) Ink else Color(0xFFCBD5E1)
     Box(
@@ -3386,6 +3511,7 @@ private fun MicControlBox(
 @Composable
 private fun TextFallbackBox(
     value: String,
+    metrics: StaffLayoutMetrics,
     enabled: Boolean,
     onValueChange: (String) -> Unit,
     onSubmit: () -> Unit
@@ -3394,7 +3520,7 @@ private fun TextFallbackBox(
         modifier = Modifier
             .fillMaxWidth()
             .background(Panel, RoundedCornerShape(16.dp))
-            .padding(8.dp)
+            .padding(if (metrics.isTablet) 10.dp else 8.dp)
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
@@ -3419,17 +3545,17 @@ private fun TextFallbackBox(
 }
 
 @Composable
-private fun ConversationList(messages: List<StaffMessage>) {
+private fun ConversationList(messages: List<StaffMessage>, metrics: StaffLayoutMetrics) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 320.dp)
+            .heightIn(min = metrics.conversationMinHeight)
             .background(Mist, RoundedCornerShape(8.dp))
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         if (messages.isEmpty()) {
-            Box(modifier = Modifier.fillMaxWidth().height(260.dp), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.fillMaxWidth().height(metrics.conversationEmptyHeight), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("AI", color = Mint, fontWeight = FontWeight.Bold, modifier = Modifier
                         .background(Color(0xFFDFF7EF), RoundedCornerShape(40.dp))
@@ -3501,29 +3627,33 @@ private fun ConversationBubble(message: StaffMessage) {
 }
 
 @Composable
-private fun TranscriptBox(label: String, text: String) {
+private fun TranscriptBox(label: String, text: String, metrics: StaffLayoutMetrics) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(Panel, RoundedCornerShape(8.dp))
-            .padding(14.dp)
+            .padding(if (metrics.isTablet) 18.dp else 14.dp)
     ) {
         Text(label, color = Trust, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(4.dp))
-        Text(text, color = Ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(text, color = Ink, style = if (metrics.isTablet) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
-private fun SectionCard(title: String, content: @Composable () -> Unit) {
+private fun SectionCard(
+    title: String,
+    metrics: StaffLayoutMetrics = CompactStaffLayoutMetrics,
+    content: @Composable () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, color = Ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Column(modifier = Modifier.padding(metrics.cardPadding)) {
+            Text(title, color = Ink, style = if (metrics.isTablet) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
             content()
         }

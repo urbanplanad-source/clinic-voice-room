@@ -81,7 +81,7 @@ Latest local field-test APK:
 
 ```text
 android-staff-app/app/build/outputs/apk/field/medivoice-0.3.9-field.apk
-SHA256: E00F1A2FE2D19BBD81E6D79709B8FC6E01D7FF2007B06556C86F41A85D808A2F
+SHA256: ED1AB77CEC981139DBE9BE0119FB6A86EF14AD36835CE2BDA725E9116B949CF0
 ```
 
 Release build sanity check:
@@ -219,7 +219,7 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
-- Android v0.3.9 intercepts Android system back navigation, waits briefly for Realtime input transcripts before saving staff voice turns, avoids the Korean-source fallback sentence when transcription is missing, strengthens Rejuran Healer/Juvelook brand normalization, tightens the native setup/conversation UI for small mobile screens, and shows login progress/failure text directly on the Android login screen.
+- Android v0.3.9 intercepts Android system back navigation, waits briefly for Realtime input transcripts before saving staff voice turns, avoids the Korean-source fallback sentence when transcription is missing, strengthens Rejuran Healer/Juvelook brand normalization, tightens the native setup/conversation UI for mobile and tablet screens, and shows login progress/failure text directly on the Android login screen.
 - Android v0.3.8 increases the staff recording safety limit from 12 seconds to 60 seconds so longer explanations are not auto-submitted prematurely.
 - Android v0.3.7 reduces patient-to-staff receive latency by polling messages before room state, using a 300ms poll window while the patient is speaking/translating, and letting patient web upload start without waiting for noncritical state-transition POSTs.
 - Android v0.3.6 forces Realtime responses to text-only output, returns Android Realtime turns before the persist POST finishes, retries that persist in the background, wakes the Realtime completion loop from `response.done`, and pre-warms Korean plus patient-language TTS after room setup.
