@@ -122,6 +122,7 @@ export function ConsultationChatRoom({
   const canSubmitText = Boolean(textInput.trim()) && !textSubmitting && room.status !== "ended";
   const isSpeaking = speakingStartedAt !== null;
   const micEnabled = isMicEnabled(room.status, role);
+  const browserAudioOutputEnabled = role === "staff";
   const lastIncomingMessage = messages.find((message) => message.speaker !== role && message.deliveryStatus !== "failed");
   const replayLabel = role === "staff" ? "다시 듣기" : replayCopy[room.patientLanguage];
 
@@ -194,6 +195,16 @@ export function ConsultationChatRoom({
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   }, []);
 
+  useEffect(() => {
+    if (role === "staff") return;
+    stopPlayback();
+    speechQueueRef.current = Promise.resolve();
+
+    return () => {
+      stopPlayback();
+    };
+  }, [role, stopPlayback]);
+
   const targetLanguageForMessage = useCallback((message: TranslationMessage) => {
     return message.targetLanguage ?? (message.speaker === "staff" ? room.patientLanguage : "ko");
   }, [room.patientLanguage]);
@@ -211,6 +222,7 @@ export function ConsultationChatRoom({
   }, []);
 
   const playBrowserTranslatedSpeech = useCallback((text: string, targetLanguage: PatientLanguage | "ko") => {
+    if (!browserAudioOutputEnabled) return;
     if (!("speechSynthesis" in window)) return;
 
     const lang = speechLanguageByPatientLanguage[targetLanguage];
@@ -222,9 +234,10 @@ export function ConsultationChatRoom({
 
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
-  }, [findBrowserVoice]);
+  }, [browserAudioOutputEnabled, findBrowserVoice]);
 
   const playQueuedTranslatedSpeech = useCallback((message: TranslationMessage) => {
+    if (!browserAudioOutputEnabled) return;
     if (message.speaker === role) return;
     if (spokenMessageIdsRef.current.has(message.id)) return;
     spokenMessageIdsRef.current.add(message.id);
@@ -234,7 +247,7 @@ export function ConsultationChatRoom({
       .then(async () => {
         playBrowserTranslatedSpeech(message.text, targetLanguage);
       });
-  }, [playBrowserTranslatedSpeech, role, targetLanguageForMessage]);
+  }, [browserAudioOutputEnabled, playBrowserTranslatedSpeech, role, targetLanguageForMessage]);
 
   const markIncomingMessagesRead = useCallback((incomingMessages: TranslationMessage[]) => {
     if (!incomingMessages.some((message) => message.speaker !== role)) return;
@@ -251,10 +264,11 @@ export function ConsultationChatRoom({
   }, [role, room.id, roomToken]);
 
   const replayLastIncomingMessage = useCallback(() => {
+    if (!browserAudioOutputEnabled) return;
     if (!lastIncomingMessage) return;
     stopPlayback();
     playBrowserTranslatedSpeech(lastIncomingMessage.text, targetLanguageForMessage(lastIncomingMessage));
-  }, [lastIncomingMessage, playBrowserTranslatedSpeech, stopPlayback, targetLanguageForMessage]);
+  }, [browserAudioOutputEnabled, lastIncomingMessage, playBrowserTranslatedSpeech, stopPlayback, targetLanguageForMessage]);
 
   const ensureRealtimeSession = useCallback(async (stream: MediaStream) => {
     if (!realtimeClientRef.current) {
@@ -969,7 +983,7 @@ export function ConsultationChatRoom({
             {room.status === "ended" ? (role === "staff" ? "상담 종료" : copy.statusEnded) : isSpeaking ? voiceText.speaking : micEnabled ? voiceText.ready : voiceText.waiting}
           </p>
           <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 md:text-sm">{voiceText.helper}</p>
-          {lastIncomingMessage ? (
+          {browserAudioOutputEnabled && lastIncomingMessage ? (
             <button
               type="button"
               onClick={replayLastIncomingMessage}

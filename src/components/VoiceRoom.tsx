@@ -815,6 +815,16 @@ function ProcedureVoiceRoom({
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   }, []);
 
+  useEffect(() => {
+    if (isStaffAudioHub) return;
+    stopPlayback();
+    speechQueueRef.current = Promise.resolve();
+
+    return () => {
+      stopPlayback();
+    };
+  }, [isStaffAudioHub, stopPlayback]);
+
   const findBrowserVoice = useCallback((lang: string) => {
     if (!("speechSynthesis" in window)) return null;
     const voices = window.speechSynthesis.getVoices();
@@ -828,6 +838,7 @@ function ProcedureVoiceRoom({
   }, []);
 
   const playBrowserTranslatedSpeech = useCallback((text: string, targetLanguage: PatientLanguage | "ko") => {
+    if (!isStaffAudioHub) return;
     if (!("speechSynthesis" in window)) {
       return;
     }
@@ -841,16 +852,17 @@ function ProcedureVoiceRoom({
 
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
-  }, [findBrowserVoice]);
+  }, [findBrowserVoice, isStaffAudioHub]);
 
   const playQueuedTranslatedSpeech = useCallback((message: TranslationMessage) => {
+    if (!isStaffAudioHub) return;
     const targetLanguage = message.targetLanguage ?? (message.speaker === "staff" ? room.patientLanguage : "ko");
     speechQueueRef.current = speechQueueRef.current
       .catch(() => undefined)
       .then(async () => {
         playBrowserTranslatedSpeech(message.text, targetLanguage);
       });
-  }, [playBrowserTranslatedSpeech, room.patientLanguage]);
+  }, [isStaffAudioHub, playBrowserTranslatedSpeech, room.patientLanguage]);
 
   const markIncomingMessagesRead = useCallback((incomingMessages: TranslationMessage[]) => {
     if (!incomingMessages.some((message) => message.speaker !== role)) return;

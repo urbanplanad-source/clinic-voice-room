@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, MessageSquareText, Mic, ShieldCheck, Volume2 } from "lucide-react";
+import { ArrowRight, MessageSquareText, Mic, ShieldCheck } from "lucide-react";
 import { languageLabels, type PatientLanguage } from "@/lib/languages";
 import type { RoomStatus } from "@/lib/room-state";
 import { broadcastRoomUpdate } from "@/lib/supabase-realtime";
@@ -14,7 +14,7 @@ const copy: Record<
   zh: {
     title: "医院翻译室",
     body: "进入后可用语音咨询，文字输入可作为备用。不需要安装应用或注册账号。",
-    procedureBody: "治疗过程中会播放翻译语音。请保持屏幕开启，并将手机放在身边。",
+    procedureBody: "治疗过程中，翻译内容只会以文字显示在此手机上。请保持屏幕开启并查看文字。",
     consent: "为提供口译服务，您的语音可能会由外部 AI 服务处理。本服务不会保存原始语音或完整对话记录。",
     button: "进入房间",
     denied: "无法使用麦克风。请在浏览器设置中允许麦克风权限。",
@@ -24,7 +24,7 @@ const copy: Record<
   zh_tw: {
     title: "醫院翻譯室",
     body: "入室後可用語音諮詢，文字輸入可作為備用。不需要安裝 App 或註冊帳號。",
-    procedureBody: "療程中會播放翻譯語音。請保持螢幕開啟，並將手機放在身邊。",
+    procedureBody: "療程中，翻譯內容只會以文字顯示在此手機上。請保持螢幕開啟並查看文字。",
     consent: "為提供口譯服務，您的語音可能會由外部 AI 服務處理。本服務不會保存原始語音或完整對話紀錄。",
     button: "進入房間",
     denied: "無法使用麥克風。請在瀏覽器設定中允許麥克風權限。",
@@ -34,7 +34,7 @@ const copy: Record<
   ja: {
     title: "病院通訳ルーム",
     body: "入室後は音声で相談できます。文字入力は予備として使えます。アプリのインストールやアカウント登録は不要です。",
-    procedureBody: "施術中に通訳音声が再生されます。画面をオンにしたまま、端末をそばに置いてください。",
+    procedureBody: "施術中の翻訳はこの端末では文字のみ表示されます。画面をオンにしたまま文字をご確認ください。",
     consent: "通訳のため、音声が外部AIサービスで処理される場合があります。元の音声や会話全文は保存しません。",
     button: "入室する",
     denied: "マイクを使用できません。ブラウザ設定でマイクの使用を許可してください。",
@@ -44,7 +44,7 @@ const copy: Record<
   en: {
     title: "Hospital Interpretation Room",
     body: "After entering, you can consult by voice. Typing is available as a backup. No app installation or account is required.",
-    procedureBody: "Translated audio may play during the procedure. Please keep this screen on and place the phone nearby.",
+    procedureBody: "During the procedure, translations will be shown as text only on this phone. Please keep the screen on and read the text.",
     consent: "To provide interpretation, your voice may be processed by an external AI service. We do not store raw audio or full conversation transcripts.",
     button: "Enter room",
     denied: "Microphone is unavailable. Please allow microphone access in your browser settings.",
@@ -54,7 +54,7 @@ const copy: Record<
   th: {
     title: "ห้องล่ามของโรงพยาบาล",
     body: "หลังเข้าห้อง คุณสามารถปรึกษาด้วยเสียงได้ และใช้การพิมพ์เป็นตัวเลือกสำรอง ไม่ต้องติดตั้งแอปหรือสมัครบัญชี",
-    procedureBody: "ระหว่างทำหัตถการอาจมีเสียงแปล กรุณาเปิดหน้าจอไว้และวางโทรศัพท์ไว้ใกล้ตัว",
+    procedureBody: "ระหว่างทำหัตถการ คำแปลจะแสดงเป็นข้อความเท่านั้นบนโทรศัพท์เครื่องนี้ กรุณาเปิดหน้าจอไว้และอ่านข้อความ",
     consent: "เพื่อให้บริการล่าม เสียงของคุณอาจถูกประมวลผลโดยบริการ AI ภายนอก เราจะไม่บันทึกเสียงต้นฉบับหรือบทสนทนาทั้งหมด",
     button: "เข้าห้อง",
     denied: "ไม่สามารถใช้ไมโครโฟนได้ กรุณาอนุญาตไมโครโฟนในการตั้งค่าเบราว์เซอร์",
@@ -64,7 +64,7 @@ const copy: Record<
   ms: {
     title: "Bilik Interpretasi Klinik",
     body: "Selepas masuk, anda boleh berkonsultasi melalui suara. Menaip tersedia sebagai sandaran. Tidak perlu memasang aplikasi atau membuat akaun.",
-    procedureBody: "Audio terjemahan mungkin dimainkan semasa prosedur. Pastikan skrin kekal hidup dan letakkan telefon berhampiran anda.",
+    procedureBody: "Semasa prosedur, terjemahan akan dipaparkan sebagai teks sahaja pada telefon ini. Pastikan skrin kekal hidup dan baca teks.",
     consent: "Untuk menyediakan interpretasi, suara anda mungkin diproses oleh perkhidmatan AI luaran. Kami tidak menyimpan audio mentah atau transkrip perbualan penuh.",
     button: "Masuk",
     denied: "Mikrofon tidak tersedia. Sila benarkan akses mikrofon dalam tetapan pelayar.",
@@ -74,7 +74,7 @@ const copy: Record<
   mn: {
     title: "Эмнэлгийн орчуулгын өрөө",
     body: "Өрөөнд орсны дараа дуугаар зөвлөгөө авч болно. Бичих талбар нөөцөөр байна. Апп суулгах эсвэл бүртгэл үүсгэх шаардлагагүй.",
-    procedureBody: "Ажилбарын үед орчуулсан дуу тоглож болно. Дэлгэцээ асаалттай байлгаж, утсаа ойрхон тавина уу.",
+    procedureBody: "Ажилбарын үед орчуулга энэ утсан дээр зөвхөн бичвэрээр харагдана. Дэлгэцээ асаалттай байлгаж бичвэрийг уншина уу.",
     consent: "Орчуулга хийхийн тулд таны дуу хоолой гадаад AI үйлчилгээээр боловсруулагдаж болно. Бид эх аудио эсвэл бүтэн ярианы бичвэрийг хадгалахгүй.",
     button: "Өрөөнд орох",
     denied: "Микрофон ашиглах боломжгүй байна. Хөтчийн тохиргооноос микрофоны зөвшөөрлийг нээнэ үү.",
@@ -84,7 +84,7 @@ const copy: Record<
   ru: {
     title: "Кабинет перевода в клинике",
     body: "После входа можно консультироваться голосом. Текст доступен как запасной вариант. Установка приложения и регистрация не требуются.",
-    procedureBody: "Во время процедуры может воспроизводиться перевод. Оставьте экран включенным и положите телефон рядом.",
+    procedureBody: "Во время процедуры перевод будет отображаться на этом телефоне только текстом. Держите экран включенным и читайте текст.",
     consent: "Для перевода ваш голос может обрабатываться внешним AI-сервисом. Мы не сохраняем исходную аудиозапись или полный текст разговора.",
     button: "Войти",
     denied: "Микрофон недоступен. Разрешите доступ к микрофону в настройках браузера.",
@@ -94,7 +94,7 @@ const copy: Record<
   vi: {
     title: "Phòng phiên dịch bệnh viện",
     body: "Sau khi vào phòng, bạn có thể tư vấn bằng giọng nói. Nhập chữ là phương án dự phòng. Không cần cài ứng dụng hoặc tạo tài khoản.",
-    procedureBody: "Âm thanh phiên dịch có thể được phát trong quá trình thực hiện thủ thuật. Vui lòng để màn hình bật và đặt điện thoại gần bạn.",
+    procedureBody: "Trong quá trình thực hiện thủ thuật, bản dịch chỉ hiển thị bằng chữ trên điện thoại này. Vui lòng để màn hình bật và đọc nội dung.",
     consent: "Để cung cấp phiên dịch, giọng nói của bạn có thể được xử lý bởi dịch vụ AI bên ngoài. Chúng tôi không lưu âm thanh gốc hoặc toàn bộ nội dung cuộc trò chuyện.",
     button: "Vào phòng",
     denied: "Không thể sử dụng micro. Vui lòng cho phép quyền micro trong cài đặt trình duyệt.",
@@ -104,7 +104,7 @@ const copy: Record<
   id: {
     title: "Ruang Interpretasi Klinik",
     body: "Setelah masuk, Anda dapat berkonsultasi dengan suara. Mengetik tersedia sebagai cadangan. Tidak perlu memasang aplikasi atau membuat akun.",
-    procedureBody: "Audio terjemahan dapat diputar selama prosedur. Tetap nyalakan layar dan letakkan ponsel di dekat Anda.",
+    procedureBody: "Selama prosedur, terjemahan hanya akan ditampilkan sebagai teks di ponsel ini. Tetap nyalakan layar dan baca teksnya.",
     consent: "Untuk menyediakan interpretasi, suara Anda dapat diproses oleh layanan AI eksternal. Kami tidak menyimpan audio mentah atau transkrip percakapan lengkap.",
     button: "Masuk",
     denied: "Mikrofon tidak tersedia. Izinkan akses mikrofon di pengaturan browser.",
@@ -114,7 +114,7 @@ const copy: Record<
   fr: {
     title: "Salle d'interprétation de la clinique",
     body: "Après l'entrée, vous pouvez consulter par voix. Le texte reste disponible en secours. Aucune installation d'application ni création de compte n'est nécessaire.",
-    procedureBody: "L'audio traduit peut être diffusé pendant l'intervention. Gardez cet écran allumé et placez le téléphone à proximité.",
+    procedureBody: "Pendant l'intervention, les traductions s'afficheront uniquement en texte sur ce téléphone. Gardez l'écran allumé et lisez le texte.",
     consent: "Pour fournir l'interprétation, votre voix peut être traitée par un service d'IA externe. Nous ne conservons pas l'audio brut ni la transcription complète de la conversation.",
     button: "Entrer",
     denied: "Le microphone n'est pas disponible. Veuillez autoriser l'accès au microphone dans les paramètres du navigateur.",
@@ -124,7 +124,7 @@ const copy: Record<
   es: {
     title: "Sala de interpretación de la clínica",
     body: "Después de entrar, puede consultar por voz. El texto queda como respaldo. No necesita instalar una aplicación ni crear una cuenta.",
-    procedureBody: "El audio traducido puede reproducirse durante el procedimiento. Mantenga esta pantalla encendida y coloque el teléfono cerca.",
+    procedureBody: "Durante el procedimiento, las traducciones se mostrarán solo como texto en este teléfono. Mantenga la pantalla encendida y lea el texto.",
     consent: "Para ofrecer la interpretación, su voz puede ser procesada por un servicio externo de IA. No guardamos el audio original ni la transcripción completa de la conversación.",
     button: "Entrar",
     denied: "El micrófono no está disponible. Permita el acceso al micrófono en la configuración del navegador.",
@@ -134,7 +134,7 @@ const copy: Record<
   de: {
     title: "Dolmetschraum der Klinik",
     body: "Nach dem Betreten können Sie per Sprache beraten werden. Text bleibt als Reserve verfügbar. Eine App-Installation oder Kontoerstellung ist nicht erforderlich.",
-    procedureBody: "Während der Behandlung kann übersetztes Audio abgespielt werden. Lassen Sie den Bildschirm eingeschaltet und legen Sie das Telefon in Ihre Nähe.",
+    procedureBody: "Während der Behandlung werden Übersetzungen auf diesem Telefon nur als Text angezeigt. Lassen Sie den Bildschirm eingeschaltet und lesen Sie den Text.",
     consent: "Für die Verdolmetschung kann Ihre Stimme von einem externen KI-Dienst verarbeitet werden. Wir speichern weder Roh-Audio noch vollständige Gesprächsprotokolle.",
     button: "Raum betreten",
     denied: "Das Mikrofon ist nicht verfügbar. Bitte erlauben Sie den Mikrofonzugriff in den Browsereinstellungen.",
@@ -144,7 +144,7 @@ const copy: Record<
   it: {
     title: "Sala di interpretariato della clinica",
     body: "Dopo l'ingresso puoi fare la consulenza con la voce. Il testo resta come opzione di riserva. Non è necessario installare un'app o creare un account.",
-    procedureBody: "Durante la procedura potrebbe essere riprodotto l'audio tradotto. Tieni lo schermo acceso e il telefono vicino.",
+    procedureBody: "Durante la procedura, le traduzioni saranno mostrate solo come testo su questo telefono. Tieni lo schermo acceso e leggi il testo.",
     consent: "Per fornire l'interpretariato, la tua voce può essere elaborata da un servizio IA esterno. Non conserviamo l'audio originale né la trascrizione completa della conversazione.",
     button: "Entra",
     denied: "Il microfono non è disponibile. Consenti l'accesso al microfono nelle impostazioni del browser.",
@@ -154,7 +154,7 @@ const copy: Record<
   pt: {
     title: "Sala de interpretação da clínica",
     body: "Depois de entrar, você pode consultar por voz. O texto fica como opção de apoio. Não é necessário instalar aplicativo nem criar conta.",
-    procedureBody: "O áudio traduzido pode ser reproduzido durante o procedimento. Mantenha esta tela ligada e coloque o telefone por perto.",
+    procedureBody: "Durante o procedimento, as traduções serão exibidas apenas como texto neste telefone. Mantenha a tela ligada e leia o texto.",
     consent: "Para fornecer a interpretação, sua voz pode ser processada por um serviço externo de IA. Não armazenamos o áudio bruto nem a transcrição completa da conversa.",
     button: "Entrar",
     denied: "O microfone não está disponível. Permita o acesso ao microfone nas configurações do navegador.",
@@ -270,7 +270,7 @@ export function PatientJoin({
           <p>{roomMode === "procedure" ? text.procedureBody : text.body}</p>
         </div>
         <div className="flex gap-3">
-          <Volume2 size={20} className="mt-0.5 shrink-0 text-trust" />
+          <MessageSquareText size={20} className="mt-0.5 shrink-0 text-trust" />
           <p>{text.consent}</p>
         </div>
         <div className="flex gap-3">
