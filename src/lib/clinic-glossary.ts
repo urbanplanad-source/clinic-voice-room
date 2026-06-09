@@ -26,6 +26,17 @@ const realtimeKoreanTranscriptionHints = [
   "리쥬란",
   "리주란",
   "리쥬란 힐러",
+  "리쥬란 블랙박스",
+  "리쥬란 레드박스",
+  "리쥬란 HB",
+  "리쥬란 아이",
+  "리쥬란 S",
+  "리쥬란 엘라스킨",
+  "블랙박스",
+  "레드박스",
+  "화이트박스",
+  "블루박스",
+  "퍼플박스",
   "쥬베룩",
   "쥬베룩 볼륨",
   "울쎄라",
@@ -64,7 +75,8 @@ const commonBrandCorrectionPatterns = [
   /\bni[\s-]?juran\b/gi,
   /\bni[\s-]?zuran\b/gi,
   /\bniju[\s-]?ran\b/gi,
-  /\bnizhu[\s-]?ran\b/gi
+  /\bnizhu[\s-]?ran\b/gi,
+  /丽珠蓝|丽珠澜|李珠兰|力珠兰|力猪蓝|力猪兰|利诸兰|丽驻兰|丽主兰|力主兰|利珠兰/g
 ];
 
 const swellingTermByLanguage: Partial<Record<GlossaryTargetLanguage, string>> = {
@@ -101,28 +113,54 @@ const swellingPhraseByLanguage: Partial<Record<GlossaryTargetLanguage, string>> 
   pt: "Pode ocorrer inchaço."
 };
 
-const brandDisplayByLanguage: Partial<Record<GlossaryTargetLanguage, Record<"rejuran" | "rejuranHealer" | "juvelook" | "juvelookVolume", string>>> = {
+type ClinicBrandKey =
+  | "rejuran"
+  | "rejuranHealer"
+  | "rejuranHb"
+  | "rejuranI"
+  | "rejuranS"
+  | "rejuranElaskin"
+  | "juvelook"
+  | "juvelookVolume";
+
+const brandDisplayByLanguage: Partial<Record<GlossaryTargetLanguage, Record<ClinicBrandKey, string>>> = {
   ko: {
     rejuran: "리쥬란",
     rejuranHealer: "리쥬란 힐러",
+    rejuranHb: "리쥬란 HB",
+    rejuranI: "리쥬란 아이",
+    rejuranS: "리쥬란 S",
+    rejuranElaskin: "리쥬란 엘라스킨",
     juvelook: "쥬베룩",
     juvelookVolume: "쥬베룩 볼륨"
   },
   zh: {
     rejuran: "丽珠兰",
     rejuranHealer: "丽珠兰 Healer",
+    rejuranHb: "丽珠兰红盒",
+    rejuranI: "丽珠兰白盒",
+    rejuranS: "丽珠兰蓝盒",
+    rejuranElaskin: "丽珠兰紫盒",
     juvelook: "Juvelook",
     juvelookVolume: "Juvelook Volume"
   },
   zh_tw: {
     rejuran: "麗珠蘭",
     rejuranHealer: "麗珠蘭 Healer",
+    rejuranHb: "麗珠蘭紅盒",
+    rejuranI: "麗珠蘭白盒",
+    rejuranS: "麗珠蘭藍盒",
+    rejuranElaskin: "麗珠蘭紫盒",
     juvelook: "Juvelook",
     juvelookVolume: "Juvelook Volume"
   },
   ja: {
     rejuran: "リジュラン",
     rejuranHealer: "リジュランヒーラー",
+    rejuranHb: "リジュランHB",
+    rejuranI: "リジュランアイ",
+    rejuranS: "リジュランS",
+    rejuranElaskin: "リジュラン エラスキン",
     juvelook: "ジュベルック",
     juvelookVolume: "ジュベルック ボリューム"
   }
@@ -165,35 +203,48 @@ const rawClinicGlossary = `
 오십유닛|50유닛,50유닛,五十单位,ごじゅうユニット,fifty units,пятьдесят единиц,năm mươi đơn vị,lima puluh unit,unit,보툴리눔 톡신 단위
 한바이알|1바이알,1바이알,一瓶,いちバイアル,one vial,один флакон,một lọ,satu vial,unit,바이알 수
 두바이알|2바이알,2바이알,两瓶,にバイアル,two vials,два флакона,hai lọ,dua vial,unit,바이알 수
-울쎄라|울세라,울쎄라,Ultherapy,ウルセラ,Ultherapy,Ultherapy,Ultherapy,Ultherapy,device,장비명 의역 금지
+울쎄라|울세라|美版超声刀|美版超聲刀,울쎄라,Ultherapy,ウルセラ,Ultherapy,Ultherapy,Ultherapy,Ultherapy,device,장비명 의역 금지
 울쎄라피프라임|울쎄라 프라임|울세라피 프라임,울쎄라피 프라임,Ultherapy Prime,ウルセラピー プライム,Ultherapy Prime,Ultherapy Prime,Ultherapy Prime,Ultherapy Prime,device,장비명 의역 금지
-써마지|서마지,써마지,Thermage,サーマクール,Thermage,Thermage,Thermage,Thermage,device,장비명
+써마지|서마지|热玛吉|熱瑪吉|热马吉|熱馬吉|热麻吉|熱麻吉|热妈吉|惹玛吉,써마지,Thermage,サーマクール,Thermage,Thermage,Thermage,Thermage,device,장비명
 써마지에프엘엑스|써마지 FLX|서마지 FLX,써마지 FLX,Thermage FLX,サーマクールFLX,Thermage FLX,Thermage FLX,Thermage FLX,Thermage FLX,device,장비명
 세르프|제르프|XERF,XERF,XERF,ザーフ,XERF,XERF,XERF,XERF,device,장비명 의역 금지
-포텐자|포텐자레이저,포텐자,Potenza 微针射频,ポテンツァ,Potenza,Potenza,Potenza,Potenza,device,장비명
+포텐자|포텐자레이저|黄金微针|黃金微針,포텐자,Potenza 微针射频,ポテンツァ,Potenza,Potenza,Potenza,Potenza,device,장비명
 실펌|실펌엑스|Sylfirm X,실펌 X,Sylfirm X,シルファームX,Sylfirm X,Sylfirm X,Sylfirm X,Sylfirm X,device,장비명
-피코|피코레이저,피코 레이저,皮秒激光,ピコレーザー,pico laser,пикосекундный лазер,laser pico,laser pico,device,레이저명
+피코|피코레이저|皮秒|皮秒激光|皮秒镭射|皮秒雷射|皮妙,피코 레이저,皮秒激光,ピコレーザー,pico laser,пикосекундный лазер,laser pico,laser pico,device,레이저명
 피코웨이|PicoWay,피코웨이,PicoWay 皮秒激光,ピコウェイ,PicoWay,PicoWay,PicoWay,PicoWay,device,장비명
 피코슈어|PicoSure,피코슈어,PicoSure 皮秒激光,ピコシュア,PicoSure,PicoSure,PicoSure,PicoSure,device,장비명
 브이빔|Vbeam,브이빔,Vbeam 激光,Vビーム,Vbeam,Vbeam,Vbeam,Vbeam,device,혈관레이저
-엑셀브이|엑셀V|excel V,엑셀브이,excel V 激光,エクセルVレーザー,excel V laser,excel V laser,laser excel V,laser excel V,device,혈관레이저
+엑셀브이|엑셀V|excel V|艾克赛尔V|艾克賽爾V|XLV,엑셀브이,excel V 激光,エクセルVレーザー,excel V laser,excel V laser,laser excel V,laser excel V,device,혈관레이저
 프락셀|프락셀레이저,프락셀,Fraxel 激光,フラクセルレーザー,Fraxel laser,фракционный лазер Fraxel,laser Fraxel,laser Fraxel,device,프락셔널 레이저
-리쥬란|리주란,리쥬란,丽珠兰,リジュラン,Rejuran,Rejuran,Rejuran,Rejuran,brand,브랜드명
+볼뉴머|볼뉴머리프팅|Volnewmer,볼뉴머,Volnewmer,ボルニューマー,Volnewmer,Volnewmer,Volnewmer,Volnewmer,device,고주파 리프팅 장비명
+주비덤|쥬비덤|Juvederm,주비덤,乔雅登,ジュビダーム,Juvederm,Juvederm,Juvederm,Juvederm,brand,필러 브랜드명
+프로파일로|Profhilo,프로파일로,五点提升,プロファイロ,Profhilo,Profhilo,Profhilo,Profhilo,brand,스킨부스터 브랜드명
+레니스나|렌티스|Lenisna|Lensis,레니스나,兰提斯,レニスナ,Lenisna,Lenisna,Lenisna,Lenisna,brand,스킨부스터 브랜드명
+리쥬란|리주란|三文鱼针|三文魚針,리쥬란,丽珠兰,リジュラン,Rejuran,Rejuran,Rejuran,Rejuran,brand,브랜드명
 리쥬란힐러|리쥬란 힐러,리쥬란 힐러,丽珠兰 Healer,リジュランヒーラー,Rejuran Healer,Rejuran Healer,Rejuran Healer,Rejuran Healer,brand,브랜드명
-쥬베룩|주베룩,쥬베룩,Juvelook,ジュベルック,Juvelook,Juvelook,Juvelook,Juvelook,brand,브랜드명
+리쥬란블랙박스|리쥬란 블랙박스|리쥬란 블랙 박스|리쥬란 힐러|블랙박스|블랙 박스|黑盒|黑盒子|黑火|黑河|黑和|黑合|黑核|灰盒|灰火|헤이허|헤이훠|훼이훠|heihe|hei he|hei huo|black box|black fire,리쥬란 힐러,丽珠兰黑盒,リジュラン ブラックボックス,Rejuran Black Box,Rejuran Black Box,Rejuran Black Box,Rejuran Black Box,brand,리쥬란 제품 색상 별칭
+리쥬란레드박스|리쥬란 레드박스|리쥬란 레드 박스|리쥬란 HB|리쥬란 에이치비|레드박스|레드 박스|红盒|紅盒|红盒子|紅盒子|红火|紅火|红河|紅河|红和|紅和|红合|紅合|红货|紅貨|洪盒|宏盒|홍허|홍훠|honghe|hong he|hong huo|red box|red fire,리쥬란 HB,丽珠兰红盒,リジュラン レッドボックス,Rejuran Red Box,Rejuran Red Box,Rejuran Red Box,Rejuran Red Box,brand,리쥬란 제품 색상 별칭
+리쥬란화이트박스|리쥬란 화이트박스|리쥬란 화이트 박스|리쥬란 아이|아이리쥬란|리쥬란 I|화이트박스|화이트 박스|白盒|白盒子|白火|白和|白合|百河|바이허|바이훠|baihe|bai he|bai huo|white box|white fire,리쥬란 아이,丽珠兰白盒,リジュラン アイ,Rejuran I,Rejuran I,Rejuran I,Rejuran I,brand,리쥬란 눈가 제품 색상 별칭
+리쥬란블루박스|리쥬란 블루박스|리쥬란 블루 박스|리쥬란 S|리쥬란 에스|블루박스|블루 박스|蓝盒|藍盒|蓝盒子|藍盒子|蓝火|藍火|蓝和|藍和|蓝合|藍合|란허|란훠|lanhe|lan he|lan huo|blue box|blue fire,리쥬란 S,丽珠兰蓝盒,リジュランS,Rejuran S,Rejuran S,Rejuran S,Rejuran S,brand,리쥬란 흉터 제품 색상 별칭
+리쥬란퍼플박스|리쥬란 퍼플박스|리쥬란 퍼플 박스|리쥬란 엘라스킨|엘라스킨|퍼플박스|퍼플 박스|紫盒|紫盒子|紫火|紫和|紫合|즈허|즈훠|zihe|zi he|zi huo|purple box|purple fire,리쥬란 엘라스킨,丽珠兰紫盒,リジュラン エラスキン,Rejuran Elaskin,Rejuran Elaskin,Rejuran Elaskin,Rejuran Elaskin,brand,리쥬란 제품 색상 별칭
+쥬베룩|주베룩|乔雅露|喬雅露|乔雅路|喬雅路|朱韦洛克|朱維洛克|朱维洛克,쥬베룩,Juvelook,ジュベルック,Juvelook,Juvelook,Juvelook,Juvelook,brand,브랜드명
 쥬베룩볼륨|쥬베룩 볼륨,쥬베룩 볼륨,Juvelook Volume,ジュベルック ボリューム,Juvelook Volume,Juvelook Volume,Juvelook Volume,Juvelook Volume,brand,브랜드명
 스킨부스터|스킨 부스터,스킨부스터,皮肤营养注射,スキンブースター,skin booster,скинбустер,skin booster,skin booster,procedure,시술명
 보톡스|보툴리눔톡신,보툴리눔 톡신,肉毒素注射,ボツリヌストキシン注射,botulinum toxin injection,инъекция ботулотоксина,tiêm botulinum toxin,suntikan botulinum toxin,procedure,보톡스는 일반명처럼 쓰이지만 출력은 보툴리눔 톡신 권장
 필러|히알루론산필러,필러,玻尿酸填充,ヒアルロン酸注入,dermal filler,филлер,tiêm filler,filler,procedure,필러
+눈밑필러|눈 밑 필러|다크서클필러|눈밑꺼짐필러,눈밑 필러,泪沟填充,目の下フィラー,under-eye filler,under-eye filler,under-eye filler,under-eye filler,procedure,눈 밑 필러
+지방분해주사|지방 분해 주사|브이라인주사,지방분해 주사,溶脂针,脂肪溶解注射,lipolysis injection,lipolysis injection,lipolysis injection,lipolysis injection,procedure,지방분해 주사
 윤곽주사|윤곽 주사,윤곽주사,轮廓注射,輪郭注射,contour injection,контурная инъекция,tiêm thon gọn mặt,suntikan kontur wajah,procedure,시술명
-인모드|인모드리프팅,인모드,InMode,インモード,InMode,InMode,InMode,InMode,device,장비명
-슈링크|슈링크리프팅,슈링크,Shurink,シュリンク,Shurink,Shurink,Shurink,Shurink,device,장비명
+인모드|인모드리프팅|钻石超塑|鑽石超塑|钻石雕塑|鑽石雕塑,인모드,InMode,インモード,InMode,InMode,InMode,InMode,device,장비명
+슈링크|슈링크리프팅|韩版超声刀|韓版超聲刀|舒林克,슈링크,Shurink,シュリンク,Shurink,Shurink,Shurink,Shurink,device,장비명
+초음파리프팅|초음파 리프팅|超声刀|超聲刀,초음파 리프팅,超声刀,HIFUリフティング,HIFU lifting,HIFU lifting,HIFU lifting,HIFU lifting,procedure,중국어 일반명은 특정 장비로 단정하지 않음
 티타늄|티타늄리프팅,티타늄 리프팅,钛提升,チタニウムリフティング,titanium lifting,титановый лифтинг,nâng cơ titanium,titanium lifting,procedure,시술명
 리프팅|리프팅시술,리프팅,提升治疗,リフティング施術,lifting treatment,лифтинг-процедура,liệu trình nâng cơ,perawatan lifting,procedure,시술명
 토닝|레이저토닝,레이저 토닝,激光净肤,レーザートーニング,laser toning,лазерный тонинг,laser toning,laser toning,procedure,색소 시술
 여드름흉터|여드름 흉터,여드름 흉터,痘坑和痘印,ニキビ跡,acne scars,рубцы после акне,sẹo mụn,bekas jerawat,condition,피부 상태
 색소|색소침착,색소침착,色素沉着,色素沈着,pigmentation,пигментация,tăng sắc tố,pigmentasi,condition,피부 상태
 홍조|안면홍조,홍조,泛红,赤み,redness,покраснение,đỏ da,kemerahan,condition,피부 상태
+장미증|주사피부염|로사시아|rosacea,장미증,玫瑰痤疮,酒さ,rosacea,rosacea,rosacea,rosacea,condition,피부 상태
 모공|모공,모공,毛孔,毛穴,pores,поры,lỗ chân lông,pori-pori,condition,피부 상태
 잔주름|잔주름,잔주름,细纹,小じわ,fine lines,мелкие морщины,nếp nhăn nhỏ,garis halus,condition,피부 상태
 탄력|피부탄력,피부 탄력,皮肤弹性,肌のハリ,skin elasticity,упругость кожи,độ đàn hồi da,elastisitas kulit,condition,피부 상태
@@ -211,6 +262,7 @@ const rawClinicGlossary = `
 한번더들어갑니다|한 번 더 들어갑니다,한 번 더 들어갑니다,再来一次。,もう一度行います。,One more time.,Еще один раз.,Thêm một lần nữa.,Sekali lagi.,procedure_phrase,반복 안내
 거의끝났어요|거의 끝났습니다,거의 끝났어요,快结束了。,もう少しで終わります。,Almost done.,Почти закончили.,Sắp xong rồi.,Hampir selesai.,procedure_phrase,마무리
 끝났습니다|끝났어요,끝났습니다,结束了。,終わりました。,We're done.,Готово.,Xong rồi.,Sudah selesai.,procedure_phrase,종료
+딱지떼지마세요|딱지 떼지 마세요|딱지를 떼지 마세요|딱지 만지지 마세요,딱지 떼지 마세요,不要抠痂。,かさぶたを無理に剥がさないでください。,Do not pick the scab.,Не сдирайте корочку.,Không bóc vảy.,Jangan mengelupas keropeng.,aftercare,레이저 후 주의
 차가울수있어요|차가워요,차가울 수 있어요,会有点凉。,少し冷たく感じます。,It may feel cold.,Может быть немного холодно.,Có thể hơi lạnh.,Mungkin terasa dingin.,sensation,감각 안내
 따끔할수있어요|따끔해요,따끔할 수 있어요,可能会有点刺痛。,少しチクッとします。,It may sting a little.,Может немного покалывать.,Có thể hơi châm chích.,Mungkin terasa sedikit perih.,sensation,감각 안내
 뜨거울수있어요|뜨거워요,뜨거울 수 있어요,可能会有点热。,少し熱く感じることがあります。,It may feel a little hot.,Может быть немного горячо.,Có thể hơi nóng.,Mungkin terasa agak panas.,sensation,감각 안내
@@ -247,7 +299,7 @@ const rawClinicGlossary = `
 딱지생길수있어요|딱지가 생길 수 있어요,딱지가 생길 수 있어요,可能会结痂。,かさぶたができることがあります。,Scabs may form.,Могут появиться корочки.,Có thể hình thành vảy nhỏ.,Bisa muncul keropeng kecil.,side_effect,레이저 후 반응
 가려울수있어요|가려움 있을 수 있어요,가려움이 있을 수 있어요,可能会有瘙痒感。,かゆみが出ることがあります。,Itching may occur.,Может появиться зуд.,Có thể bị ngứa.,Bisa terasa gatal.,side_effect,일반 반응
 일시적인반응이에요|일시적인 반응입니다,일시적인 반응입니다,这是暂时反应。,一時的な反応です。,This is temporary.,Это временная реакция.,Đây là phản ứng tạm thời.,Ini reaksi sementara.,side_effect,안심 안내
-당일|오늘,당일,当天,当日,the same day,в тот же день,trong ngày,hari yang sama,time,시간
+당일,당일,当天,当日,the same day,в тот же день,trong ngày,hari yang sama,time,시간
 내일,내일,明天,明日,tomorrow,завтра,ngày mai,besok,time,시간
 이삼일|2~3일,2~3일,两到三天,二、三日,two to three days,два-три дня,hai đến ba ngày,dua sampai tiga hari,time,기간
 삼사일|3~4일,3~4일,三到四天,三、四日,three to four days,три-четыре дня,ba đến bốn ngày,tiga sampai empat hari,time,기간
@@ -338,7 +390,7 @@ const criticalShortPhrases: CriticalShortPhrase[] = [
     note: "통증 정도 확인"
   },
   {
-    spoken: ["괜찮으세요", "괜찮으세요?", "괜찮나요", "괜찮아요"],
+    spoken: ["괜찮으세요", "괜찮으세요?"],
     translations: {
       ko: "괜찮으세요?",
       zh: "还好吗？",
@@ -475,14 +527,14 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function replaceAllCaseInsensitive(text: string, from: string, to: string) {
-  return text.replace(new RegExp(escapeRegExp(from), "gi"), to);
-}
-
-function brandDisplay(targetLanguage: GlossaryTargetLanguage, key: "rejuran" | "rejuranHealer" | "juvelook" | "juvelookVolume") {
+function brandDisplay(targetLanguage: GlossaryTargetLanguage, key: ClinicBrandKey) {
   return brandDisplayByLanguage[targetLanguage]?.[key] ?? {
     rejuran: "Rejuran",
     rejuranHealer: "Rejuran Healer",
+    rejuranHb: "Rejuran HB",
+    rejuranI: "Rejuran I",
+    rejuranS: "Rejuran S",
+    rejuranElaskin: "Rejuran Elaskin",
     juvelook: "Juvelook",
     juvelookVolume: "Juvelook Volume"
   }[key];
@@ -492,13 +544,21 @@ function applyHighPriorityClinicCorrections(text: string, targetLanguage: Glossa
   let corrected = text;
   const rejuranReplacement = brandDisplay(targetLanguage, "rejuran");
   const rejuranHealerReplacement = brandDisplay(targetLanguage, "rejuranHealer");
+  const rejuranHbReplacement = brandDisplay(targetLanguage, "rejuranHb");
+  const rejuranIReplacement = brandDisplay(targetLanguage, "rejuranI");
+  const rejuranSReplacement = brandDisplay(targetLanguage, "rejuranS");
+  const rejuranElaskinReplacement = brandDisplay(targetLanguage, "rejuranElaskin");
   const juvelookReplacement = brandDisplay(targetLanguage, "juvelook");
   const juvelookVolumeReplacement = brandDisplay(targetLanguage, "juvelookVolume");
   const swellingTerm = swellingTermByLanguage[targetLanguage] ?? "swelling";
   const swellingPhrase = swellingPhraseByLanguage[targetLanguage] ?? "Swelling may occur.";
 
   corrected = corrected
-    .replace(/(?:리\s*[쥬주]\s*란|니\s*[쥬주]\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)\s*힐러|\b(?:re|ni|nizhu|niju)[\s-]?juran\s*healer\b/gi, rejuranHealerReplacement)
+    .replace(/(?:리\s*[쥬주]\s*란|니\s*[쥬주]\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)?\s*(?:힐러|블랙\s*박스|블랙박스|黑盒子?|黑火|黑河|黑和|黑合|黑核|灰盒|灰火|black\s*(?:box|fire))|\b(?:re|ni|nizhu|niju)[\s-]?juran\s*(?:healer|black\s*box)\b/gi, rejuranHealerReplacement)
+    .replace(/(?:리\s*[쥬주]\s*란|니\s*[쥬주]\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)\s*(?:HB|에이치비|레드\s*박스|레드박스|红盒子?|紅盒子?|红火|紅火|red\s*box)|(?:레드\s*박스|레드박스|红盒子?|紅盒子?|红火|紅火|红河|紅河|红和|紅和|红合|紅合|红货|紅貨|洪盒|宏盒|red\s*(?:box|fire))|\b(?:re|ni|nizhu|niju)[\s-]?juran\s*(?:hb|red\s*box)\b/gi, rejuranHbReplacement)
+    .replace(/(?:리\s*[쥬주]\s*란|니\s*[쥬주]\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)\s*(?:I\b|아이|화이트\s*박스|화이트박스|白盒子?|白火|white\s*box)|(?:아이리쥬란|화이트\s*박스|화이트박스|白盒子?|白火|白和|白合|百河|white\s*(?:box|fire))|\b(?:re|ni|nizhu|niju)[\s-]?juran\s*(?:i\b|eye|white\s*box)\b/gi, rejuranIReplacement)
+    .replace(/(?:리\s*[쥬주]\s*란|니\s*[쥬주]\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)\s*(?:S\b|에스|블루\s*박스|블루박스|蓝盒子?|藍盒子?|蓝火|藍火|blue\s*box)|(?:블루\s*박스|블루박스|蓝盒子?|藍盒子?|蓝火|藍火|蓝和|藍和|蓝合|藍合|blue\s*(?:box|fire))|\b(?:re|ni|nizhu|niju)[\s-]?juran\s*(?:s\b|blue\s*box)\b/gi, rejuranSReplacement)
+    .replace(/(?:리\s*[쥬주]\s*란|니\s*[쥬주]\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)\s*(?:엘라스킨|퍼플\s*박스|퍼플박스|紫盒子?|紫火|purple\s*box)|(?:엘라스킨|퍼플\s*박스|퍼플박스|紫盒子?|紫火|紫和|紫合|purple\s*(?:box|fire))|\b(?:re|ni|nizhu|niju)[\s-]?juran\s*(?:elaskin|purple\s*box)\b/gi, rejuranElaskinReplacement)
     .replace(/(?:쥬|주)\s*베\s*룩\s*볼륨|\bjuve[\s-]?look\s*volume\b/gi, juvelookVolumeReplacement)
     .replace(/(?:쥬|주)\s*베\s*룩|\bjuve[\s-]?look\b/gi, juvelookReplacement);
 
@@ -598,11 +658,38 @@ function targetForCritical(entry: CriticalShortPhrase, targetLanguage: GlossaryT
   return entry.translations[targetLanguage];
 }
 
+function isAsciiWordChar(value: string | undefined) {
+  return !!value && /[A-Za-z0-9_]/.test(value);
+}
+
 function applyReplacementsLongestFirst(text: string, replacements: Array<{ source: string; target: string }>) {
-  return replacements
-    .filter(({ source, target }) => source && source !== target)
-    .sort((a, b) => b.source.length - a.source.length)
-    .reduce((current, { source, target }) => replaceAllCaseInsensitive(current, source, target), text);
+  const sorted = replacements
+    .filter(({ source }) => source)
+    .sort((a, b) => b.source.length - a.source.length);
+
+  if (sorted.length === 0) return text;
+
+  const lookup = new Map<string, string>();
+  const patterns: string[] = [];
+  for (const { source, target } of sorted) {
+    const key = source.toLocaleLowerCase();
+    if (lookup.has(key)) continue;
+    lookup.set(key, target);
+    patterns.push(escapeRegExp(source));
+  }
+
+  return text.replace(new RegExp(patterns.join("|"), "gi"), (match, offset: number, fullText: string) => {
+    const startsWithAsciiWord = isAsciiWordChar(match[0]);
+    const endsWithAsciiWord = isAsciiWordChar(match[match.length - 1]);
+    if (
+      (startsWithAsciiWord && isAsciiWordChar(fullText[offset - 1])) ||
+      (endsWithAsciiWord && isAsciiWordChar(fullText[offset + match.length]))
+    ) {
+      return match;
+    }
+
+    return lookup.get(match.toLocaleLowerCase()) ?? match;
+  });
 }
 
 export function normalizeClinicTranslation(text: string, targetLanguage: GlossaryTargetLanguage) {
@@ -672,7 +759,20 @@ export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLang
       "Common short phrases may be spoken quickly or through a mask.",
       `Prefer these Korean phrases when acoustically plausible: ${koreanHints}.`,
       "When the sound is close, prefer Rejuran as 리쥬란 and swelling as 부종, not 니주란 or 그종.",
+      "Rejuran color-box product names may be spoken as 리쥬란 블랙박스, 리쥬란 레드박스, 리쥬란 화이트박스, 리쥬란 블루박스, or 리쥬란 퍼플박스.",
       "Do not reinterpret pain-check phrases as sleepiness, setup, or casual conversation."
+    ].join(" ");
+  }
+
+  if (inputLanguage === "zh" || inputLanguage === "zh_tw") {
+    return [
+      "Dermatology and plastic surgery interpretation room.",
+      "Preserve clinic brand names such as Rejuran, Juvelook, Ultherapy, Thermage, Potenza, and Pico laser.",
+      "Chinese patients may use Rejuran color-box nicknames: 黑盒 means Rejuran Black Box, 红盒/紅盒 means Rejuran Red Box, 白盒 means Rejuran I, 蓝盒/藍盒 means Rejuran S, and 紫盒 means Rejuran Elaskin.",
+      "If the sound is close in this clinic context, prefer color + 盒 over color + 火/河/和/合, for example 黑盒 over 黑火, 红盒 over 红火, 白盒 over 白火, 蓝盒 over 蓝火, and 紫盒 over 紫火.",
+      "Common Chinese clinic aliases include 三文鱼针 for Rejuran, 热玛吉 for Thermage, 超声刀 for Ultherapy or HIFU lifting, 皮秒 for Pico laser, 泪沟填充 for under-eye filler, and 溶脂针 for lipolysis injection.",
+      "The speaker may answer briefly about pain, discomfort, movement, or whether they are okay.",
+      "Keep medical procedure context when transcribing short phrases."
     ].join(" ");
   }
 

@@ -5,8 +5,6 @@ import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { isPatientLanguage, languageLabels, type PatientLanguage } from "@/lib/languages";
 import { normalizedTextTranslationModel } from "@/lib/openai-models";
 
-type LocalDirection = "ko_to_patient" | "patient_to_ko";
-
 type ResponsesApiContent = {
   type?: string;
   text?: string;

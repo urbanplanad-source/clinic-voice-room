@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -61,7 +62,6 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.MedicalServices
@@ -123,6 +123,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 
@@ -215,6 +216,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+private const val AppDisplayVersion = "0.3.9"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -225,9 +227,13 @@ private const val LocalDirectionPatientToKo = "patient_to_ko"
 private const val RealtimePcmSampleRate = 24000
 private const val RealtimeTurnWaitMs = 5500L
 private const val RealtimeOutputQuietMs = 300L
-private const val RealtimeInputTranscriptWaitMs = 1200L
+private const val RealtimeInputTranscriptWaitMs = 750L
 private const val RecordingStopJoinMs = 250L
 private const val StaffRecordingMaxMs = 60_000L
+private const val LocalValidationTimeoutMs = 900L
+private const val LocalValidationMaxSourceChars = 18
+private const val LocalValidationMaxTranslatedChars = 36
+private const val LocalValidationMaxSourceWords = 3
 private const val TtsSpeechUtterancePrefix = "cvr-speak"
 private const val TtsWarmUtterancePrefix = "cvr-warm"
 
@@ -696,6 +702,167 @@ private class AndroidRealtimeTurnClient(
     }
 }
 
+private data class SupabaseRealtimeConfig(
+    val enabled: Boolean,
+    val supabaseUrl: String = "",
+    val supabaseAnonKey: String = ""
+)
+
+private class SupabaseTranslationRealtimeClient(
+    private val http: OkHttpClient,
+    private val config: SupabaseRealtimeConfig,
+    private val roomId: String,
+    private val mainHandler: Handler,
+    private val log: (String) -> Unit,
+    private val onMessage: (JSONObject) -> Unit
+) {
+    private val refCounter = AtomicInteger(1)
+    private val topic = "realtime:clinic-room:$roomId:translations"
+    private val joinRef = "join-${System.currentTimeMillis()}"
+    @Volatile
+    private var active = false
+    @Volatile
+    private var joined = false
+    private var webSocket: WebSocket? = null
+    private var reconnectAttempts = 0
+
+    private val heartbeatRunnable = object : Runnable {
+        override fun run() {
+            if (!active) return
+            send("phoenix", "heartbeat", JSONObject())
+            mainHandler.postDelayed(this, 25_000L)
+        }
+    }
+
+    fun connect() {
+        if (!config.enabled || active) return
+        active = true
+        openSocket()
+    }
+
+    fun close() {
+        active = false
+        joined = false
+        mainHandler.removeCallbacks(heartbeatRunnable)
+        runCatching { webSocket?.cancel() }
+        webSocket = null
+    }
+
+    private fun openSocket() {
+        val websocketUrl = websocketUrl() ?: run {
+            log("Supabase realtime disabled: invalid URL")
+            return
+        }
+        val request = Request.Builder()
+            .url(websocketUrl)
+            .header("apikey", config.supabaseAnonKey)
+            .header("Authorization", "Bearer ${config.supabaseAnonKey}")
+            .build()
+
+        webSocket = http.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                reconnectAttempts = 0
+                joined = false
+                log("Supabase realtime connected")
+                sendJoin()
+                mainHandler.removeCallbacks(heartbeatRunnable)
+                mainHandler.postDelayed(heartbeatRunnable, 25_000L)
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                handleEvent(text)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                joined = false
+                log("Supabase realtime closed: $code $reason")
+                scheduleReconnect()
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                joined = false
+                log("Supabase realtime failed: ${t.message}")
+                scheduleReconnect()
+            }
+        })
+    }
+
+    private fun websocketUrl(): String? {
+        val base = config.supabaseUrl.trim().removeSuffix("/")
+        if (base.isBlank()) return null
+        val websocketBase = when {
+            base.startsWith("https://") -> "wss://${base.removePrefix("https://")}"
+            base.startsWith("http://") -> "ws://${base.removePrefix("http://")}"
+            base.startsWith("wss://") || base.startsWith("ws://") -> base
+            else -> "wss://$base"
+        }
+        val encodedKey = URLEncoder.encode(config.supabaseAnonKey, "UTF-8")
+        return "$websocketBase/realtime/v1/websocket?apikey=$encodedKey&vsn=1.0.0"
+    }
+
+    private fun sendJoin() {
+        val payload = JSONObject()
+            .put(
+                "config",
+                JSONObject()
+                    .put("broadcast", JSONObject().put("ack", false).put("self", false))
+                    .put("presence", JSONObject().put("key", ""))
+                    .put("postgres_changes", JSONArray())
+            )
+            .put("access_token", config.supabaseAnonKey)
+        send(topic, "phx_join", payload, joinRef)
+    }
+
+    private fun send(topic: String, event: String, payload: JSONObject, joinRefOverride: String? = null) {
+        val message = JSONObject()
+            .put("topic", topic)
+            .put("event", event)
+            .put("payload", payload)
+            .put("ref", refCounter.getAndIncrement().toString())
+        joinRefOverride?.let { message.put("join_ref", it) }
+        if (webSocket?.send(message.toString()) != true) {
+            log("Supabase realtime send skipped: $event")
+        }
+    }
+
+    private fun handleEvent(text: String) {
+        val event = runCatching { JSONObject(text) }.getOrNull() ?: return
+        val eventName = event.optString("event")
+        if (eventName == "phx_reply" && event.optString("topic") == topic) {
+            joined = event.optJSONObject("payload")?.optString("status") == "ok"
+            if (joined) log("Supabase translation channel ready")
+            return
+        }
+
+        val payload = event.optJSONObject("payload") ?: return
+        val broadcastName = when (eventName) {
+            "broadcast" -> payload.optString("event")
+            else -> eventName
+        }
+        if (broadcastName != "translation:new") return
+
+        val broadcastPayload = if (eventName == "broadcast") {
+            payload.optJSONObject("payload")
+        } else {
+            payload
+        } ?: return
+        val message = broadcastPayload.optJSONObject("message") ?: return
+        mainHandler.post {
+            onMessage(message)
+        }
+    }
+
+    private fun scheduleReconnect() {
+        if (!active) return
+        mainHandler.removeCallbacks(heartbeatRunnable)
+        val delay = (1_000L * (reconnectAttempts + 1)).coerceAtMost(5_000L)
+        reconnectAttempts += 1
+        mainHandler.postDelayed({
+            if (active) openSocket()
+        }, delay)
+    }
+}
+
 class MainActivity : ComponentActivity() {
     private val uiState = mutableStateOf(StaffUiState())
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -745,16 +912,31 @@ class MainActivity : ComponentActivity() {
     private var roomPollingActive = false
     @Volatile
     private var roomPollInFlight = false
+    @Volatile
+    private var messagePollingActive = false
+    @Volatile
+    private var messagePollInFlight = false
     private val realtimeExecutor: ExecutorService = Executors.newFixedThreadPool(2)
     private val pollExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val messageExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var messageCursor: String? = null
     private var messagePollingInitialized = false
     private val seenMessageIds = mutableSetOf<String>()
+    private var translationRealtimeClient: SupabaseTranslationRealtimeClient? = null
+    private var translationRealtimeRoomId = ""
     private val roomPollRunnable = object : Runnable {
         override fun run() {
             pollCurrentRoom()
             if (roomPollingActive) {
                 mainHandler.postDelayed(this, roomPollDelayMs())
+            }
+        }
+    }
+    private val messagePollRunnable = object : Runnable {
+        override fun run() {
+            pollCurrentRoomMessages()
+            if (messagePollingActive) {
+                mainHandler.postDelayed(this, messagePollDelayMs())
             }
         }
     }
@@ -861,6 +1043,7 @@ class MainActivity : ComponentActivity() {
         runCatching { recordingThread?.join(500) }
         closeRealtimeTurnClient()
         closeLocalRealtimeTurnClients()
+        closeTranslationRealtimeClient()
         stopTtsPlayback()
         mediaSession?.isActive = false
         mediaSession?.release()
@@ -870,6 +1053,7 @@ class MainActivity : ComponentActivity() {
         textToSpeech = null
         realtimeExecutor.shutdownNow()
         pollExecutor.shutdownNow()
+        messageExecutor.shutdownNow()
         sessionExecutor.shutdownNow()
         executor.shutdownNow()
         super.onDestroy()
@@ -920,8 +1104,9 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-            state.loggedIn -> updateState { it.copy(status = "직원 화면을 유지합니다.") }
-            else -> updateState { it.copy(status = "로그인 화면입니다.") }
+            state.loggedIn && state.setupStep == SetupStepMode && state.room == null -> finishAndRemoveTask()
+            state.loggedIn -> moveTaskToBack(true)
+            else -> finishAndRemoveTask()
         }
     }
 
@@ -1402,27 +1587,45 @@ class MainActivity : ComponentActivity() {
 
     private fun startRoomPolling() {
         roomPollingActive = true
+        messagePollingActive = true
+        ensureTranslationRealtimeForRoom(uiState.value.room)
         mainHandler.removeCallbacks(roomPollRunnable)
+        mainHandler.removeCallbacks(messagePollRunnable)
         mainHandler.post(roomPollRunnable)
+        mainHandler.post(messagePollRunnable)
     }
 
     private fun stopRoomPolling() {
         roomPollingActive = false
+        messagePollingActive = false
         mainHandler.removeCallbacks(roomPollRunnable)
+        mainHandler.removeCallbacks(messagePollRunnable)
+        closeTranslationRealtimeClient()
     }
 
     private fun resetMessagePolling() {
-        messageCursor = null
         messagePollingInitialized = false
-        seenMessageIds.clear()
+        synchronized(seenMessageIds) {
+            messageCursor = null
+            seenMessageIds.clear()
+        }
     }
 
     private fun roomPollDelayMs(): Long {
         val room = uiState.value.room
         return when {
             room?.patientJoinedAt == null -> 500L
-            room.status == "patient_speaking" || room.status == "translating_to_staff" -> 300L
-            else -> 650L
+            room.status == "patient_speaking" || room.status == "translating_to_staff" -> 500L
+            else -> 900L
+        }
+    }
+
+    private fun messagePollDelayMs(): Long {
+        val room = uiState.value.room
+        return when {
+            room?.patientJoinedAt == null -> 700L
+            room.status == "patient_speaking" || room.status == "translating_to_staff" -> 225L
+            else -> 850L
         }
     }
 
@@ -1466,6 +1669,72 @@ class MainActivity : ComponentActivity() {
         return "local:$patientLanguage:$direction"
     }
 
+    private fun closeTranslationRealtimeClient() {
+        runCatching { translationRealtimeClient?.close() }
+        translationRealtimeClient = null
+        translationRealtimeRoomId = ""
+    }
+
+    private fun ensureTranslationRealtimeForRoom(room: RoomInfo?) {
+        if (room == null || room.roomMode == RoomModeLocalInterpreter) {
+            closeTranslationRealtimeClient()
+            return
+        }
+        if (translationRealtimeRoomId == room.id && translationRealtimeClient != null) return
+
+        closeTranslationRealtimeClient()
+        translationRealtimeRoomId = room.id
+        val backend = normalizedBackendUrl(uiState.value.backendUrl)
+        realtimeExecutor.execute {
+            runCatching {
+                val config = requestSupabaseRealtimeConfig(backend)
+                if (!config.enabled) {
+                    appendLog("Supabase realtime disabled; using message polling")
+                    return@runCatching
+                }
+                val client = SupabaseTranslationRealtimeClient(
+                    http = http,
+                    config = config,
+                    roomId = room.id,
+                    mainHandler = mainHandler,
+                    log = ::appendLog,
+                    onMessage = ::handleRealtimeTranslationMessage
+                )
+                mainHandler.post {
+                    if (uiState.value.room?.id == room.id && translationRealtimeRoomId == room.id) {
+                        translationRealtimeClient = client
+                        client.connect()
+                    } else {
+                        client.close()
+                    }
+                }
+            }.onFailure {
+                appendLog("Supabase realtime config failed: ${it.message}")
+            }
+        }
+    }
+
+    private fun requestSupabaseRealtimeConfig(backend: String): SupabaseRealtimeConfig {
+        val data = getJson("$backend/api/realtime/client-config")
+        val enabled = data.optBoolean("enabled", false)
+        if (!enabled) return SupabaseRealtimeConfig(enabled = false)
+        return SupabaseRealtimeConfig(
+            enabled = true,
+            supabaseUrl = data.optString("supabaseUrl"),
+            supabaseAnonKey = data.optString("supabaseAnonKey")
+        )
+    }
+
+    private fun handleRealtimeTranslationMessage(message: JSONObject) {
+        if (!rememberMessage(message)) return
+        appendConversationMessage(messageFromJson(message, uiState.value.room?.patientLanguage))
+        if (message.optString("speaker") == "patient") {
+            messagePollingInitialized = true
+            handleIncomingPatientMessage(message, appendToConversation = false, speak = true)
+            appendLog("환자 발화 실시간 수신")
+        }
+    }
+
     private fun pollCurrentRoom() {
         if (!roomPollingActive || roomPollInFlight) return
         val snapshot = uiState.value
@@ -1476,9 +1745,6 @@ class MainActivity : ComponentActivity() {
         roomPollInFlight = true
         pollExecutor.execute {
             runCatching {
-                val messagesPolledEarly = room.patientJoinedAt != null
-                if (messagesPolledEarly) pollRoomMessages(room, backend)
-
                 val data = getJson("$backend/api/rooms/${room.id}")
                 val updatedRoom = roomInfoFromJson(data.getJSONObject("room"), backend, room)
                 val previousRoom = uiState.value.room
@@ -1511,9 +1777,7 @@ class MainActivity : ComponentActivity() {
                 } else {
                     if (updatedRoom.patientJoinedAt != null) {
                         prepareRealtimeTurnClientAsync(updatedRoom, force = joinedNow)
-                    }
-                    if (!messagesPolledEarly && updatedRoom.patientJoinedAt != null) {
-                        pollRoomMessages(updatedRoom, backend)
+                        ensureTranslationRealtimeForRoom(updatedRoom)
                     }
                 }
             }.onFailure { caught ->
@@ -1523,9 +1787,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun pollCurrentRoomMessages() {
+        if (!messagePollingActive || messagePollInFlight) return
+        val snapshot = uiState.value
+        val room = snapshot.room ?: return
+        if (!snapshot.loggedIn || room.patientJoinedAt == null) return
+
+        val backend = normalizedBackendUrl(snapshot.backendUrl)
+        messagePollInFlight = true
+        messageExecutor.execute {
+            runCatching {
+                pollRoomMessages(room, backend)
+            }.onFailure { caught ->
+                appendLog("메시지 확인 실패: ${userFacingError(caught)}")
+            }
+            messagePollInFlight = false
+        }
+    }
+
     private fun pollRoomMessages(room: RoomInfo, backend: String) {
         val urlBuilder = "$backend/api/rooms/${room.id}/messages".toHttpUrl().newBuilder()
-        messageCursor?.let { urlBuilder.addQueryParameter("after", it) }
+        synchronized(seenMessageIds) { messageCursor }?.let { urlBuilder.addQueryParameter("after", it) }
 
         val data = getJson(urlBuilder.build().toString())
         val messages = data.optJSONArray("messages") ?: return
@@ -1543,11 +1825,13 @@ class MainActivity : ComponentActivity() {
     private fun rememberMessage(message: JSONObject): Boolean {
         val id = message.optString("id")
         val createdAt = message.optString("createdAt")
-        if (createdAt.isNotBlank() && (messageCursor == null || createdAt > (messageCursor ?: ""))) {
-            messageCursor = createdAt
+        synchronized(seenMessageIds) {
+            if (createdAt.isNotBlank() && (messageCursor == null || createdAt > (messageCursor ?: ""))) {
+                messageCursor = createdAt
+            }
+            if (id.isNotBlank() && !seenMessageIds.add(id)) return false
+            return true
         }
-        if (id.isNotBlank() && !seenMessageIds.add(id)) return false
-        return true
     }
 
     private fun messageFromJson(message: JSONObject, fallbackPatientLanguage: String? = null): StaffMessage {
@@ -2092,6 +2376,7 @@ class MainActivity : ComponentActivity() {
                 }
                 val translated = normalizeClinicText(result.optString("translatedText"), targetLanguage)
                 val speaker = if (direction == LocalDirectionKoToPatient) "staff" else "patient"
+                prepareLocalRealtimeTurnClientsAsync(patientLanguage)
 
                 if (localTranslationNeedsRetry(direction, patientLanguage, source, translated)) {
                     val retryKorean = localRetryPromptKorean()
@@ -2107,7 +2392,6 @@ class MainActivity : ComponentActivity() {
                             status = "번역 내용이 서로 맞지 않아 다시 말해주세요."
                         )
                     }
-                    prepareLocalRealtimeTurnClientsAsync(patientLanguage)
                     appendLog("대면 통역 의미 불일치: 다시 말하기 요청")
                     return@runCatching
                 }
@@ -2129,7 +2413,6 @@ class MainActivity : ComponentActivity() {
                 } else {
                     speakKoreanText(translated)
                 }
-                prepareLocalRealtimeTurnClientsAsync(patientLanguage)
                 appendLog("대면 통역 완료")
             }.onFailure { caught ->
                 val message = userFacingError(caught)
@@ -2161,7 +2444,7 @@ class MainActivity : ComponentActivity() {
                 .put("sourceText", sourceText)
                 .put("translatedText", translatedText)
                 .toString()
-            val data = postJson("$backend/api/local-voice-turns/validate", payload)
+            val data = postJsonWithTimeout("$backend/api/local-voice-turns/validate", payload, LocalValidationTimeoutMs)
             val checked = data.optBoolean("checked", false)
             val ok = data.optBoolean("ok", true)
             if (checked) appendLog("Local consistency ${if (ok) "ok" else "retry"}: ${data.optString("reason")}")
@@ -2175,8 +2458,15 @@ class MainActivity : ComponentActivity() {
         val source = sourceText.trim()
         val translated = translatedText.trim()
         if (source.isBlank() || translated.isBlank()) return false
-        val sourceWords = source.split(Regex("\\s+")).filter { it.isNotBlank() }.size
-        return source.length <= 40 || translated.length <= 70 || sourceWords <= 5
+        val hasWordBoundaries = source.contains(Regex("\\s"))
+        val sourceWords = if (hasWordBoundaries) {
+            source.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+        } else {
+            Int.MAX_VALUE
+        }
+        return source.length <= LocalValidationMaxSourceChars ||
+            translated.length <= LocalValidationMaxTranslatedChars ||
+            sourceWords <= LocalValidationMaxSourceWords
     }
 
     private fun localRetryPromptKorean(): String = "다시 한 번 말씀해주세요."
@@ -2655,6 +2945,24 @@ class MainActivity : ComponentActivity() {
             .build()
         val startedAt = SystemClock.elapsedRealtime()
         http.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+            appendLog("HTTP POST ${requestPath(url)} ${response.code} ${elapsedMs}ms")
+            if (!response.isSuccessful) error(apiErrorMessage(body, response.code))
+            return JSONObject(body)
+        }
+    }
+
+    private fun postJsonWithTimeout(url: String, json: String, timeoutMs: Long): JSONObject {
+        val request = Request.Builder()
+            .url(url)
+            .header("Content-Type", "application/json")
+            .post(json.toRequestBody(jsonMediaType))
+            .build()
+        val startedAt = SystemClock.elapsedRealtime()
+        val call = http.newCall(request)
+        call.timeout().timeout(timeoutMs, TimeUnit.MILLISECONDS)
+        call.execute().use { response ->
             val body = response.body?.string().orEmpty()
             val elapsedMs = SystemClock.elapsedRealtime() - startedAt
             appendLog("HTTP POST ${requestPath(url)} ${response.code} ${elapsedMs}ms")
@@ -3190,19 +3498,38 @@ private fun ModeSelectionScreen(
             onClick = { onRoomMode(RoomModeLocalInterpreter) }
         )
 
-        Button(
+        MainScreenFooter(onLogout = onLogout)
+    }
+}
+
+@Composable
+private fun MainScreenFooter(onLogout: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 2.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            "MediVoice $AppDisplayVersion",
+            color = SlateText,
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.bodySmall
+        )
+        TextButton(
             onClick = onLogout,
             modifier = Modifier
-                .fillMaxWidth()
-                .height(metrics.primaryButtonHeight),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = RoseTint, contentColor = Coral),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+                .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp)
+                .heightIn(min = 28.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = null, tint = Coral)
-                Text("로그아웃", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-            }
+            Text(
+                "로그아웃",
+                color = SlateText,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
@@ -3394,6 +3721,12 @@ private fun LanguageSelectionScreen(
                     color = Ink,
                     style = if (metrics.isTablet) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Please choose the language you use.",
+                    color = SlateText,
+                    style = if (metrics.isTablet) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
                 )
 
                 Column(verticalArrangement = Arrangement.spacedBy(metrics.languageGridGap)) {

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
-import { buildClinicGlossaryInstructions, normalizeClinicTranslation } from "@/lib/clinic-glossary";
+import { buildClinicGlossaryInstructions, buildClinicTranscriptionPrompt, normalizeClinicTranslation } from "@/lib/clinic-glossary";
 import { isPatientLanguage, languageLabels, sourceTargetFor, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { normalizedTextTranslationModel, normalizedTranscriptionModel } from "@/lib/openai-models";
 import { isPatientRoomRequestAuthorized } from "@/lib/patient-room-session";
@@ -29,6 +29,10 @@ type ResponsesApiResponse = {
   output_text?: string;
   output?: ResponsesApiOutputItem[];
 };
+
+function isTranscriptionPromptCompatibilityError(detail: string) {
+  return /(?:prompt.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*prompt)/i.test(detail);
+}
 
 const realtimeMessageSchema = z.object({
   roomId: z.string(),
@@ -302,8 +306,9 @@ async function handleAudioTurn(request: Request) {
   transcriptionForm.set("model", normalizedTranscriptionModel(process.env.OPENAI_TRANSCRIPTION_MODEL));
   transcriptionForm.set("language", transcriptionLanguageFor(role, patientLanguage));
   transcriptionForm.set("response_format", "json");
+  transcriptionForm.set("prompt", buildClinicTranscriptionPrompt(role === "staff" ? "ko" : patientLanguage));
 
-  const transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+  let transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -311,9 +316,26 @@ async function handleAudioTurn(request: Request) {
     },
     body: transcriptionForm
   });
+  let transcriptionErrorDetail = "";
 
   if (!transcriptionResponse.ok) {
-    const detail = await transcriptionResponse.text().catch(() => "");
+    transcriptionErrorDetail = await transcriptionResponse.text().catch(() => "");
+    if (isTranscriptionPromptCompatibilityError(transcriptionErrorDetail)) {
+      transcriptionForm.delete("prompt");
+      transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "OpenAI-Safety-Identifier": `clinic-voice-room-consultation-stt-${roomId}-${role}`
+        },
+        body: transcriptionForm
+      });
+      transcriptionErrorDetail = "";
+    }
+  }
+
+  if (!transcriptionResponse.ok) {
+    const detail = transcriptionErrorDetail || (await transcriptionResponse.text().catch(() => ""));
     console.error("[consultation-voice-turns transcription]", transcriptionResponse.status, detail);
     return NextResponse.json({ error: "Audio transcription failed" }, { status: 502 });
   }

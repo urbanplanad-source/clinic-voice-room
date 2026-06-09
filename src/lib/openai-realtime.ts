@@ -1,6 +1,6 @@
 import type { ParticipantRole, PatientLanguage } from "./languages";
 import { createHash } from "crypto";
-import { buildClinicTranscriptionPrompt } from "./clinic-glossary";
+import { buildClinicGlossaryInstructions, buildClinicTranscriptionPrompt } from "./clinic-glossary";
 
 export type TranslationDirection = "staff_to_patient" | "patient_to_staff";
 
@@ -57,6 +57,8 @@ export function normalizedRealtimeTranscriptionModelName(value: string | undefin
 function buildRealtimeTranslationInstructions(inputLanguage: PatientLanguage | "ko", outputLanguage: PatientLanguage | "ko") {
   const inputLabel = realtimeLanguageLabels[inputLanguage];
   const outputLabel = realtimeLanguageLabels[outputLanguage];
+  const patientLanguage = outputLanguage === "ko" ? inputLanguage : outputLanguage;
+  const glossaryInstructions = patientLanguage === "ko" ? "" : buildClinicGlossaryInstructions(patientLanguage);
   const characterInstruction =
     outputLanguage === "zh_tw"
       ? "Use Traditional Chinese characters."
@@ -71,6 +73,7 @@ function buildRealtimeTranslationInstructions(inputLanguage: PatientLanguage | "
     "Output only the translated utterance. Do not add explanations, disclaimers, summaries, or extra conversation.",
     "Preserve clinic brand names such as Rejuran, Juvelook, Ultherapy, Thermage, Potenza, and Pico laser.",
     "For Korean procedure-room speech, interpret common clinic misrecognitions in context: Nijuran usually means Rejuran, and geujong usually means swelling or edema.",
+    glossaryInstructions,
     "Keep responses short and natural for immediate spoken playback."
   ].filter(Boolean).join(" ");
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type RealtimeChannel, type SupabaseClient } from "@supabase/supabase-js";
 import { isPatientLanguage, type ParticipantRole, type PatientLanguage } from "./languages";
 import { isRoomStatus, type RoomStatus } from "./room-state";
 
@@ -31,6 +31,7 @@ type TranslationMessagePayload = {
 };
 
 let client: SupabaseClient | null = null;
+const translationBroadcastChannels = new Map<string, { channel: RealtimeChannel; ready: Promise<void> }>();
 
 function getRealtimeClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -138,23 +139,48 @@ export async function broadcastRoomUpdate(room: {
   await supabase.removeChannel(channel);
 }
 
-export async function broadcastTranslationMessage(roomId: string, message: RealtimeTranslationMessage) {
+function ensureTranslationBroadcastChannel(roomId: string) {
   const supabase = getRealtimeClient();
-  if (!supabase) return false;
+  if (!supabase) return null;
+
+  const existing = translationBroadcastChannels.get(roomId);
+  if (existing) return existing;
 
   const channel = supabase.channel(`clinic-room:${roomId}:translations`);
-  await new Promise<void>((resolve) => {
+  const ready = new Promise<void>((resolve) => {
     const timer = window.setTimeout(resolve, 1000);
     channel.subscribe((status) => {
-      if (status === "SUBSCRIBED") {
+      if (status === "SUBSCRIBED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
         window.clearTimeout(timer);
         resolve();
       }
     });
   });
+  const entry = { channel, ready };
+  translationBroadcastChannels.set(roomId, entry);
+  return entry;
+}
+
+export function prepareTranslationBroadcastChannel(roomId: string) {
+  const entry = ensureTranslationBroadcastChannel(roomId);
+  if (!entry) return null;
+
+  return () => {
+    const current = translationBroadcastChannels.get(roomId);
+    if (current !== entry) return;
+    translationBroadcastChannels.delete(roomId);
+    const supabase = getRealtimeClient();
+    if (supabase) void supabase.removeChannel(entry.channel);
+  };
+}
+
+export async function broadcastTranslationMessage(roomId: string, message: RealtimeTranslationMessage) {
+  const entry = ensureTranslationBroadcastChannel(roomId);
+  if (!entry) return false;
+  await entry.ready;
 
   try {
-    const status = await channel.send({
+    const status = await entry.channel.send({
       type: "broadcast",
       event: "translation:new",
       payload: { message }
@@ -162,7 +188,5 @@ export async function broadcastTranslationMessage(roomId: string, message: Realt
     return status === "ok";
   } catch {
     return false;
-  } finally {
-    await supabase.removeChannel(channel);
   }
 }

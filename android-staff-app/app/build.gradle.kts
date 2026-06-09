@@ -8,6 +8,9 @@ val releaseKeystorePath = providers.environmentVariable("CVR_ANDROID_KEYSTORE").
 val releaseKeystorePassword = providers.environmentVariable("CVR_ANDROID_KEYSTORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("CVR_ANDROID_KEY_ALIAS").orNull
 val releaseKeyPassword = providers.environmentVariable("CVR_ANDROID_KEY_PASSWORD").orNull
+val appVersionName = "0.3.9"
+val brandedFieldApkName = "medivoice-$appVersionName-field.apk"
+val brandedReleaseBundleName = "medivoice-$appVersionName-release.aab"
 val hasReleaseSigning = listOf(
     releaseKeystorePath,
     releaseKeystorePassword,
@@ -24,7 +27,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 21
-        versionName = "0.3.9"
+        versionName = appVersionName
     }
 
     buildFeatures {
@@ -53,7 +56,11 @@ android {
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             matchingFallbacks += listOf("release", "debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
@@ -91,4 +98,38 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+tasks.register("copyBrandedFieldApk") {
+    group = "build"
+    description = "Copies the field APK to the MediVoice install filename."
+    val fieldApk = layout.buildDirectory.file("outputs/apk/field/app-field.apk")
+    val brandedFieldApk = layout.buildDirectory.file("outputs/apk/field/$brandedFieldApkName")
+    inputs.file(fieldApk)
+    outputs.file(brandedFieldApk)
+    dependsOn("assembleField")
+    doLast {
+        copy {
+            from(fieldApk)
+            into(brandedFieldApk.get().asFile.parentFile)
+            rename { brandedFieldApkName }
+        }
+    }
+}
+
+tasks.register("copyBrandedReleaseBundle") {
+    group = "build"
+    description = "Copies the release app bundle to the MediVoice Play upload filename."
+    val releaseBundle = layout.buildDirectory.file("outputs/bundle/release/app-release.aab")
+    val brandedReleaseBundle = layout.buildDirectory.file("outputs/bundle/release/$brandedReleaseBundleName")
+    inputs.file(releaseBundle)
+    outputs.file(brandedReleaseBundle)
+    dependsOn("bundleRelease")
+    doLast {
+        copy {
+            from(releaseBundle)
+            into(brandedReleaseBundle.get().asFile.parentFile)
+            rename { brandedReleaseBundleName }
+        }
+    }
 }

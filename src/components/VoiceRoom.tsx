@@ -12,13 +12,14 @@ import { ConsultationChatRoom } from "@/components/ConsultationChatRoom";
 import {
   broadcastRoomUpdate,
   broadcastTranslationMessage,
+  prepareTranslationBroadcastChannel,
   subscribeToRoomUpdates,
   subscribeToTranslationMessages,
   type RealtimeTranslationMessage
 } from "@/lib/supabase-realtime";
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
-const PROCEDURE_TRANSLATION_QUIET_MS = 700;
+const PROCEDURE_TRANSLATION_QUIET_MS = 500;
 const PROCEDURE_TRANSLATION_MAX_MS = 5500;
 
 const procedureIntroCopies: Record<PatientLanguage, string> = {
@@ -969,6 +970,10 @@ function ProcedureVoiceRoom({
   }, [appendMessage, markActivity, markIncomingMessagesRead, role, room.id]);
 
   useEffect(() => {
+    return prepareTranslationBroadcastChannel(room.id) ?? undefined;
+  }, [room.id]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function fetchRoomMessages() {
@@ -1292,7 +1297,7 @@ function ProcedureVoiceRoom({
     const recorder = createAudioRecorder(stream);
     mediaChunksRef.current = [];
     recorder.addEventListener("dataavailable", (event) => {
-      if (event.data.size > 0) mediaChunksRef.current.push(event.data);
+      if (mediaRecorderRef.current === recorder && event.data.size > 0) mediaChunksRef.current.push(event.data);
     });
     recorder.start();
     mediaRecorderRef.current = recorder;
@@ -1347,16 +1352,17 @@ function ProcedureVoiceRoom({
     return audio;
   }
 
-  async function discardRecorder() {
-    if (!mediaRecorderRef.current) {
-      recordingModeRef.current = null;
-      mediaChunksRef.current = [];
-      return;
-    }
-    await stopRecorder().catch(() => undefined);
+  function discardRecorderSoon() {
+    const recorder = mediaRecorderRef.current;
     mediaRecorderRef.current = null;
     recordingModeRef.current = null;
     mediaChunksRef.current = [];
+    if (!recorder || recorder.state === "inactive") return;
+    try {
+      recorder.stop();
+    } catch {
+      // Safety recording cleanup should never delay a completed realtime turn.
+    }
   }
 
   function microphoneErrorMessage(caught: unknown) {
@@ -1509,13 +1515,13 @@ function ProcedureVoiceRoom({
             if (!translatedText) throw new Error("No translated text was returned.");
             const normalizedText = normalizeClinicTranslation(translatedText, "ko");
             const sourceText = realtimeClientRef.current?.getInputTranscript() || inputTranscriptDraft || copy.helper.idle;
-            await discardRecorder();
             message = await persistRealtimeProcedureTurn({
               messageId: `${role}-procedure-${Date.now()}`,
               speakerRole: role,
               sourceText,
               translatedText: normalizedText
             });
+            discardRecorderSoon();
           } catch (realtimeError) {
             if (recordingMode !== "safety") throw realtimeError;
             setRealtimeStatus("Realtime interrupted; uploading fallback turn");
@@ -1558,13 +1564,13 @@ function ProcedureVoiceRoom({
           const sourceText = realtimeClientRef.current?.getInputTranscript() || inputTranscriptDraft || "한국어 원문을 표시하지 못했습니다.";
 
           const messageId = `${role}-procedure-${Date.now()}`;
-          await discardRecorder();
           message = await persistRealtimeProcedureTurn({
             messageId,
             speakerRole: role,
             sourceText,
             translatedText: normalizedText
           });
+          discardRecorderSoon();
         } catch (realtimeError) {
           if (recordingMode !== "safety") throw realtimeError;
           setRealtimeStatus("Realtime interrupted; uploading fallback turn");

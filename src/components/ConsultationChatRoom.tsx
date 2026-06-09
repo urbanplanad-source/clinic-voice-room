@@ -11,6 +11,7 @@ import { speechLanguageByPatientLanguage } from "@/lib/speech";
 import {
   broadcastRoomUpdate,
   broadcastTranslationMessage,
+  prepareTranslationBroadcastChannel,
   subscribeToRoomUpdates,
   subscribeToTranslationMessages,
   type RealtimeTranslationMessage
@@ -21,7 +22,7 @@ import {
 } from "@/lib/consultation-templates";
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
-const CONSULTATION_TRANSLATION_QUIET_MS = 700;
+const CONSULTATION_TRANSLATION_QUIET_MS = 500;
 const CONSULTATION_TRANSLATION_MAX_MS = 5500;
 
 const voiceCopy: Record<PatientLanguage, { ready: string; speaking: string; waiting: string; helper: string; micError: string; busy: string; fallback: string }> = {
@@ -383,7 +384,7 @@ export function ConsultationChatRoom({
     const recorder = createAudioRecorder(stream);
     mediaChunksRef.current = [];
     recorder.addEventListener("dataavailable", (event) => {
-      if (event.data.size > 0) mediaChunksRef.current.push(event.data);
+      if (mediaRecorderRef.current === recorder && event.data.size > 0) mediaChunksRef.current.push(event.data);
     });
     recorder.start();
     mediaRecorderRef.current = recorder;
@@ -437,16 +438,17 @@ export function ConsultationChatRoom({
     return audio;
   }
 
-  async function discardRecorder() {
-    if (!mediaRecorderRef.current) {
-      recordingModeRef.current = null;
-      mediaChunksRef.current = [];
-      return;
-    }
-    await stopPatientRecorder().catch(() => undefined);
+  function discardRecorderSoon() {
+    const recorder = mediaRecorderRef.current;
     mediaRecorderRef.current = null;
     recordingModeRef.current = null;
     mediaChunksRef.current = [];
+    if (!recorder || recorder.state === "inactive") return;
+    try {
+      recorder.stop();
+    } catch {
+      // Safety recording cleanup should never delay a completed realtime turn.
+    }
   }
 
   function microphoneErrorMessage(caught: unknown) {
@@ -596,13 +598,13 @@ export function ConsultationChatRoom({
             if (!translatedText) throw new Error("No translated text was returned.");
             const normalizedText = normalizeClinicTranslation(translatedText, "ko");
             const sourceText = realtimeClientRef.current?.getInputTranscript() || voiceText.fallback;
-            await discardRecorder();
             message = await persistRealtimeConsultationVoiceTurn({
               messageId: `${role}-voice-${Date.now()}`,
               speakerRole: role,
               sourceText,
               translatedText: normalizedText
             });
+            discardRecorderSoon();
           } catch (realtimeError) {
             if (recordingMode !== "safety") throw realtimeError;
             const audio = await stopAndClearRecorder();
@@ -641,13 +643,13 @@ export function ConsultationChatRoom({
           const normalizedText = normalizeClinicTranslation(translatedText, room.patientLanguage);
           const sourceText = realtimeClientRef.current?.getInputTranscript() || "한국어 원문을 표시하지 못했습니다.";
           const messageId = `${role}-voice-${Date.now()}`;
-          await discardRecorder();
           message = await persistRealtimeConsultationVoiceTurn({
             messageId,
             speakerRole: role,
             sourceText,
             translatedText: normalizedText
           });
+          discardRecorderSoon();
         } catch (realtimeError) {
           if (recordingMode !== "safety") throw realtimeError;
           const audio = await stopAndClearRecorder();
@@ -696,6 +698,10 @@ export function ConsultationChatRoom({
       markActivity();
     }) ?? undefined;
   }, [appendMessage, markActivity, markIncomingMessagesRead, playQueuedTranslatedSpeech, role, room.id]);
+
+  useEffect(() => {
+    return prepareTranslationBroadcastChannel(room.id) ?? undefined;
+  }, [room.id]);
 
   useEffect(() => {
     async function fetchMessages() {
