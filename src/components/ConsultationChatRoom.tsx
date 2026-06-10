@@ -597,7 +597,7 @@ export function ConsultationChatRoom({
             });
             if (!translatedText) throw new Error("No translated text was returned.");
             const normalizedText = normalizeClinicTranslation(translatedText, "ko");
-            const sourceText = realtimeClientRef.current?.getInputTranscript() || voiceText.fallback;
+            const sourceText = (await realtimeClientRef.current?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || voiceText.fallback;
             message = await persistRealtimeConsultationVoiceTurn({
               messageId: `${role}-voice-${Date.now()}`,
               speakerRole: role,
@@ -641,7 +641,7 @@ export function ConsultationChatRoom({
           });
           if (!translatedText) throw new Error("No translated text was returned.");
           const normalizedText = normalizeClinicTranslation(translatedText, room.patientLanguage);
-          const sourceText = realtimeClientRef.current?.getInputTranscript() || "한국어 원문을 표시하지 못했습니다.";
+          const sourceText = (await realtimeClientRef.current?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || "한국어 원문을 표시하지 못했습니다.";
           const messageId = `${role}-voice-${Date.now()}`;
           message = await persistRealtimeConsultationVoiceTurn({
             messageId,

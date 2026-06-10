@@ -18,6 +18,10 @@ val hasReleaseSigning = listOf(
     releaseKeyPassword
 ).all { !it.isNullOrBlank() }
 
+if (!hasReleaseSigning) {
+    logger.warn("MediVoice field/release signing env vars are missing; field APK will use the debug fallback key.")
+}
+
 android {
     namespace = "com.clinicvoiceroom.staff"
     compileSdk = 35

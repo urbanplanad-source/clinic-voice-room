@@ -18,7 +18,7 @@ import {
   type RealtimeTranslationMessage
 } from "@/lib/supabase-realtime";
 
-const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+const INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000;
 const PROCEDURE_TRANSLATION_QUIET_MS = 500;
 const PROCEDURE_TRANSLATION_MAX_MS = 5500;
 
@@ -1514,7 +1514,7 @@ function ProcedureVoiceRoom({
             });
             if (!translatedText) throw new Error("No translated text was returned.");
             const normalizedText = normalizeClinicTranslation(translatedText, "ko");
-            const sourceText = realtimeClientRef.current?.getInputTranscript() || inputTranscriptDraft || copy.helper.idle;
+            const sourceText = (await realtimeClientRef.current?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || inputTranscriptDraft || copy.helper.idle;
             message = await persistRealtimeProcedureTurn({
               messageId: `${role}-procedure-${Date.now()}`,
               speakerRole: role,
@@ -1561,7 +1561,7 @@ function ProcedureVoiceRoom({
           });
           if (!translatedText) throw new Error("No translated text was returned.");
           const normalizedText = normalizeClinicTranslation(translatedText, role === "staff" ? room.patientLanguage : "ko");
-          const sourceText = realtimeClientRef.current?.getInputTranscript() || inputTranscriptDraft || "한국어 원문을 표시하지 못했습니다.";
+          const sourceText = (await realtimeClientRef.current?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || inputTranscriptDraft || "한국어 원문을 표시하지 못했습니다.";
 
           const messageId = `${role}-procedure-${Date.now()}`;
           message = await persistRealtimeProcedureTurn({

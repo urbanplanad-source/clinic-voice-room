@@ -5,6 +5,10 @@ type RealtimeTranslationEvent = {
   delta?: string;
   transcript?: string;
   text?: string;
+  item_id?: string;
+  item?: {
+    id?: string;
+  };
   error?: {
     message?: string;
   };
@@ -36,6 +40,40 @@ type StopTurnOptions = {
   maxMs?: number;
 };
 
+type InputTranscriptWaitOptions = {
+  fastMs?: number;
+  repairMs?: number;
+};
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function hideUnsafeReplacementCharacters(text: string) {
+  return text.replace(/\uFFFD+/g, (match, offset, fullText) => {
+    const before = offset > 0 ? fullText.charAt(offset - 1) : "";
+    const after = fullText.charAt(offset + match.length);
+    return /\d/.test(before) || /\d/.test(after) ? match : "";
+  });
+}
+
+function sanitizeRealtimeInputTranscript(text: string) {
+  const repaired = text
+    .replace(/울\uFFFD+\s*라\s*피\s*프라임/g, "울쎄라피 프라임")
+    .replace(/울\uFFFD+\s*라\s*프라임/g, "울쎄라 프라임")
+    .replace(/울\uFFFD+\s*라/g, "울쎄라")
+    .replace(/리\uFFFD+\s*란\s*힐러/g, "리쥬란 힐러")
+    .replace(/리\s*쥬\s*란\s*\uFFFD+\s*러/g, "리쥬란 힐러")
+    .replace(/리\s*쥬\s*란\s*러/g, "리쥬란 힐러")
+    .replace(/리\uFFFD+\s*란/g, "리쥬란")
+    .replace(/\uFFFD+\s*마\s*지\s*(?:F\s*L\s*X|에프\s*엘\s*엑스)/gi, "써마지 FLX")
+    .replace(/\uFFFD+\s*마\s*지/gi, "써마지");
+  const cleaned = hideUnsafeReplacementCharacters(repaired)
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return cleaned.includes("\uFFFD") ? "" : cleaned;
+}
+
 export class OpenAIRealtimeClient {
   private peerConnection: RTCPeerConnection | null = null;
   private dataChannel: RTCDataChannel | null = null;
@@ -43,6 +81,8 @@ export class OpenAIRealtimeClient {
   private connectPromise: Promise<void> | null = null;
   private currentOutputText = "";
   private currentInputText = "";
+  private inputTranscriptComplete = false;
+  private inputTranscriptItemId: string | null = null;
   private firstOutputDeltaSeen = false;
 
   constructor(
@@ -72,6 +112,8 @@ export class OpenAIRealtimeClient {
   startTurn() {
     this.currentOutputText = "";
     this.currentInputText = "";
+    this.inputTranscriptComplete = false;
+    this.inputTranscriptItemId = null;
     this.firstOutputDeltaSeen = false;
     this.clearPendingTranslation();
     this.callbacks.onTranscriptDelta?.("");
@@ -81,7 +123,26 @@ export class OpenAIRealtimeClient {
   }
 
   getInputTranscript() {
-    return this.currentInputText.trim();
+    return sanitizeRealtimeInputTranscript(this.currentInputText);
+  }
+
+  async waitForInputTranscript(options: InputTranscriptWaitOptions = {}) {
+    const startedAt = Date.now();
+    const fastMs = options.fastMs ?? 650;
+    const repairMs = options.repairMs ?? 2400;
+    let deadlineAt = startedAt + fastMs;
+    let repairWindowEnabled = false;
+
+    while (Date.now() < deadlineAt) {
+      if (this.inputTranscriptComplete) return this.getInputTranscript();
+      if (!repairWindowEnabled && this.currentInputText.includes("\uFFFD")) {
+        repairWindowEnabled = true;
+        deadlineAt = startedAt + repairMs;
+      }
+      await delay(40);
+    }
+
+    return this.getInputTranscript();
   }
 
   async stopTurnAndTranslate(options: StopTurnOptions = {}) {
@@ -315,8 +376,9 @@ export class OpenAIRealtimeClient {
       ) &&
       typeof serverEvent.delta === "string"
     ) {
+      if (!this.shouldAcceptInputTranscriptEvent(serverEvent)) return;
       this.currentInputText += serverEvent.delta;
-      this.callbacks.onInputTranscriptDelta?.(this.currentInputText);
+      this.callbacks.onInputTranscriptDelta?.(this.getInputTranscript());
       return;
     }
 
@@ -327,9 +389,21 @@ export class OpenAIRealtimeClient {
       ) &&
       typeof serverEvent.transcript === "string"
     ) {
+      if (!this.shouldAcceptInputTranscriptEvent(serverEvent)) return;
       this.currentInputText = serverEvent.transcript;
-      this.callbacks.onInputTranscriptDelta?.(this.currentInputText);
+      this.inputTranscriptComplete = true;
+      this.callbacks.onInputTranscriptDelta?.(this.getInputTranscript());
     }
+  }
+
+  private shouldAcceptInputTranscriptEvent(serverEvent: RealtimeTranslationEvent) {
+    const itemId = serverEvent.item_id ?? serverEvent.item?.id ?? "";
+    if (!itemId) return true;
+    if (!this.inputTranscriptItemId) {
+      this.inputTranscriptItemId = itemId;
+      return true;
+    }
+    return this.inputTranscriptItemId === itemId;
   }
 
   private resetQuietTimer() {

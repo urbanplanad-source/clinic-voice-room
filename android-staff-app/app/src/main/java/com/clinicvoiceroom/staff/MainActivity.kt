@@ -226,8 +226,9 @@ private const val LocalDirectionKoToPatient = "ko_to_patient"
 private const val LocalDirectionPatientToKo = "patient_to_ko"
 private const val RealtimePcmSampleRate = 24000
 private const val RealtimeTurnWaitMs = 5500L
-private const val RealtimeOutputQuietMs = 300L
-private const val RealtimeInputTranscriptWaitMs = 750L
+private const val RealtimeOutputQuietMs = 550L
+private const val RealtimeInputTranscriptFastWaitMs = 650L
+private const val RealtimeInputTranscriptRepairWaitMs = 2400L
 private const val RecordingStopJoinMs = 250L
 private const val StaffRecordingMaxMs = 60_000L
 private const val LocalValidationTimeoutMs = 900L
@@ -421,7 +422,8 @@ private data class RealtimeToken(
 
 private data class RealtimeTurnResult(
     val sourceText: String,
-    val translatedText: String
+    val translatedText: String,
+    val sourceTranscriptComplete: Boolean
 )
 
 private class AndroidRealtimeTurnClient(
@@ -441,6 +443,8 @@ private class AndroidRealtimeTurnClient(
     private var responseDone = false
     @Volatile
     private var inputTranscriptDone = false
+    @Volatile
+    private var inputTranscriptItemId: String? = null
     @Volatile
     private var responseRequestedAt = 0L
     @Volatile
@@ -499,6 +503,7 @@ private class AndroidRealtimeTurnClient(
         synchronized(this) {
             outputText.clear()
             inputText.clear()
+            inputTranscriptItemId = null
         }
         responseDone = false
         inputTranscriptDone = false
@@ -563,12 +568,17 @@ private class AndroidRealtimeTurnClient(
         errorRef.get()?.let { throw it }
         val translated = synchronized(this) { outputText.toString().trim() }
         if (translated.isBlank()) error("Realtime returned no translated text")
-        waitForInputTranscriptIfNeeded()
+        val sourceTranscriptComplete = waitForInputTranscriptIfNeeded()
+        val rawSourceText = synchronized(this) { inputText.toString().trim() }
+        val cleanedSourceText = hideUnsafeReplacementCharacters(repairKoreanClinicTextArtifacts(rawSourceText))
+            .replace(Regex("\\s{2,}"), " ")
+            .trim()
         log("Realtime local result ${SystemClock.elapsedRealtime() - responseRequestedAt}ms")
 
         return RealtimeTurnResult(
-            sourceText = synchronized(this) { inputText.toString().trim() },
-            translatedText = translated
+            sourceText = cleanedSourceText.ifBlank { rawSourceText },
+            translatedText = translated,
+            sourceTranscriptComplete = sourceTranscriptComplete && !cleanedSourceText.contains('\uFFFD')
         )
     }
 
@@ -643,11 +653,13 @@ private class AndroidRealtimeTurnClient(
                 }
 
                 "conversation.item.input_audio_transcription.delta" -> {
+                    if (!shouldAcceptInputTranscriptEvent(event)) return@runCatching
                     val delta = event.optString("delta")
                     if (delta.isNotBlank()) synchronized(this) { inputText.append(delta) }
                 }
 
                 "conversation.item.input_audio_transcription.completed" -> {
+                    if (!shouldAcceptInputTranscriptEvent(event)) return@runCatching
                     val finalText = event.optString("transcript")
                     if (finalText.isNotBlank()) synchronized(this) {
                         inputText.clear()
@@ -678,6 +690,20 @@ private class AndroidRealtimeTurnClient(
         }
     }
 
+    private fun shouldAcceptInputTranscriptEvent(event: JSONObject): Boolean {
+        val itemId = event.optString("item_id")
+            .ifBlank { event.optJSONObject("item")?.optString("id").orEmpty() }
+        if (itemId.isBlank()) return true
+        synchronized(this) {
+            val currentItemId = inputTranscriptItemId
+            if (currentItemId == null) {
+                inputTranscriptItemId = itemId
+                return true
+            }
+            return currentItemId == itemId
+        }
+    }
+
     private fun collectRealtimeItemText(item: JSONObject?): String {
         val content = item?.optJSONArray("content") ?: return ""
         val parts = mutableListOf<String>()
@@ -689,16 +715,23 @@ private class AndroidRealtimeTurnClient(
         return parts.joinToString("").trim()
     }
 
-    private fun waitForInputTranscriptIfNeeded() {
-        if (synchronized(this) { inputText.isNotBlank() } || inputTranscriptDone) return
+    private fun waitForInputTranscriptIfNeeded(): Boolean {
+        val startedAt = SystemClock.elapsedRealtime()
+        var deadlineAt = startedAt + RealtimeInputTranscriptFastWaitMs
+        var repairWindowEnabled = false
 
-        val deadlineAt = SystemClock.elapsedRealtime() + RealtimeInputTranscriptWaitMs
         while (SystemClock.elapsedRealtime() < deadlineAt) {
             errorRef.get()?.let { throw it }
-            if (synchronized(this) { inputText.isNotBlank() } || inputTranscriptDone) return
+            val currentText = synchronized(this) { inputText.toString().trim() }
+            if (inputTranscriptDone) return true
+            if (!repairWindowEnabled && currentText.contains('\uFFFD')) {
+                repairWindowEnabled = true
+                deadlineAt = startedAt + RealtimeInputTranscriptRepairWaitMs
+            }
             Thread.sleep(40)
         }
-        log("Realtime input transcript missing after ${RealtimeInputTranscriptWaitMs}ms")
+        log("Realtime input transcript incomplete after ${SystemClock.elapsedRealtime() - startedAt}ms")
+        return inputTranscriptDone
     }
 }
 
@@ -1012,28 +1045,34 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        maybePrepareLocalRealtimeAfterResume()
+        resumeRealtimeAndPollingAfterStart()
     }
 
     override fun onStop() {
-        if (uiState.value.setupStep == SetupStepLocalInterpreter && uiState.value.room == null) {
-            if (recordingActive || uiState.value.speaking) {
-                recordingActive = false
-                runCatching { recordingThread?.join(RecordingStopJoinMs) }
-                synchronized(recordingLock) {
-                    recordedPcm = null
-                }
-                updateState {
-                    it.copy(
-                        speaking = false,
-                        busy = false,
-                        status = "앱이 백그라운드로 이동해 대면 통역 녹음을 중지했습니다."
-                    )
-                }
+        val state = uiState.value
+        if (recordingActive || state.speaking) {
+            recordingActive = false
+            realtimeTurnActive = false
+            runCatching { recordingThread?.join(RecordingStopJoinMs) }
+            synchronized(recordingLock) {
+                recordedPcm = null
             }
-            closeLocalRealtimeTurnClients()
-            stopTtsPlayback()
+            updateState {
+                it.copy(
+                    speaking = false,
+                    busy = false,
+                    status = "앱이 백그라운드로 이동해 녹음을 중지했습니다."
+                )
+            }
         }
+        if (state.room != null) {
+            stopRoomPolling()
+            closeRealtimeTurnClient()
+        }
+        if (state.setupStep == SetupStepLocalInterpreter && state.room == null) {
+            closeLocalRealtimeTurnClients()
+        }
+        stopTtsPlayback()
         super.onStop()
     }
 
@@ -1104,7 +1143,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-            state.loggedIn && state.setupStep == SetupStepMode && state.room == null -> finishAndRemoveTask()
+            state.loggedIn && state.setupStep == SetupStepMode -> finishAndRemoveTask()
             state.loggedIn -> moveTaskToBack(true)
             else -> finishAndRemoveTask()
         }
@@ -1652,8 +1691,24 @@ class MainActivity : ComponentActivity() {
         realtimeTurnActive = false
     }
 
-    private fun maybePrepareLocalRealtimeAfterResume() {
+    private fun resumeRealtimeAndPollingAfterStart() {
         val state = uiState.value
+        val room = state.room
+        if (
+            state.loggedIn &&
+            room != null &&
+            room.status != "ended" &&
+            !state.busy &&
+            !state.speaking
+        ) {
+            startRoomPolling()
+            if (room.patientJoinedAt != null) {
+                prepareRealtimeTurnClientAsync(room)
+                ensureTranslationRealtimeForRoom(room)
+            }
+            return
+        }
+
         if (
             state.loggedIn &&
             state.setupStep == SetupStepLocalInterpreter &&
@@ -1822,11 +1877,11 @@ class MainActivity : ComponentActivity() {
         messagePollingInitialized = true
     }
 
-    private fun rememberMessage(message: JSONObject): Boolean {
+    private fun rememberMessage(message: JSONObject, advanceCursor: Boolean = true): Boolean {
         val id = message.optString("id")
         val createdAt = message.optString("createdAt")
         synchronized(seenMessageIds) {
-            if (createdAt.isNotBlank() && (messageCursor == null || createdAt > (messageCursor ?: ""))) {
+            if (advanceCursor && createdAt.isNotBlank() && (messageCursor == null || createdAt > (messageCursor ?: ""))) {
                 messageCursor = createdAt
             }
             if (id.isNotBlank() && !seenMessageIds.add(id)) return false
@@ -2314,7 +2369,7 @@ class MainActivity : ComponentActivity() {
                 val room = uiState.value.room ?: error("Room is missing")
                 val result = translateStaffVoiceTurn(room, pcm)
                 val message = result.getJSONObject("message")
-                rememberMessage(message)
+                rememberMessage(message, advanceCursor = result.optString("model") != "realtime-local")
                 val parsedMessage = messageFromJson(message, room.patientLanguage)
                 appendConversationMessage(parsedMessage)
                 val source = message.optString("sourceText")
@@ -2369,6 +2424,7 @@ class MainActivity : ComponentActivity() {
                 val result = translateLocalVoiceTurn(direction, patientLanguage, pcm, durationSeconds)
                 val sourceLanguage = result.optString("sourceLanguage")
                 val targetLanguage = result.optString("targetLanguage")
+                val sourceTranscriptComplete = result.optBoolean("sourceTranscriptComplete", true)
                 val source = if (sourceLanguage == "ko") {
                     normalizeKoreanSourceText(result.optString("sourceText"))
                 } else {
@@ -2378,7 +2434,7 @@ class MainActivity : ComponentActivity() {
                 val speaker = if (direction == LocalDirectionKoToPatient) "staff" else "patient"
                 prepareLocalRealtimeTurnClientsAsync(patientLanguage)
 
-                if (localTranslationNeedsRetry(direction, patientLanguage, source, translated)) {
+                if (sourceTranscriptComplete && localTranslationNeedsRetry(direction, patientLanguage, source, translated)) {
                     val retryKorean = localRetryPromptKorean()
                     val retryPatient = localRetryPromptForPatientLanguage(patientLanguage)
                     updateState {
@@ -2513,7 +2569,7 @@ class MainActivity : ComponentActivity() {
                         sourceText = result.sourceText,
                         translatedText = result.translatedText
                     )
-                    return localRealtimeVoiceTurn(direction, patientLanguage, result.sourceText, result.translatedText)
+                    return localRealtimeVoiceTurn(direction, patientLanguage, result.sourceText, result.translatedText, result.sourceTranscriptComplete)
                 }.onFailure {
                     appendLog("Local Realtime failed, falling back to upload: ${it.message}")
                     synchronized(localRealtimeLock) {
@@ -2555,7 +2611,7 @@ class MainActivity : ComponentActivity() {
                 sourceText = result.sourceText,
                 translatedText = result.translatedText
             )
-            localRealtimeVoiceTurn(direction, patientLanguage, result.sourceText, result.translatedText)
+            localRealtimeVoiceTurn(direction, patientLanguage, result.sourceText, result.translatedText, result.sourceTranscriptComplete)
         }.onFailure {
             appendLog("Local buffered Realtime failed, falling back to upload: ${it.message}")
             synchronized(localRealtimeLock) {
@@ -2575,7 +2631,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun localRealtimeVoiceTurn(direction: String, patientLanguage: String, sourceText: String, translatedText: String): JSONObject {
+    private fun localRealtimeVoiceTurn(
+        direction: String,
+        patientLanguage: String,
+        sourceText: String,
+        translatedText: String,
+        sourceTranscriptComplete: Boolean = true
+    ): JSONObject {
         val targetLanguage = if (direction == LocalDirectionKoToPatient) patientLanguage else "ko"
         val sourceLanguage = if (direction == LocalDirectionKoToPatient) "ko" else patientLanguage
         return JSONObject()
@@ -2584,6 +2646,7 @@ class MainActivity : ComponentActivity() {
             .put("sourceLanguage", sourceLanguage)
             .put("targetLanguage", targetLanguage)
             .put("direction", direction)
+            .put("sourceTranscriptComplete", sourceTranscriptComplete)
             .put("model", "realtime-local")
     }
 
@@ -3167,8 +3230,60 @@ private fun brandDisplay(patientLanguage: String, key: String): String {
     }
 }
 
+private fun repairKoreanClinicTextArtifacts(text: String): String {
+    return text
+        .replace(Regex("울\\uFFFD+\\s*라\\s*피\\s*프라임"), "울쎄라피 프라임")
+        .replace(Regex("울\\uFFFD+\\s*라\\s*프라임"), "울쎄라 프라임")
+        .replace(Regex("울\\uFFFD+\\s*라"), "울쎄라")
+        .replace(Regex("리\\uFFFD+\\s*란\\s*힐러"), "리쥬란 힐러")
+        .replace(Regex("리\\s*쥬\\s*란\\s*\\uFFFD+\\s*러"), "리쥬란 힐러")
+        .replace(Regex("리\\s*쥬\\s*란\\s*러"), "리쥬란 힐러")
+        .replace(Regex("리\\uFFFD+\\s*란"), "리쥬란")
+        .replace(Regex("\\uFFFD+\\s*마\\s*지\\s*(?:F\\s*L\\s*X|에프\\s*엘\\s*엑스)", RegexOption.IGNORE_CASE), "써마지 FLX")
+        .replace(Regex("\\uFFFD+\\s*마\\s*지", RegexOption.IGNORE_CASE), "써마지")
+}
+
+private fun hideUnsafeReplacementCharacters(text: String): String {
+    return text.replace(Regex("(?<!\\d)\\uFFFD+(?!\\d)"), "")
+}
+
+private fun localTranscriptDisplayText(text: String, active: Boolean): String {
+    val repaired = hideUnsafeReplacementCharacters(repairKoreanClinicTextArtifacts(text))
+        .replace(Regex("\\s{2,}"), " ")
+        .trim()
+    return when {
+        repaired.isBlank() -> if (active) "듣는 중" else " "
+        repaired.contains('\uFFFD') -> "인식이 불완전합니다. 다시 한 번 말씀해주세요."
+        else -> repaired
+    }
+}
+
+private fun normalizeKoreanClinicTerms(text: String): String {
+    return repairKoreanClinicTextArtifacts(text)
+        .replace(Regex("울\\s*[쎄세]\\s*라\\s*피\\s*프라임|울\\s*[쎄세]\\s*라\\s*프라임|\\bUltherapy\\s*Prime\\b", RegexOption.IGNORE_CASE), "울쎄라피 프라임")
+        .replace(Regex("울\\s*[쎄세]\\s*라|\\bUltherapy\\b", RegexOption.IGNORE_CASE), "울쎄라")
+        .replace(Regex("써\\s*마\\s*지\\s*(?:F\\s*L\\s*X|에프\\s*엘\\s*엑스)|서\\s*마\\s*지\\s*(?:F\\s*L\\s*X|에프\\s*엘\\s*엑스)|\\bThermage\\s*FLX\\b", RegexOption.IGNORE_CASE), "써마지 FLX")
+        .replace(Regex("써\\s*마\\s*지|서\\s*마\\s*지|\\bThermage\\b", RegexOption.IGNORE_CASE), "써마지")
+        .replace(Regex("세\\s*르\\s*프|제\\s*르\\s*프|\\bXERF\\b", RegexOption.IGNORE_CASE), "XERF")
+        .replace(Regex("黑\\s*(?:盒|火)|灰\\s*(?:盒|火)|(?:헤이|후이|훼이|회)\\s*(?:훠|후어|후오)|\\b(?:black|gray|grey)\\s*(?:box|fire)\\b", RegexOption.IGNORE_CASE), "리쥬란 힐러")
+        .replace(Regex("红\\s*(?:盒|火)|紅\\s*(?:盒|火)|(?:홍|훙)\\s*(?:훠|후어|후오)|\\bred\\s*(?:box|fire)\\b", RegexOption.IGNORE_CASE), "리쥬란 HB")
+        .replace(Regex("白\\s*(?:盒|火)|(?:바이|빠이)\\s*(?:훠|후어|후오)|\\bwhite\\s*(?:box|fire)\\b", RegexOption.IGNORE_CASE), "리쥬란 아이")
+        .replace(Regex("蓝\\s*(?:盒|火)|藍\\s*(?:盒|火)|(?:란|란란|란써)\\s*(?:훠|후어|후오)|\\bblue\\s*(?:box|fire)\\b", RegexOption.IGNORE_CASE), "리쥬란 S")
+        .replace(Regex("紫\\s*(?:盒|火)|(?:쯔|즈)\\s*(?:훠|후어|후오)|\\bpurple\\s*(?:box|fire)\\b", RegexOption.IGNORE_CASE), "리쥬란 엘라스킨")
+        .replace(Regex("热\\s*[玛马]\\s*吉|熱\\s*瑪\\s*吉", RegexOption.IGNORE_CASE), "써마지")
+        .replace(Regex("超\\s*声\\s*刀|超\\s*聲\\s*刀", RegexOption.IGNORE_CASE), "울쎄라")
+        .replace(Regex("皮\\s*秒|\\bpico(?:sure|second)?\\b", RegexOption.IGNORE_CASE), "피코 레이저")
+        .replace(Regex("乔雅露|喬雅露|乔雅路|喬雅路|朱韦洛克|朱韋洛克", RegexOption.IGNORE_CASE), "쥬베룩")
+        .replace(Regex("钻石超塑|鑽石超塑|钻石雕塑|鑽石雕塑", RegexOption.IGNORE_CASE), "인모드")
+        .replace(Regex("泪沟填充|淚溝填充", RegexOption.IGNORE_CASE), "눈밑 필러")
+        .replace(Regex("溶脂针|溶脂針", RegexOption.IGNORE_CASE), "지방분해 주사")
+        .let(::hideUnsafeReplacementCharacters)
+        .replace(Regex("\\s{2,}"), " ")
+        .trim()
+}
+
 private fun normalizeKoreanSourceText(text: String): String {
-    return text.trim()
+    return normalizeKoreanClinicTerms(text.trim())
         .replace(Regex("(?:리\\s*[쥬주]\\s*란|니\\s*[쥬주]\\s*란|리.{0,3}란)\\s*힐러|\\b(?:re|ni|nizhu|niju)[\\s-]?juran\\s*healer\\b", RegexOption.IGNORE_CASE), "리쥬란 힐러")
         .replace(Regex("(?:쥬|주)\\s*베\\s*룩\\s*볼륨|\\bjuve[\\s-]?look\\s*volume\\b", RegexOption.IGNORE_CASE), "쥬베룩 볼륨")
         .replace(Regex("(?:쥬|주)\\s*베\\s*룩|\\bjuve[\\s-]?look\\b", RegexOption.IGNORE_CASE), "쥬베룩")
@@ -3206,7 +3321,7 @@ private fun normalizeClinicText(text: String, patientLanguage: String): String {
         "ko" -> "부종이 생길 수 있어요."
         else -> "$swelling may occur."
     }
-    val trimmed = text.trim()
+    val trimmed = if (patientLanguage == "ko") normalizeKoreanClinicTerms(text.trim()) else text.trim()
     if (Regex("^(그종|구종|붓종|geu[\\s-]?jong|gu[\\s-]?jong|geo[\\s-]?jong)(?:[.!?。？\\s]*)$", RegexOption.IGNORE_CASE).matches(trimmed)) {
         return swellingSentence
     }
@@ -3998,6 +4113,14 @@ private fun LocalInterpreterTextPane(
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
+    val displayText = localTranscriptDisplayText(text, active)
+    val longText = displayText.length > if (landscape) 90 else 70
+    val textStyle = when {
+        displayText.length > 150 -> MaterialTheme.typography.titleMedium
+        longText -> MaterialTheme.typography.titleLarge
+        landscape -> MaterialTheme.typography.headlineMedium
+        else -> MaterialTheme.typography.headlineSmall
+    }
     LaunchedEffect(text) {
         scrollState.scrollTo(0)
     }
@@ -4024,14 +4147,15 @@ private fun LocalInterpreterTextPane(
                 .fillMaxSize()
                 .padding(top = 34.dp)
                 .verticalScroll(scrollState),
-            contentAlignment = Alignment.Center
+            contentAlignment = if (longText) Alignment.TopCenter else Alignment.Center
         ) {
             Text(
-                text.ifBlank { if (active) "듣는 중" else " " },
+                displayText,
                 color = if (text.isBlank()) SlateText else Ink,
-                style = if (landscape) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineSmall,
+                style = textStyle,
                 fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
