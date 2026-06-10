@@ -309,6 +309,7 @@ private data class StaffUiState(
     val textInput: String = "",
     val lastKey: String = "없음",
     val showEndRoomConfirm: Boolean = false,
+    val showExitAppConfirm: Boolean = false,
     val logs: List<String> = listOf("Android staff app ready")
 )
 
@@ -1029,6 +1030,8 @@ class MainActivity : ComponentActivity() {
                         onRequestEndRoom = { updateState { it.copy(showEndRoomConfirm = true) } },
                         onConfirmEndRoom = ::endRoom,
                         onDismissEndRoom = { updateState { it.copy(showEndRoomConfirm = false) } },
+                        onConfirmExitApp = { finishAndRemoveTask() },
+                        onDismissExitApp = { updateState { it.copy(showExitAppConfirm = false) } },
                         onCopyLink = ::copyJoinLink,
                         onReplayTranslation = ::replayTranslation,
                         onTextInputChange = { value -> updateState { it.copy(textInput = value) } },
@@ -1111,6 +1114,7 @@ class MainActivity : ComponentActivity() {
     private fun handleAppBack() {
         val state = uiState.value
         when {
+            state.showExitAppConfirm -> updateState { it.copy(showExitAppConfirm = false) }
             state.showEndRoomConfirm -> updateState { it.copy(showEndRoomConfirm = false) }
             state.speaking -> stopActiveRecordingAndTranslate()
             state.busy -> updateState { it.copy(status = "처리 중입니다. 잠시만 기다려주세요.") }
@@ -1143,9 +1147,9 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
-            state.loggedIn && state.setupStep == SetupStepMode -> finishAndRemoveTask()
-            state.loggedIn -> moveTaskToBack(true)
-            else -> finishAndRemoveTask()
+            state.loggedIn && state.setupStep == SetupStepMode -> updateState { it.copy(showExitAppConfirm = true) }
+            state.loggedIn -> updateState { it.copy(showExitAppConfirm = true) }
+            else -> updateState { it.copy(showExitAppConfirm = true) }
         }
     }
 
@@ -3420,6 +3424,8 @@ private fun StaffAppScreen(
     onRequestEndRoom: () -> Unit,
     onConfirmEndRoom: () -> Unit,
     onDismissEndRoom: () -> Unit,
+    onConfirmExitApp: () -> Unit,
+    onDismissExitApp: () -> Unit,
     onCopyLink: () -> Unit,
     onReplayTranslation: () -> Unit,
     onTextInputChange: (String) -> Unit,
@@ -3556,6 +3562,12 @@ private fun StaffAppScreen(
                 roomMode = roomModeLabel(room.roomMode),
                 onDismiss = onDismissEndRoom,
                 onConfirm = onConfirmEndRoom
+            )
+        }
+        if (state.showExitAppConfirm) {
+            ExitAppConfirmDialog(
+                onDismiss = onDismissExitApp,
+                onConfirm = onConfirmExitApp
             )
         }
     }
@@ -4673,6 +4685,39 @@ private fun EndRoomConfirmDialog(
                 colors = ButtonDefaults.buttonColors(containerColor = Coral, contentColor = Color.White)
             ) {
                 Text("방 종료", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("계속 사용", fontWeight = FontWeight.Bold, color = Trust)
+            }
+        }
+    )
+}
+
+@Composable
+private fun ExitAppConfirmDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("앱을 종료하시겠습니까?", fontWeight = FontWeight.Bold, color = Ink)
+        },
+        text = {
+            Text(
+                "MediVoice를 종료하면 진행 중인 통역 화면이 닫힙니다.",
+                color = SlateText,
+                fontWeight = FontWeight.SemiBold
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = Coral, contentColor = Color.White)
+            ) {
+                Text("종료", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
