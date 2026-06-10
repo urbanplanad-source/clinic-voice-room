@@ -1,0 +1,2 @@
+ALTER TYPE "PatientLanguage" ADD VALUE IF NOT EXISTS 'yue';
+ALTER TYPE "PatientLanguage" ADD VALUE IF NOT EXISTS 'tl';

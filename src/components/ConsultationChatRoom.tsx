@@ -27,6 +27,7 @@ const CONSULTATION_TRANSLATION_MAX_MS = 5500;
 
 const voiceCopy: Record<PatientLanguage, { ready: string; speaking: string; waiting: string; helper: string; micError: string; busy: string; fallback: string }> = {
   zh: { ready: "按住说话", speaking: "再次点击结束", waiting: "请稍候", helper: "建议先用语音咨询。输入框可作为备用。", micError: "无法使用麦克风。请允许浏览器使用麦克风。", busy: "对方正在讲话。请稍后再试。", fallback: "语音不顺利时可输入文字。" },
+  yue: { ready: "點擊講話", speaking: "再次點擊結束", waiting: "請稍候", helper: "建議先用語音諮詢。輸入框可作為備用。", micError: "無法使用麥克風。請允許瀏覽器使用麥克風。", busy: "對方正在說話。請稍後再試。", fallback: "語音不順利時可輸入文字。" },
   zh_tw: { ready: "點擊說話", speaking: "再次點擊結束", waiting: "請稍候", helper: "建議先用語音諮詢。輸入框可作為備用。", micError: "無法使用麥克風。請允許瀏覽器使用麥克風。", busy: "對方正在說話。請稍後再試。", fallback: "語音不順利時可輸入文字。" },
   ja: { ready: "タップして話す", speaking: "もう一度タップして終了", waiting: "少々お待ちください", helper: "まず音声で相談できます。入力欄は予備として使えます。", micError: "マイクを使用できません。ブラウザでマイクを許可してください。", busy: "相手が話しています。少し待ってからお試しください。", fallback: "音声がうまくいかない時は文字で入力できます。" },
   en: { ready: "Tap and speak", speaking: "Tap again to finish", waiting: "Please wait", helper: "Voice is the main way to consult. Typing is available as a backup.", micError: "Microphone is unavailable. Please allow microphone access in your browser.", busy: "The other person is speaking. Please try again shortly.", fallback: "If voice does not work well, type here." },
@@ -36,6 +37,7 @@ const voiceCopy: Record<PatientLanguage, { ready: string; speaking: string; wait
   ru: { ready: "Нажмите и говорите", speaking: "Нажмите еще раз, чтобы закончить", waiting: "Пожалуйста, подождите", helper: "Лучше начать консультацию голосом. Текстовое поле доступно как запасной вариант.", micError: "Микрофон недоступен. Разрешите доступ к микрофону в браузере.", busy: "Сейчас говорит другой человек. Повторите чуть позже.", fallback: "Если голос работает плохо, введите текст здесь." },
   vi: { ready: "Nhấn và nói", speaking: "Nhấn lại để kết thúc", waiting: "Vui lòng chờ", helper: "Nên tư vấn bằng giọng nói trước. Ô nhập chữ dùng khi cần.", micError: "Không thể sử dụng micro. Vui lòng cho phép micro trong trình duyệt.", busy: "Người kia đang nói. Vui lòng thử lại sau.", fallback: "Nếu giọng nói không ổn, hãy nhập chữ tại đây." },
   id: { ready: "Ketuk dan bicara", speaking: "Ketuk lagi untuk selesai", waiting: "Mohon tunggu", helper: "Gunakan suara sebagai cara utama konsultasi. Kolom teks tersedia sebagai cadangan.", micError: "Mikrofon tidak tersedia. Izinkan akses mikrofon di browser.", busy: "Orang lain sedang berbicara. Coba lagi sebentar lagi.", fallback: "Jika suara kurang lancar, ketik di sini." },
+  tl: { ready: "I-tap at magsalita", speaking: "I-tap ulit para matapos", waiting: "Pakihintay", helper: "Gamitin muna ang boses para sa konsultasyon. May text box bilang backup.", micError: "Hindi magamit ang mikropono. Payagan ang microphone access sa browser.", busy: "Nagsasalita ang kabilang panig. Subukan muli pagkalipas ng ilang sandali.", fallback: "Kung hindi maayos ang boses, mag-type dito." },
   fr: { ready: "Touchez et parlez", speaking: "Touchez à nouveau pour terminer", waiting: "Veuillez patienter", helper: "La consultation se fait d'abord par voix. Le texte reste disponible en secours.", micError: "Le microphone n'est pas disponible. Autorisez l'accès au microphone dans le navigateur.", busy: "L'autre personne parle. Veuillez réessayer dans un instant.", fallback: "Si la voix fonctionne mal, écrivez ici." },
   es: { ready: "Toque y hable", speaking: "Toque de nuevo para terminar", waiting: "Espere un momento", helper: "Use la voz como forma principal de consulta. El texto queda como respaldo.", micError: "El micrófono no está disponible. Permita el acceso al micrófono en el navegador.", busy: "La otra persona está hablando. Inténtelo de nuevo en un momento.", fallback: "Si la voz no funciona bien, escriba aquí." },
   de: { ready: "Tippen und sprechen", speaking: "Zum Beenden erneut tippen", waiting: "Bitte warten", helper: "Die Beratung läuft zuerst per Sprache. Das Textfeld bleibt als Reserve verfügbar.", micError: "Das Mikrofon ist nicht verfügbar. Bitte erlauben Sie den Mikrofonzugriff im Browser.", busy: "Die andere Person spricht. Bitte versuchen Sie es gleich erneut.", fallback: "Wenn Sprache nicht gut funktioniert, schreiben Sie hier." },
@@ -45,6 +47,7 @@ const voiceCopy: Record<PatientLanguage, { ready: string; speaking: string; wait
 
 const replayCopy: Record<PatientLanguage, string> = {
   zh: "重新播放",
+  yue: "重新播放",
   zh_tw: "重新播放",
   ja: "もう一度聞く",
   en: "Replay",
@@ -54,6 +57,7 @@ const replayCopy: Record<PatientLanguage, string> = {
   ru: "Повторить",
   vi: "Nghe lại",
   id: "Dengar lagi",
+  tl: "Pakinggan muli",
   fr: "Réécouter",
   es: "Escuchar de nuevo",
   de: "Erneut anhören",
@@ -114,11 +118,16 @@ export function ConsultationChatRoom({
   const speechQueueRef = useRef(Promise.resolve());
   const spokenMessageIdsRef = useRef(new Set<string>());
 
-  const copy = consultationTextCopy[room.patientLanguage];
+  const copy =
+    consultationTextCopy[room.patientLanguage] ??
+    (room.patientLanguage === "yue" ? consultationTextCopy.zh_tw : consultationTextCopy.en);
   const voiceText = role === "staff"
     ? { ready: "누르고 말하세요", speaking: "다시 누르면 종료", waiting: "잠시 기다려주세요", helper: "음성을 먼저 사용하고, 인식이 어려울 때만 텍스트로 입력하세요.", micError: "마이크를 사용할 수 없습니다.", busy: "상대방이 말하는 중입니다. 잠시 후 다시 눌러주세요.", fallback: "음성 인식이 원활하지 않을 때 텍스트로 입력하세요." }
     : voiceCopy[room.patientLanguage];
-  const deliveryStatusCopy = role === "staff" ? { sending: "전송 중", failed: "전송 실패", read: "읽음" } : consultationDeliveryStatusCopy[room.patientLanguage];
+  const deliveryStatusCopy = role === "staff"
+    ? { sending: "전송 중", failed: "전송 실패", read: "읽음" }
+    : consultationDeliveryStatusCopy[room.patientLanguage] ??
+      (room.patientLanguage === "yue" ? consultationDeliveryStatusCopy.zh_tw : consultationDeliveryStatusCopy.en);
   const chatMessages = [...messages].reverse();
   const canSubmitText = Boolean(textInput.trim()) && !textSubmitting && room.status !== "ended";
   const isSpeaking = speakingStartedAt !== null;

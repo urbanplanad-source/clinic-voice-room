@@ -28,6 +28,11 @@ const qrCopy: Partial<Record<PatientLanguage, { heading: string; instruction: st
     instruction: "请使用手机相机扫描下方二维码，进入医院翻译室。",
     waiting: "正在等待患者进入"
   },
+  yue: {
+    heading: "請掃描 QR Code",
+    instruction: "請用手機相機掃描下方 QR Code，進入醫院翻譯室。",
+    waiting: "正在等待患者進入"
+  },
   zh_tw: {
     heading: "請掃描 QR Code",
     instruction: "請使用手機相機掃描下方 QR Code，進入醫院翻譯室。",
@@ -52,6 +57,11 @@ const qrCopy: Partial<Record<PatientLanguage, { heading: string; instruction: st
     heading: "Imbas kod QR",
     instruction: "Gunakan kamera telefon untuk mengimbas kod QR di bawah dan masuk ke bilik interpretasi.",
     waiting: "Menunggu pesakit masuk"
+  },
+  tl: {
+    heading: "I-scan ang QR code",
+    instruction: "Gamitin ang camera ng telepono upang i-scan ang QR code sa ibaba at pumasok sa interpretation room ng ospital.",
+    waiting: "Hinihintay na pumasok ang pasyente"
   },
   mn: {
     heading: "QR код уншуулна уу",

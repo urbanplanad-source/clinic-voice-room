@@ -7,6 +7,7 @@ export type TranslationDirection = "staff_to_patient" | "patient_to_staff";
 const realtimeInputLanguageHints: Record<PatientLanguage | "ko", string> = {
   ko: "ko",
   zh: "zh",
+  yue: "zh",
   zh_tw: "zh",
   ja: "ja",
   en: "en",
@@ -16,6 +17,7 @@ const realtimeInputLanguageHints: Record<PatientLanguage | "ko", string> = {
   ru: "ru",
   vi: "vi",
   id: "id",
+  tl: "tl",
   fr: "fr",
   es: "es",
   de: "de",
@@ -26,6 +28,7 @@ const realtimeInputLanguageHints: Record<PatientLanguage | "ko", string> = {
 const realtimeLanguageLabels: Record<PatientLanguage | "ko", string> = {
   ko: "Korean",
   zh: "Simplified Chinese",
+  yue: "Cantonese",
   zh_tw: "Traditional Chinese",
   ja: "Japanese",
   en: "English",
@@ -35,6 +38,7 @@ const realtimeLanguageLabels: Record<PatientLanguage | "ko", string> = {
   ru: "Russian",
   vi: "Vietnamese",
   id: "Indonesian",
+  tl: "Filipino / Tagalog",
   fr: "French",
   es: "Spanish",
   de: "German",
@@ -60,7 +64,9 @@ function buildRealtimeTranslationInstructions(inputLanguage: PatientLanguage | "
   const patientLanguage = outputLanguage === "ko" ? inputLanguage : outputLanguage;
   const glossaryInstructions = patientLanguage === "ko" ? "" : buildClinicGlossaryInstructions(patientLanguage);
   const characterInstruction =
-    outputLanguage === "zh_tw"
+    outputLanguage === "yue"
+      ? "Use natural Hong Kong Cantonese wording in Traditional Chinese characters."
+      : outputLanguage === "zh_tw"
       ? "Use Traditional Chinese characters."
       : outputLanguage === "zh"
         ? "Use Simplified Chinese characters."

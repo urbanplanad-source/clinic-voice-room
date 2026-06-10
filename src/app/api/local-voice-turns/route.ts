@@ -61,7 +61,7 @@ function directionRole(direction: LocalDirection): ParticipantRole {
 
 function transcriptionLanguageFor(direction: LocalDirection, patientLanguage: PatientLanguage) {
   if (direction === "ko_to_patient") return "ko";
-  if (patientLanguage === "zh_tw") return "zh";
+  if (patientLanguage === "zh_tw" || patientLanguage === "yue") return "zh";
   return patientLanguage;
 }
 

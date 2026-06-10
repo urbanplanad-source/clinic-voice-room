@@ -72,10 +72,19 @@ export function pickClinicConsultationTemplateProfile(hospitalName?: string | nu
   return clinicConsultationTemplateProfiles[2];
 }
 
-export const consultationTextCopy: Record<
-  PatientLanguage,
-  { title: string; placeholder: string; submit: string; chatStarted: string; empty: string; statusChat: string; statusEnded: string }
-> = {
+type ConsultationTextCopy = {
+  title: string;
+  placeholder: string;
+  submit: string;
+  chatStarted: string;
+  empty: string;
+  statusChat: string;
+  statusEnded: string;
+};
+
+type DeliveryStatusCopy = { sending: string; failed: string; read: string };
+
+export const consultationTextCopy: Partial<Record<PatientLanguage, ConsultationTextCopy>> & { en: ConsultationTextCopy; zh_tw: ConsultationTextCopy } = {
   zh: {
     title: "点击下方按钮说话",
     placeholder: "请在这里输入您想说的话。",
@@ -84,6 +93,15 @@ export const consultationTextCopy: Record<
     empty: "您可以用语音咨询，也可以在下方输入文字。",
     statusChat: "咨询中",
     statusEnded: "已结束"
+  },
+  yue: {
+    title: "點擊下方按鈕講話",
+    placeholder: "請在這裡輸入您想講的內容。",
+    submit: "送出翻譯",
+    chatStarted: "AI 翻譯諮詢已開始。",
+    empty: "您可以用語音諮詢，也可以在下方輸入文字。",
+    statusChat: "諮詢中",
+    statusEnded: "已結束"
   },
   zh_tw: {
     title: "點擊下方按鈕說話",
@@ -166,6 +184,15 @@ export const consultationTextCopy: Record<
     statusChat: "Chat",
     statusEnded: "Selesai"
   },
+  tl: {
+    title: "I-tap ang button sa ibaba at magsalita",
+    placeholder: "I-type dito ang gusto mong sabihin.",
+    submit: "Ipadala ang salin",
+    chatStarted: "Nagsimula na ang AI translation consultation.",
+    empty: "Maaari kang kumonsulta gamit ang boses, o mag-type sa ibaba kung kailangan.",
+    statusChat: "Chat",
+    statusEnded: "Tapos na"
+  },
   fr: {
     title: "Touchez le bouton ci-dessous et parlez",
     placeholder: "Écrivez ici ce que vous voulez dire.",
@@ -213,8 +240,9 @@ export const consultationTextCopy: Record<
   }
 };
 
-export const consultationDeliveryStatusCopy: Record<PatientLanguage, { sending: string; failed: string; read: string }> = {
+export const consultationDeliveryStatusCopy: Partial<Record<PatientLanguage, DeliveryStatusCopy>> & { en: DeliveryStatusCopy; zh_tw: DeliveryStatusCopy } = {
   zh: { sending: "正在发送", failed: "发送失败", read: "已读" },
+  yue: { sending: "正在傳送", failed: "傳送失敗", read: "已讀" },
   zh_tw: { sending: "正在傳送", failed: "傳送失敗", read: "已讀" },
   ja: { sending: "送信中", failed: "送信に失敗しました", read: "既読" },
   en: { sending: "Sending", failed: "Send failed", read: "Read" },
@@ -224,6 +252,7 @@ export const consultationDeliveryStatusCopy: Record<PatientLanguage, { sending: 
   ru: { sending: "Отправка", failed: "Не удалось отправить", read: "Прочитано" },
   vi: { sending: "Đang gửi", failed: "Gửi thất bại", read: "Đã đọc" },
   id: { sending: "Mengirim", failed: "Gagal mengirim", read: "Dibaca" },
+  tl: { sending: "Ipinapadala", failed: "Hindi naipadala", read: "Nabasa" },
   fr: { sending: "Envoi", failed: "Échec de l'envoi", read: "Lu" },
   es: { sending: "Enviando", failed: "Error al enviar", read: "Leído" },
   de: { sending: "Wird gesendet", failed: "Senden fehlgeschlagen", read: "Gelesen" },
@@ -239,10 +268,14 @@ export const stageByExampleCategory: Record<ConsultationExampleCategory, Consult
   safety: "medical"
 };
 
-export const initialPatientSuggestionSet: Record<PatientLanguage, PatientFollowUpSuggestionSet> = {
+export const initialPatientSuggestionSet: Partial<Record<PatientLanguage, PatientFollowUpSuggestionSet>> & { en: PatientFollowUpSuggestionSet; zh_tw: PatientFollowUpSuggestionSet } = {
   zh: {
     label: "AI 推荐咨询",
     suggestions: ["我没有预约。今天可以咨询吗？", "我想咨询适合我的治疗。", "我想看完整价目表。", "可以刷卡付款吗？"]
+  },
+  yue: {
+    label: "AI 推薦諮詢",
+    suggestions: ["我沒有預約。今日可以諮詢嗎？", "我想諮詢適合我的療程。", "我想睇完整價目表。", "可以刷卡付款嗎？"]
   },
   zh_tw: {
     label: "AI 推薦諮詢",
@@ -285,6 +318,10 @@ export const initialPatientSuggestionSet: Record<PatientLanguage, PatientFollowU
     label: "Pertanyaan saran AI",
     suggestions: ["Saya belum membuat janji. Apakah saya bisa konsultasi hari ini?", "Saya ingin bertanya perawatan apa yang cocok untuk saya.", "Saya ingin melihat daftar harga lengkap.", "Apakah bisa bayar dengan kartu?"]
   },
+  tl: {
+    label: "Mga tanong na mungkahi ng AI",
+    suggestions: ["Wala akong appointment. Maaari ba akong magpa-consult ngayon?", "Gusto kong malaman kung anong procedure ang bagay sa akin.", "Gusto kong makita ang buong price list.", "Maaari bang magbayad gamit ang card?"]
+  },
   fr: {
     label: "Questions suggérées par l'IA",
     suggestions: ["Je n'ai pas de rendez-vous. Puis-je avoir une consultation aujourd'hui ?", "Je voudrais savoir quel traitement me convient.", "Je voudrais voir la liste complète des prix.", "Puis-je payer par carte ?"]
@@ -307,10 +344,12 @@ export const initialPatientSuggestionSet: Record<PatientLanguage, PatientFollowU
   }
 };
 
-export const consultationExampleCategories: Record<
-  PatientLanguage,
-  Record<ConsultationExampleCategory, { label: string; examples: string[] }>
-> = {
+type ConsultationExampleCategoryCopy = Record<ConsultationExampleCategory, { label: string; examples: string[] }>;
+
+export const consultationExampleCategories: Partial<Record<PatientLanguage, ConsultationExampleCategoryCopy>> & {
+  en: ConsultationExampleCategoryCopy;
+  zh_tw: ConsultationExampleCategoryCopy;
+} = {
   zh: {
     visit: { label: "来院目的", examples: ["我没有预约。今天可以咨询吗？", "如果可以的话，我今天想做治疗。"] },
     concern: { label: "症状/烦恼", examples: ["我想咨询适合我的治疗。", "我有红肿、瘙痒或疼痛。"] },
@@ -718,9 +757,15 @@ function inferPatientSuggestionStage(staffMessageText: string | undefined) {
 
 export function getPatientFollowUpSuggestionSet(staffMessageText: string | undefined, patientLanguage: PatientLanguage) {
   const normalizedText = normalizeForMatch(staffMessageText ?? "");
-  if (!normalizedText) return initialPatientSuggestionSet[patientLanguage];
+  const fallbackInitialSuggestionSet =
+    initialPatientSuggestionSet[patientLanguage] ??
+    (patientLanguage === "yue" ? initialPatientSuggestionSet.zh_tw : initialPatientSuggestionSet.en);
+  if (!normalizedText) return fallbackInitialSuggestionSet;
 
-  const suggestions: Record<PatientLanguage, Record<ConsultationStage, PatientFollowUpSuggestionSet>> = {
+  const suggestions: Partial<Record<PatientLanguage, Record<ConsultationStage, PatientFollowUpSuggestionSet>>> & {
+    en: Record<ConsultationStage, PatientFollowUpSuggestionSet>;
+    zh_tw: Record<ConsultationStage, PatientFollowUpSuggestionSet>;
+  } = {
     zh: {
       intake: { label: "下一步可以这样回答", suggestions: ["我今天只想先咨询。", "如果可以，我今天也想做治疗。", "我想预约其他日期。", "这是我第一次来这家医院。"] },
       medical: { label: "安全信息确认", suggestions: ["我有正在服用的药。", "我没有药物过敏。", "我有过敏史。", "我想知道是否可以治疗。"] },
@@ -828,5 +873,6 @@ export function getPatientFollowUpSuggestionSet(staffMessageText: string | undef
     }
   };
 
-  return suggestions[patientLanguage][inferPatientSuggestionStage(staffMessageText)];
+  const languageSuggestions = suggestions[patientLanguage] ?? (patientLanguage === "yue" ? suggestions.zh_tw : suggestions.en);
+  return languageSuggestions[inferPatientSuggestionStage(staffMessageText)] ?? fallbackInitialSuggestionSet;
 }

@@ -3,7 +3,7 @@ import type { PatientLanguage } from "./languages";
 type GlossaryTargetLanguage = PatientLanguage | "ko";
 type CriticalShortPhrase = {
   spoken: string[];
-  translations: Record<GlossaryTargetLanguage, string>;
+  translations: Partial<Record<GlossaryTargetLanguage, string>> & Record<"ko" | "zh" | "zh_tw" | "ja" | "en", string>;
   note: string;
 };
 
@@ -82,6 +82,7 @@ const commonBrandCorrectionPatterns = [
 const swellingTermByLanguage: Partial<Record<GlossaryTargetLanguage, string>> = {
   ko: "부종",
   zh: "肿胀",
+  yue: "腫脹",
   zh_tw: "腫脹",
   ja: "腫れ",
   en: "swelling",
@@ -89,6 +90,7 @@ const swellingTermByLanguage: Partial<Record<GlossaryTargetLanguage, string>> = 
   vi: "sưng",
   id: "bengkak",
   ms: "bengkak",
+  tl: "pamamaga",
   fr: "gonflement",
   es: "hinchazón",
   de: "Schwellung",
@@ -99,6 +101,7 @@ const swellingTermByLanguage: Partial<Record<GlossaryTargetLanguage, string>> = 
 const swellingPhraseByLanguage: Partial<Record<GlossaryTargetLanguage, string>> = {
   ko: "부종이 생길 수 있어요.",
   zh: "可能会出现肿胀。",
+  yue: "可能會出現腫脹。",
   zh_tw: "可能會出現腫脹。",
   ja: "腫れが出ることがあります。",
   en: "Swelling may occur.",
@@ -106,6 +109,7 @@ const swellingPhraseByLanguage: Partial<Record<GlossaryTargetLanguage, string>> 
   vi: "Có thể bị sưng.",
   id: "Bengkak bisa terjadi.",
   ms: "Bengkak boleh berlaku.",
+  tl: "Maaaring magkaroon ng pamamaga.",
   fr: "Un gonflement peut apparaître.",
   es: "Puede aparecer hinchazón.",
   de: "Es kann zu einer Schwellung kommen.",
@@ -145,6 +149,16 @@ const brandDisplayByLanguage: Partial<Record<GlossaryTargetLanguage, Record<Clin
     juvelookVolume: "Juvelook Volume"
   },
   zh_tw: {
+    rejuran: "麗珠蘭",
+    rejuranHealer: "麗珠蘭 Healer",
+    rejuranHb: "麗珠蘭紅盒",
+    rejuranI: "麗珠蘭白盒",
+    rejuranS: "麗珠蘭藍盒",
+    rejuranElaskin: "麗珠蘭紫盒",
+    juvelook: "Juvelook",
+    juvelookVolume: "Juvelook Volume"
+  },
+  yue: {
     rejuran: "麗珠蘭",
     rejuranHealer: "麗珠蘭 Healer",
     rejuranHb: "麗珠蘭紅盒",
@@ -645,17 +659,19 @@ function cleanRepeatedPunctuation(text: string) {
 
 function targetFor(entry: ClinicGlossaryEntry, targetLanguage: GlossaryTargetLanguage) {
   if (targetLanguage === "ko") return entry.standardKo;
-  if (targetLanguage === "zh" || targetLanguage === "zh_tw") return entry.zh;
+  if (targetLanguage === "zh" || targetLanguage === "zh_tw" || targetLanguage === "yue") return entry.zh;
   if (targetLanguage === "ja") return entry.ja;
   if (targetLanguage === "en") return entry.en;
   if (targetLanguage === "ru") return entry.ru;
   if (targetLanguage === "vi") return entry.vi;
-  if (targetLanguage === "id" || targetLanguage === "ms") return entry.id;
+  if (targetLanguage === "id" || targetLanguage === "ms" || targetLanguage === "tl") return entry.id;
   return entry.en;
 }
 
 function targetForCritical(entry: CriticalShortPhrase, targetLanguage: GlossaryTargetLanguage) {
-  return entry.translations[targetLanguage];
+  if (targetLanguage === "yue") return entry.translations.yue ?? entry.translations.zh_tw;
+  if (targetLanguage === "tl") return entry.translations.tl ?? entry.translations.en;
+  return entry.translations[targetLanguage] ?? entry.translations.en;
 }
 
 function isAsciiWordChar(value: string | undefined) {
@@ -700,7 +716,7 @@ export function normalizeClinicTranslation(text: string, targetLanguage: Glossar
     const target = targetForCritical(entry, targetLanguage);
     const sources = new Set([
       ...entry.spoken,
-      ...Object.values(entry.translations)
+      ...Object.values(entry.translations).filter((value): value is string => typeof value === "string" && value.length > 0)
     ]);
 
     for (const source of sources) {
@@ -742,8 +758,8 @@ export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage
     "- Short Korean procedure phrases are often spoken quickly. In a procedure room, prefer the pain and safety meaning over casual meanings like sleepiness or device setup.",
     "- Critical short phrase mappings:",
     ...criticalShortPhrases.map((entry) => `  - ${entry.spoken.join(" / ")} => ${targetForCritical(entry, patientLanguage)} (${entry.note})`),
-    "- For Traditional Chinese, use Traditional Chinese characters even when a glossary source term is shown in Simplified Chinese.",
-    "- For Thai, Malay, Mongolian, French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names.",
+    "- For Traditional Chinese and Cantonese, use Traditional Chinese characters even when a glossary source term is shown in Simplified Chinese.",
+    "- For Thai, Vietnamese, Indonesian, Malay, Filipino/Tagalog, Mongolian, French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names.",
     "- Do not expand brand names into generic explanations unless the staff explains them.",
     ...(rawGlossaryTargetLanguages.has(patientLanguage)
       ? clinicGlossary.map((entry) => `- ${entry.standardKo}: ${targetFor(entry, patientLanguage)}`)
@@ -764,16 +780,17 @@ export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLang
     ].join(" ");
   }
 
-  if (inputLanguage === "zh" || inputLanguage === "zh_tw") {
+  if (inputLanguage === "zh" || inputLanguage === "zh_tw" || inputLanguage === "yue") {
     return [
       "Dermatology and plastic surgery interpretation room.",
+      inputLanguage === "yue" ? "The patient may speak Cantonese/Yue as used in Hong Kong." : "",
       "Preserve clinic brand names such as Rejuran, Juvelook, Ultherapy, Thermage, Potenza, and Pico laser.",
       "Chinese patients may use Rejuran color-box nicknames: 黑盒 means Rejuran Black Box, 红盒/紅盒 means Rejuran Red Box, 白盒 means Rejuran I, 蓝盒/藍盒 means Rejuran S, and 紫盒 means Rejuran Elaskin.",
       "If the sound is close in this clinic context, prefer color + 盒 over color + 火/河/和/合, for example 黑盒 over 黑火, 红盒 over 红火, 白盒 over 白火, 蓝盒 over 蓝火, and 紫盒 over 紫火.",
       "Common Chinese clinic aliases include 三文鱼针 for Rejuran, 热玛吉 for Thermage, 超声刀 for Ultherapy or HIFU lifting, 皮秒 for Pico laser, 泪沟填充 for under-eye filler, and 溶脂针 for lipolysis injection.",
       "The speaker may answer briefly about pain, discomfort, movement, or whether they are okay.",
       "Keep medical procedure context when transcribing short phrases."
-    ].join(" ");
+    ].filter(Boolean).join(" ");
   }
 
   return [

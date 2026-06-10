@@ -24,6 +24,7 @@ const PROCEDURE_TRANSLATION_MAX_MS = 5500;
 
 const procedureIntroCopies: Record<PatientLanguage, string> = {
   zh: "我们正在准备治疗。如果您有不舒服或想说的话，请按屏幕上的按钮。按钮变成红色后请说话，说完后再按一次按钮结束。",
+  yue: "我們正在準備療程。如果您有不舒服或想講的話，請按螢幕上的按鈕。按鈕變成紅色後請講話，講完後再按一次按鈕結束。",
   zh_tw: "我們正在準備療程。如果您有不舒服或想說的話，請按螢幕上的按鈕。按鈕變成紅色後請說話，說完後再按一次按鈕結束。",
   ja: "施術の準備をしています。ご不便なことや伝えたいことがあれば、画面のボタンを押してください。ボタンが赤くなったら話し、終わったらもう一度ボタンを押してください。",
   en: "We are preparing for your procedure. If you feel uncomfortable or want to say something, please press the button on the screen. When the button turns red, speak, then press it again when you are finished.",
@@ -33,6 +34,7 @@ const procedureIntroCopies: Record<PatientLanguage, string> = {
   ru: "Мы готовимся к процедуре. Если вам неудобно или вы хотите что-то сказать, нажмите кнопку на экране. Когда кнопка станет красной, говорите, а когда закончите, нажмите кнопку еще раз.",
   vi: "Chúng tôi đang chuẩn bị cho liệu trình. Nếu quý khách thấy khó chịu hoặc muốn nói điều gì, vui lòng nhấn nút trên màn hình. Khi nút chuyển sang màu đỏ, hãy nói, rồi nhấn lại nút khi đã nói xong.",
   id: "Kami sedang menyiapkan prosedur Anda. Jika Anda merasa tidak nyaman atau ingin mengatakan sesuatu, tekan tombol di layar. Saat tombol berubah merah, silakan bicara, lalu tekan lagi setelah selesai.",
+  tl: "Inihahanda namin ang iyong procedure. Kung hindi ka komportable o may gusto kang sabihin, pindutin ang button sa screen. Kapag naging pula ang button, magsalita, pagkatapos ay pindutin ulit kapag tapos ka na.",
   fr: "Nous préparons votre intervention. Si vous ressentez une gêne ou souhaitez dire quelque chose, appuyez sur le bouton à l'écran. Quand le bouton devient rouge, parlez, puis appuyez de nouveau lorsque vous avez terminé.",
   es: "Estamos preparando el procedimiento. Si siente alguna molestia o quiere decir algo, pulse el botón en la pantalla. Cuando el botón se ponga rojo, hable y vuelva a pulsarlo cuando haya terminado.",
   de: "Wir bereiten die Behandlung vor. Wenn Sie sich unwohl fühlen oder etwas sagen möchten, drücken Sie bitte die Taste auf dem Bildschirm. Wenn die Taste rot wird, sprechen Sie, und drücken Sie sie erneut, wenn Sie fertig sind.",
@@ -158,7 +160,7 @@ const staffCopy: VoiceRoomCopy = {
   }
 };
 
-const patientCopies: Record<PatientLanguage, VoiceRoomCopy> = {
+const patientCopies: Partial<Record<PatientLanguage, VoiceRoomCopy>> & { en: VoiceRoomCopy; zh_tw: VoiceRoomCopy } = {
   zh: {
     statusLabels: {
       waiting_for_patient: "等待",
@@ -657,7 +659,8 @@ const patientCopies: Record<PatientLanguage, VoiceRoomCopy> = {
 };
 
 function copyFor(role: ParticipantRole, patientLanguage: PatientLanguage) {
-  return role === "staff" ? staffCopy : patientCopies[patientLanguage];
+  if (role === "staff") return staffCopy;
+  return patientCopies[patientLanguage] ?? (patientLanguage === "yue" ? patientCopies.zh_tw : patientCopies.en);
 }
 
 export function VoiceRoom(props: VoiceRoomProps) {

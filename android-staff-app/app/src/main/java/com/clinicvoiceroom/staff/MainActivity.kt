@@ -247,15 +247,17 @@ private data class PatientLanguageOption(
 
 private val patientLanguages = listOf(
     PatientLanguageOption("zh", "중국어", "中文", Locale.SIMPLIFIED_CHINESE),
+    PatientLanguageOption("yue", "광둥어", "廣東話", Locale("zh", "HK")),
     PatientLanguageOption("zh_tw", "중국어 번체", "繁體中文", Locale.TRADITIONAL_CHINESE),
     PatientLanguageOption("ja", "일본어", "日本語", Locale.JAPAN),
     PatientLanguageOption("en", "영어", "English", Locale.US),
     PatientLanguageOption("th", "태국어", "ไทย", Locale("th", "TH")),
-    PatientLanguageOption("ms", "말레이어", "Melayu", Locale("ms", "MY")),
-    PatientLanguageOption("mn", "몽골어", "Монгол", Locale("mn", "MN")),
-    PatientLanguageOption("ru", "러시아어", "Русский", Locale("ru", "RU")),
     PatientLanguageOption("vi", "베트남어", "Tiếng Việt", Locale("vi", "VN")),
     PatientLanguageOption("id", "인도네시아어", "Indonesia", Locale("id", "ID")),
+    PatientLanguageOption("ms", "말레이어", "Melayu", Locale("ms", "MY")),
+    PatientLanguageOption("tl", "필리핀어", "Filipino", Locale("fil", "PH")),
+    PatientLanguageOption("mn", "몽골어", "Монгол", Locale("mn", "MN")),
+    PatientLanguageOption("ru", "러시아어", "Русский", Locale("ru", "RU")),
     PatientLanguageOption("fr", "프랑스어", "Français", Locale.FRANCE),
     PatientLanguageOption("es", "스페인어", "Español", Locale("es", "ES")),
     PatientLanguageOption("de", "독일어", "Deutsch", Locale.GERMANY),
@@ -2534,6 +2536,7 @@ class MainActivity : ComponentActivity() {
     private fun localRetryPromptForPatientLanguage(patientLanguage: String): String {
         return when (patientLanguage) {
             "zh" -> "请再说一遍。"
+            "yue" -> "請再講一次。"
             "zh_tw" -> "請再說一遍。"
             "ja" -> "もう一度お話しください。"
             "en" -> "Please say that again."
@@ -2543,6 +2546,7 @@ class MainActivity : ComponentActivity() {
             "ru" -> "Пожалуйста, повторите."
             "vi" -> "Vui lòng nói lại."
             "id" -> "Tolong ulangi sekali lagi."
+            "tl" -> "Pakisabi ulit."
             "fr" -> "Veuillez répéter."
             "es" -> "Por favor, repítalo."
             "de" -> "Bitte sagen Sie es noch einmal."
@@ -3209,6 +3213,7 @@ private fun brandDisplay(patientLanguage: String, key: String): String {
         "rejuranHealer" -> when (patientLanguage) {
             "ko" -> "리쥬란 힐러"
             "zh" -> "丽珠兰 Healer"
+            "yue" -> "麗珠蘭 Healer"
             "zh_tw" -> "麗珠蘭 Healer"
             "ja" -> "リジュランヒーラー"
             else -> "Rejuran Healer"
@@ -3216,6 +3221,7 @@ private fun brandDisplay(patientLanguage: String, key: String): String {
         "rejuran" -> when (patientLanguage) {
             "ko" -> "리쥬란"
             "zh" -> "丽珠兰"
+            "yue" -> "麗珠蘭"
             "zh_tw" -> "麗珠蘭"
             "ja" -> "リジュラン"
             else -> "Rejuran"
@@ -3303,6 +3309,7 @@ private fun normalizeClinicText(text: String, patientLanguage: String): String {
     val juvelookVolume = brandDisplay(patientLanguage, "juvelookVolume")
     val swelling = when (patientLanguage) {
         "zh" -> "肿胀"
+        "yue" -> "腫脹"
         "zh_tw" -> "腫脹"
         "ja" -> "腫れ"
         "en" -> "swelling"
@@ -3310,6 +3317,7 @@ private fun normalizeClinicText(text: String, patientLanguage: String): String {
         "ru" -> "отек"
         "vi" -> "sưng"
         "id", "ms" -> "bengkak"
+        "tl" -> "pamamaga"
         "fr" -> "gonflement"
         "es" -> "hinchazón"
         "de" -> "Schwellung"
@@ -3319,9 +3327,11 @@ private fun normalizeClinicText(text: String, patientLanguage: String): String {
     }
     val swellingSentence = when (patientLanguage) {
         "zh" -> "可能会出现肿胀。"
+        "yue" -> "可能會出現腫脹。"
         "zh_tw" -> "可能會出現腫脹。"
         "ja" -> "腫れが出ることがあります。"
         "en" -> "Swelling may occur."
+        "tl" -> "Maaaring magkaroon ng pamamaga."
         "ko" -> "부종이 생길 수 있어요."
         else -> "$swelling may occur."
     }
@@ -3722,6 +3732,7 @@ private fun ModeLargeCard(
 private fun languageNativeLabel(language: PatientLanguageOption): String {
     return when (language.code) {
         "zh" -> "简体中文"
+        "yue" -> "廣東話"
         "zh_tw" -> "繁體中文"
         else -> language.native
     }
@@ -3730,6 +3741,7 @@ private fun languageNativeLabel(language: PatientLanguageOption): String {
 private fun languageEnglishLabel(code: String): String {
     return when (code) {
         "zh" -> "Simplified Chinese"
+        "yue" -> "Cantonese"
         "zh_tw" -> "Traditional Chinese"
         "ja" -> "Japanese"
         "en" -> "English"
@@ -3739,6 +3751,7 @@ private fun languageEnglishLabel(code: String): String {
         "ru" -> "Russian"
         "vi" -> "Vietnamese"
         "id" -> "Indonesian"
+        "tl" -> "Filipino"
         "fr" -> "French"
         "es" -> "Spanish"
         "de" -> "German"
@@ -3777,9 +3790,22 @@ private fun createRoomButtonLabel(mode: String): String {
 private fun qrInstructionTitle(languageCode: String): String {
     return when (languageCode) {
         "zh" -> "请扫描二维码"
+        "yue" -> "請掃描 QR Code"
         "zh_tw" -> "請掃描 QR Code"
         "ja" -> "QRコードを読み取ってください"
         "en" -> "Please scan the QR code"
+        "th" -> "กรุณาสแกน QR Code"
+        "ms" -> "Imbas kod QR"
+        "mn" -> "QR код уншуулна уу"
+        "ru" -> "Отсканируйте QR-код"
+        "vi" -> "Vui lòng quét mã QR"
+        "id" -> "Pindai kode QR"
+        "tl" -> "I-scan ang QR code"
+        "fr" -> "Scannez le code QR"
+        "es" -> "Escanee el código QR"
+        "de" -> "QR-Code scannen"
+        "it" -> "Scansiona il codice QR"
+        "pt" -> "Escaneie o código QR"
         else -> "Please scan the QR code"
     }
 }
@@ -3787,9 +3813,22 @@ private fun qrInstructionTitle(languageCode: String): String {
 private fun qrInstructionBody(languageCode: String): String {
     return when (languageCode) {
         "zh" -> "请使用手机相机扫描下方二维码，进入医院翻译室。"
+        "yue" -> "請用手機相機掃描下方 QR Code，進入醫院翻譯室。"
         "zh_tw" -> "請使用手機相機掃描下方 QR Code，進入醫院翻譯室。"
         "ja" -> "スマートフォンのカメラで下のQRコードを読み取り、病院通訳ルームに入室してください。"
         "en" -> "Use the phone camera to scan the QR code below and enter the hospital interpretation room."
+        "th" -> "ใช้กล้องโทรศัพท์สแกน QR Code ด้านล่างเพื่อเข้าห้องล่ามของโรงพยาบาล"
+        "ms" -> "Gunakan kamera telefon untuk mengimbas kod QR di bawah dan masuk ke bilik interpretasi hospital."
+        "mn" -> "Утасны камераар доорх QR кодыг уншуулж эмнэлгийн орчуулгын өрөөнд орно уу."
+        "ru" -> "Откройте камеру телефона, отсканируйте QR-код и войдите в кабинет перевода."
+        "vi" -> "Dùng camera điện thoại quét mã QR bên dưới để vào phòng phiên dịch của bệnh viện."
+        "id" -> "Gunakan kamera ponsel untuk memindai kode QR di bawah dan masuk ke ruang interpretasi rumah sakit."
+        "tl" -> "Gamitin ang camera ng telepono upang i-scan ang QR code sa ibaba at pumasok sa interpretation room ng ospital."
+        "fr" -> "Utilisez l'appareil photo du téléphone pour scanner le code QR et entrer dans la salle d'interprétation."
+        "es" -> "Use la cámara del teléfono para escanear el código QR y entrar en la sala de interpretación."
+        "de" -> "Scannen Sie den QR-Code mit der Handykamera und betreten Sie den Dolmetschraum."
+        "it" -> "Usa la fotocamera del telefono per scansionare il codice QR ed entrare nella stanza di interpretariato."
+        "pt" -> "Use a câmera do celular para escanear o código QR e entrar na sala de interpretação."
         else -> "Use the phone camera to scan the QR code below and enter the hospital interpretation room."
     }
 }
@@ -3797,9 +3836,22 @@ private fun qrInstructionBody(languageCode: String): String {
 private fun qrWaitingTitle(languageCode: String): String {
     return when (languageCode) {
         "zh" -> "正在等待患者进入"
+        "yue" -> "正在等待患者進入"
         "zh_tw" -> "正在等待患者進入"
         "ja" -> "患者さんの入室を待っています"
         "en" -> "Waiting for patient to enter"
+        "th" -> "กำลังรอผู้ป่วยเข้าห้อง"
+        "ms" -> "Menunggu pesakit masuk"
+        "mn" -> "Өвчтөн орохыг хүлээж байна"
+        "ru" -> "Ожидаем вход пациента"
+        "vi" -> "Đang chờ bệnh nhân vào phòng"
+        "id" -> "Menunggu pasien masuk"
+        "tl" -> "Hinihintay na pumasok ang pasyente"
+        "fr" -> "En attente de l'arrivée du patient"
+        "es" -> "Esperando a que entre el paciente"
+        "de" -> "Warten auf den Patienten"
+        "it" -> "In attesa dell'ingresso del paziente"
+        "pt" -> "Aguardando a entrada do paciente"
         else -> "Waiting for patient to enter"
     }
 }
@@ -3807,9 +3859,22 @@ private fun qrWaitingTitle(languageCode: String): String {
 private fun qrWaitingBody(languageCode: String): String {
     return when (languageCode) {
         "zh" -> "请使用手机相机扫描下方二维码，进入医院翻译室。"
+        "yue" -> "請用手機相機掃描下方 QR Code，進入醫院翻譯室。"
         "zh_tw" -> "請使用手機相機掃描下方 QR Code，進入醫院翻譯室。"
         "ja" -> "下のQRコードを読み取って入室してください。"
         "en" -> "Scan the QR code below to enter the hospital interpretation room."
+        "th" -> "สแกน QR Code ด้านล่างเพื่อเข้าห้องล่ามของโรงพยาบาล"
+        "ms" -> "Imbas kod QR di bawah untuk masuk ke bilik interpretasi hospital."
+        "mn" -> "Эмнэлгийн орчуулгын өрөөнд орохын тулд доорх QR кодыг уншуулна уу."
+        "ru" -> "Отсканируйте QR-код ниже, чтобы войти в кабинет перевода."
+        "vi" -> "Quét mã QR bên dưới để vào phòng phiên dịch của bệnh viện."
+        "id" -> "Pindai kode QR di bawah untuk masuk ke ruang interpretasi rumah sakit."
+        "tl" -> "I-scan ang QR code sa ibaba upang pumasok sa interpretation room ng ospital."
+        "fr" -> "Scannez le code QR ci-dessous pour entrer dans la salle d'interprétation."
+        "es" -> "Escanee el código QR de abajo para entrar en la sala de interpretación."
+        "de" -> "Scannen Sie den QR-Code unten, um den Dolmetschraum zu betreten."
+        "it" -> "Scansiona il codice QR qui sotto per entrare nella stanza di interpretariato."
+        "pt" -> "Escaneie o código QR abaixo para entrar na sala de interpretação."
         else -> "Scan the QR code below to enter the hospital interpretation room."
     }
 }

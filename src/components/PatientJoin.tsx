@@ -21,6 +21,16 @@ const copy: Record<
     joinDenied: "无法进入房间。请让工作人员重新创建二维码。",
     languageLabel: "中文翻译"
   },
+  yue: {
+    title: "醫院翻譯室",
+    body: "入室後可以用語音諮詢，文字輸入可以作為備用。不需要安裝 App 或註冊帳號。",
+    procedureBody: "療程中，翻譯內容只會以文字顯示在此手機上。請保持螢幕開啟並查看文字。",
+    consent: "為提供口譯服務，您的語音可能會由外部 AI 服務處理。本服務不會保存原始語音或完整對話紀錄。",
+    button: "進入房間",
+    denied: "無法使用麥克風。請在瀏覽器設定中允許麥克風權限。",
+    joinDenied: "無法進入房間。請讓工作人員重新建立 QR Code。",
+    languageLabel: "廣東話翻譯"
+  },
   zh_tw: {
     title: "醫院翻譯室",
     body: "入室後可用語音諮詢，文字輸入可作為備用。不需要安裝 App 或註冊帳號。",
@@ -70,6 +80,16 @@ const copy: Record<
     denied: "Mikrofon tidak tersedia. Sila benarkan akses mikrofon dalam tetapan pelayar.",
     joinDenied: "Tidak dapat masuk ke bilik. Sila minta staf mencipta kod QR baharu.",
     languageLabel: "Interpretasi Bahasa Melayu"
+  },
+  tl: {
+    title: "Silid ng Interpretasyon sa Ospital",
+    body: "Pagkatapos pumasok, maaari kang kumonsulta gamit ang boses. Maaari ring mag-type bilang backup. Hindi kailangang mag-install ng app o gumawa ng account.",
+    procedureBody: "Habang ginagawa ang procedure, text lang ang ipapakita sa teleponong ito. Panatilihing bukas ang screen at basahin ang text.",
+    consent: "Upang makapagbigay ng interpretasyon, maaaring iproseso ng external AI service ang iyong boses. Hindi namin sine-save ang raw audio o buong transcript ng usapan.",
+    button: "Pumasok sa room",
+    denied: "Hindi magamit ang mikropono. Payagan ang microphone access sa browser settings.",
+    joinDenied: "Hindi makapasok sa room. Pakiusap sa staff na gumawa ng bagong QR code.",
+    languageLabel: "Filipino interpretation"
   },
   mn: {
     title: "Эмнэлгийн орчуулгын өрөө",
@@ -165,10 +185,12 @@ const copy: Record<
 
 const turnTakingNotice: Partial<Record<PatientLanguage, string>> = {
   zh: "请一次只由一位说话。轮到您时再按麦克风。",
+  yue: "請一次只由一位說話。輪到您時再按麥克風。",
   zh_tw: "請一次只由一位說話。輪到您時再按麥克風。",
   ja: "一度に一人ずつお話しください。ご自身の順番でマイクを押してください。",
   en: "Please speak one person at a time. Press the microphone only when it is your turn.",
   ms: "Sila bercakap seorang demi seorang. Tekan mikrofon hanya apabila giliran anda.",
+  tl: "Magsalita nang isa-isa. Pindutin lang ang mikropono kapag ikaw na ang magsasalita.",
   id: "Harap berbicara satu orang pada satu waktu. Tekan mikrofon hanya saat giliran Anda.",
   fr: "Parlez une seule personne à la fois. Appuyez sur le micro uniquement quand c'est votre tour.",
   es: "Hable una persona a la vez. Pulse el micrófono solo cuando sea su turno.",

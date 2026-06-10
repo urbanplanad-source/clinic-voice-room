@@ -1,19 +1,39 @@
-export const patientLanguages = ["zh", "zh_tw", "ja", "en", "th", "ms", "mn", "ru", "vi", "id", "fr", "es", "de", "it", "pt"] as const;
+export const patientLanguages = [
+  "zh",
+  "yue",
+  "zh_tw",
+  "ja",
+  "en",
+  "th",
+  "vi",
+  "id",
+  "ms",
+  "tl",
+  "mn",
+  "ru",
+  "fr",
+  "es",
+  "de",
+  "it",
+  "pt"
+] as const;
 
 export type PatientLanguage = (typeof patientLanguages)[number];
 export type ParticipantRole = "staff" | "patient";
 
 export const languageLabels: Record<PatientLanguage, { ko: string; native: string; english: string }> = {
   zh: { ko: "중국어 간체", native: "简体中文", english: "Simplified Chinese" },
+  yue: { ko: "광둥어", native: "廣東話", english: "Cantonese" },
   zh_tw: { ko: "중국어 번체", native: "繁體中文", english: "Traditional Chinese" },
   ja: { ko: "일본어", native: "日本語", english: "Japanese" },
   en: { ko: "영어", native: "English", english: "English" },
   th: { ko: "태국어", native: "ไทย", english: "Thai" },
-  ms: { ko: "말레이어", native: "Bahasa Melayu", english: "Malay" },
-  mn: { ko: "몽골어", native: "Монгол", english: "Mongolian" },
-  ru: { ko: "러시아어", native: "Русский", english: "Russian" },
   vi: { ko: "베트남어", native: "Tiếng Việt", english: "Vietnamese" },
   id: { ko: "인도네시아어", native: "Bahasa Indonesia", english: "Indonesian" },
+  ms: { ko: "말레이어", native: "Bahasa Melayu", english: "Malay" },
+  tl: { ko: "필리핀어", native: "Filipino", english: "Filipino / Tagalog" },
+  mn: { ko: "몽골어", native: "Монгол", english: "Mongolian" },
+  ru: { ko: "러시아어", native: "Русский", english: "Russian" },
   fr: { ko: "프랑스어", native: "Français", english: "French" },
   es: { ko: "스페인어", native: "Español", english: "Spanish" },
   de: { ko: "독일어", native: "Deutsch", english: "German" },
@@ -23,15 +43,17 @@ export const languageLabels: Record<PatientLanguage, { ko: string; native: strin
 
 export const languageInstructions: Record<PatientLanguage, string> = {
   zh: "Translate spoken Korean into natural Simplified Chinese, and Simplified Chinese into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
+  yue: "Translate spoken Korean into natural Cantonese for Hong Kong patients, and spoken Cantonese into Korean. For patient-facing text, use Traditional Chinese characters with Hong Kong wording. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
   zh_tw: "Translate spoken Korean into natural Traditional Chinese used in Taiwan and Hong Kong, and Traditional Chinese into Korean. Always use Traditional Chinese characters. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
   ja: "Translate spoken Korean into natural Japanese, and Japanese into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
   en: "Translate spoken Korean into natural English, and English into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
   th: "Translate spoken Korean into natural Thai, and Thai into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
-  ms: "Translate spoken Korean into natural Malay, and Malay into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
-  mn: "Translate spoken Korean into natural Mongolian, and Mongolian into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
-  ru: "Translate spoken Korean into natural Russian, and Russian into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
   vi: "Translate spoken Korean into natural Vietnamese, and Vietnamese into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
   id: "Translate spoken Korean into natural Indonesian, and Indonesian into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
+  ms: "Translate spoken Korean into natural Malay, and Malay into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
+  tl: "Translate spoken Korean into natural Filipino/Tagalog, and Filipino/Tagalog into Korean. The patient may code-switch between Tagalog and English; preserve that meaning naturally. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
+  mn: "Translate spoken Korean into natural Mongolian, and Mongolian into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
+  ru: "Translate spoken Korean into natural Russian, and Russian into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
   fr: "Translate spoken Korean into natural French, and French into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
   es: "Translate spoken Korean into natural Spanish, and Spanish into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
   de: "Translate spoken Korean into natural German, and German into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
