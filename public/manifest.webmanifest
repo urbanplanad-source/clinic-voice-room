@@ -1,6 +1,6 @@
 {
-  "name": "Clinic Voice Room",
-  "short_name": "Voice Room",
+  "name": "MediVoice",
+  "short_name": "MediVoice",
   "description": "Hospital voice interpretation room for staff and patients.",
   "start_url": "/",
   "scope": "/",

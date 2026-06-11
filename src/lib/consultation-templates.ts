@@ -1,4 +1,5 @@
 import type { PatientLanguage } from "./languages";
+import { inferHospitalSpecialtyFromName, isHospitalSpecialty, type HospitalSpecialty } from "./hospital-specialty";
 
 export type ConsultationStage = "intake" | "medical" | "procedure" | "price_schedule" | "summary";
 
@@ -61,15 +62,25 @@ export const clinicConsultationTemplateProfiles: ClinicConsultationTemplateProfi
   }
 ];
 
-export function pickClinicConsultationTemplateProfile(hospitalName?: string | null) {
-  const normalized = normalizeForMatch(hospitalName ?? "");
-  if (normalized.includes("성형") || normalized.includes("plastic") || normalized.includes("surgery")) {
+function templateProfileForSpecialty(specialty: HospitalSpecialty) {
+  if (specialty === "plastic_surgery") {
     return clinicConsultationTemplateProfiles[0];
   }
-  if (normalized.includes("피부") || normalized.includes("skin") || normalized.includes("derma")) {
+  if (specialty === "dermatology") {
     return clinicConsultationTemplateProfiles[1];
   }
   return clinicConsultationTemplateProfiles[2];
+}
+
+export function pickClinicConsultationTemplateProfile(hospitalName?: string | null): ClinicConsultationTemplateProfile;
+export function pickClinicConsultationTemplateProfile(specialty?: HospitalSpecialty | null, hospitalName?: string | null): ClinicConsultationTemplateProfile;
+export function pickClinicConsultationTemplateProfile(specialtyOrHospitalName?: HospitalSpecialty | string | null, hospitalName?: string | null) {
+  if (isHospitalSpecialty(specialtyOrHospitalName)) {
+    return templateProfileForSpecialty(specialtyOrHospitalName);
+  }
+
+  const fallbackHospitalName = specialtyOrHospitalName ?? hospitalName;
+  return templateProfileForSpecialty(inferHospitalSpecialtyFromName(fallbackHospitalName));
 }
 
 type ConsultationTextCopy = {

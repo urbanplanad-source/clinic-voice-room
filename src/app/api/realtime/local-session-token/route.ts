@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getCurrentStaff } from "@/lib/session";
 import { createRealtimeSessionToken } from "@/lib/openai-realtime";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { getGlossaryForHospital } from "@/lib/glossary-service";
 import { isPatientLanguage, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 
 const schema = z.object({
@@ -36,11 +37,13 @@ export async function POST(request: Request) {
 
   let token;
   try {
+    const glossaryData = await getGlossaryForHospital(staff.hospitalId, staff.hospital.specialty);
     token = await createRealtimeSessionToken({
       role,
       patientLanguage: parsed.data.patientLanguage,
       direction: realtimeDirection,
       manualTurn: parsed.data.manualTurn,
+      glossaryData,
       safetyIdentifier: `${staff.hospitalId}:${staff.id}:local:${parsed.data.patientLanguage}:${parsed.data.direction}`
     });
   } catch (caught) {

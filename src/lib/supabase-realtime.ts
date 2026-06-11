@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient, type RealtimeChannel, type SupabaseClient } from "@supabase/supabase-js";
+import { parseGuardFlags, type GuardFlags } from "./guard-flags";
 import { isPatientLanguage, type ParticipantRole, type PatientLanguage } from "./languages";
 import { isRoomStatus, type RoomStatus } from "./room-state";
 
@@ -24,11 +25,14 @@ export type RealtimeTranslationMessage = {
   targetLanguage?: PatientLanguage | "ko";
   createdAt?: string;
   readAt?: string | null;
+  guardFlags?: GuardFlags;
 };
 
 type TranslationMessagePayload = {
   message: RealtimeTranslationMessage;
 };
+
+export type RealtimeChannelStatus = "SUBSCRIBED" | "CHANNEL_ERROR" | "TIMED_OUT" | "CLOSED";
 
 let client: SupabaseClient | null = null;
 const translationBroadcastChannels = new Map<string, { channel: RealtimeChannel; ready: Promise<void> }>();
@@ -73,10 +77,10 @@ function parseTranslationMessage(value: unknown): RealtimeTranslationMessage | n
   if (message.targetLanguage !== undefined && message.targetLanguage !== "ko" && !isPatientLanguage(message.targetLanguage)) return null;
   if (message.createdAt !== undefined && typeof message.createdAt !== "string") return null;
   if (message.readAt !== undefined && message.readAt !== null && typeof message.readAt !== "string") return null;
-  return message;
+  return { ...message, guardFlags: parseGuardFlags(message.guardFlags) };
 }
 
-export function subscribeToRoomUpdates(roomId: string, onRoomUpdate: (room: RealtimeRoom) => void) {
+export function subscribeToRoomUpdates(roomId: string, onRoomUpdate: (room: RealtimeRoom) => void, onStatus?: (status: RealtimeChannelStatus) => void) {
   const supabase = getRealtimeClient();
   if (!supabase) return null;
 
@@ -86,14 +90,18 @@ export function subscribeToRoomUpdates(roomId: string, onRoomUpdate: (room: Real
       const room = parseRoomUpdate(payload.payload);
       if (room && room.id === roomId) onRoomUpdate(room);
     })
-    .subscribe();
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        onStatus?.(status);
+      }
+    });
 
   return () => {
     void supabase.removeChannel(channel);
   };
 }
 
-export function subscribeToTranslationMessages(roomId: string, onMessage: (message: RealtimeTranslationMessage) => void) {
+export function subscribeToTranslationMessages(roomId: string, onMessage: (message: RealtimeTranslationMessage) => void, onStatus?: (status: RealtimeChannelStatus) => void) {
   const supabase = getRealtimeClient();
   if (!supabase) return null;
 
@@ -103,7 +111,11 @@ export function subscribeToTranslationMessages(roomId: string, onMessage: (messa
       const message = parseTranslationMessage(payload.payload);
       if (message) onMessage(message);
     })
-    .subscribe();
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        onStatus?.(status);
+      }
+    });
 
   return () => {
     void supabase.removeChannel(channel);

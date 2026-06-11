@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Languages, Loader2, LogOut, MessageSquareText, Stethoscope } from "lucide-react";
@@ -203,6 +204,35 @@ export function StaffHome({
           {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold leading-6 text-rose-700">{error}</p> : null}
         </section>
       )}
+
+      {!selectedMode && staff.role !== "staff" ? (
+        <section className="grid gap-2 rounded-lg bg-white p-3 shadow-soft sm:grid-cols-2">
+          <Link href="/admin/glossary" className="flex h-12 items-center justify-center gap-2 rounded-lg bg-slate-50 px-3 text-sm font-bold text-ink transition hover:bg-blue-50">
+            <Languages size={18} />
+            Glossary
+          </Link>
+          <Link href="/admin/quick-phrases" className="flex h-12 items-center justify-center gap-2 rounded-lg bg-slate-50 px-3 text-sm font-bold text-ink transition hover:bg-blue-50">
+            <MessageSquareText size={18} />
+            Quick Phrases
+          </Link>
+          <Link href="/admin/feedback" className="flex h-12 items-center justify-center gap-2 rounded-lg bg-slate-50 px-3 text-sm font-bold text-ink transition hover:bg-blue-50">
+            <MessageSquareText size={18} />
+            Feedback
+          </Link>
+          {staff.role === "internal_admin" ? (
+            <>
+              <Link href="/admin/staff" className="flex h-12 items-center justify-center gap-2 rounded-lg bg-slate-50 px-3 text-sm font-bold text-ink transition hover:bg-blue-50">
+                <Stethoscope size={18} />
+                Staff
+              </Link>
+              <Link href="/admin/usage" className="flex h-12 items-center justify-center gap-2 rounded-lg bg-slate-50 px-3 text-sm font-bold text-ink transition hover:bg-blue-50">
+                <Languages size={18} />
+                Usage
+              </Link>
+            </>
+          ) : null}
+        </section>
+      ) : null}
 
       <div className="mt-auto pt-4">
         {selectedMode ? (

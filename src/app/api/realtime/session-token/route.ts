@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { createRealtimeSessionToken } from "@/lib/openai-realtime";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { isPatientRoomRequestAuthorized } from "@/lib/patient-room-session";
+import { getGlossaryForHospital } from "@/lib/glossary-service";
 
 const schema = z.object({
   roomId: z.string(),
@@ -29,7 +30,10 @@ export async function POST(request: Request) {
     return rateLimitResponse(limited.retryAfter);
   }
 
-  const room = await prisma.translationRoom.findUnique({ where: { id: parsed.data.roomId } });
+  const room = await prisma.translationRoom.findUnique({
+    where: { id: parsed.data.roomId },
+    include: { hospital: { select: { specialty: true } } }
+  });
   if (!room || room.status === "ended") {
     return NextResponse.json({ error: "Room not available" }, { status: 404 });
   }
@@ -55,11 +59,13 @@ export async function POST(request: Request) {
 
   let token;
   try {
+    const glossaryData = await getGlossaryForHospital(room.hospitalId, room.hospital.specialty);
     token = await createRealtimeSessionToken({
       role: parsed.data.role,
       patientLanguage: room.patientLanguage,
       direction: parsed.data.direction,
       manualTurn: parsed.data.manualTurn,
+      glossaryData,
       safetyIdentifier: `${room.hospitalId}:${room.hostStaffId}:${room.id}:${parsed.data.role}:${parsed.data.direction ?? "default"}`
     });
   } catch (caught) {

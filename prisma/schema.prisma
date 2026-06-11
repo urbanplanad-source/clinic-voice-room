@@ -18,6 +18,29 @@ enum HospitalStatus {
   suspended
 }
 
+enum HospitalSpecialty {
+  dermatology
+  plastic_surgery
+  dental
+  ophthalmology
+  neurology
+  oriental_medicine
+  general
+}
+
+enum GlossaryScope {
+  global
+  specialty
+  hospital
+}
+
+enum GlossaryEntryType {
+  term
+  critical_phrase
+  transcription_hint
+  verified_sentence
+}
+
 enum StaffRole {
   hospital_admin
   staff
@@ -67,6 +90,13 @@ enum ParticipantRole {
   patient
 }
 
+enum FeedbackStatus {
+  new
+  reviewed
+  fixed
+  dismissed
+}
+
 enum ConnectionState {
   connected
   disconnected
@@ -78,6 +108,7 @@ model Hospital {
   slug                       String                      @unique
   planType                   PlanType                    @default(partner_free)
   status                     HospitalStatus              @default(active)
+  specialty                  HospitalSpecialty           @default(dermatology)
   monthlyIncludedMinutes     Int?
   createdAt                  DateTime                    @default(now())
   updatedAt                  DateTime                    @updatedAt
@@ -85,6 +116,45 @@ model Hospital {
   rooms                      TranslationRoom[]
   usageSessions              UsageSession[]
   localInterpreterUsageTurns LocalInterpreterUsageTurn[]
+  glossaryEntries            GlossaryEntry[]
+  quickPhrases               HospitalQuickPhrase[]
+  translationFeedback         TranslationFeedback[]
+}
+
+model GlossaryEntry {
+  id           String             @id @default(cuid())
+  scope        GlossaryScope
+  specialty    HospitalSpecialty?
+  hospitalId   String?
+  hospital     Hospital?          @relation(fields: [hospitalId], references: [id])
+  entryType    GlossaryEntryType  @default(term)
+  spokenForms  String[]
+  standardKo   String
+  translations Json
+  category     String?
+  note         String?
+  priority     Int                @default(100)
+  isActive     Boolean            @default(true)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([scope, specialty, isActive])
+  @@index([hospitalId, isActive])
+}
+
+model HospitalQuickPhrase {
+  id           String   @id @default(cuid())
+  hospitalId   String
+  hospital     Hospital @relation(fields: [hospitalId], references: [id])
+  stage        String?
+  ko           String
+  translations Json
+  sortOrder    Int      @default(100)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([hospitalId, isActive, sortOrder])
 }
 
 model StaffUser {
@@ -166,10 +236,30 @@ model ConsultationMessage {
   sourceText     String?
   text           String
   targetLanguage String?
+  guardFlags     Json?
   createdAt      DateTime        @default(now())
   readAt         DateTime?
 
   @@index([roomId, createdAt])
+}
+
+model TranslationFeedback {
+  id             String         @id @default(cuid())
+  hospitalId     String
+  hospital       Hospital       @relation(fields: [hospitalId], references: [id])
+  roomId         String?
+  messageId      String?
+  sourceText     String
+  translatedText String
+  sourceLanguage String
+  targetLanguage String
+  reporterRole   String
+  reason         String?
+  status         FeedbackStatus @default(new)
+  createdAt      DateTime       @default(now())
+  reviewedAt     DateTime?
+
+  @@index([hospitalId, status, createdAt])
 }
 
 model LocalInterpreterUsageTurn {

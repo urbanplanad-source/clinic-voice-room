@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ClinicVoiceRoomAndroidStaff"
+rootProject.name = "MediVoiceAndroid"
 include(":app")

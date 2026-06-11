@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Clinic Voice Room",
+  title: "MediVoice",
   description: "QR-based real-time voice interpretation for clinics",
-  applicationName: "Clinic Voice Room",
+  applicationName: "MediVoice",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: "/icon.svg",
@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    title: "Clinic Voice Room",
+    title: "MediVoice",
     statusBarStyle: "default"
   }
 };

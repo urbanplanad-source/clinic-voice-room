@@ -1,33 +1,24 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
-import { buildClinicGlossaryInstructions, buildClinicTranscriptionPrompt, normalizeClinicTranslation } from "@/lib/clinic-glossary";
+import { buildClinicGlossaryInstructions, buildClinicTranscriptionPrompt, normalizeClinicTranslation, type ClinicGlossaryData } from "@/lib/clinic-glossary";
+import { getGlossaryForHospital } from "@/lib/glossary-service";
 import { isPatientLanguage, languageLabels, sourceTargetFor, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
-import { normalizedTextTranslationModel, normalizedTranscriptionModel } from "@/lib/openai-models";
+import { normalizedTranscriptionModel } from "@/lib/openai-models";
 import { isPatientRoomRequestAuthorized } from "@/lib/patient-room-session";
+import { pendingBackTranslationGuard, runBackTranslationCheck } from "@/lib/back-translation-check";
+import { mergeGuardFlags, parseGuardFlags, type GuardFlags } from "@/lib/guard-flags";
+import { compareNumericSignatures, numberGuardEnabled } from "@/lib/number-guard";
+import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
+import { matchVerifiedSentence } from "@/lib/verified-sentences";
 
 type TargetLanguage = PatientLanguage | "ko";
 
 type TranscriptionResponse = {
   text?: string;
-};
-
-type ResponsesApiContent = {
-  type?: string;
-  text?: string;
-};
-
-type ResponsesApiOutputItem = {
-  type?: string;
-  content?: ResponsesApiContent[];
-};
-
-type ResponsesApiResponse = {
-  output_text?: string;
-  output?: ResponsesApiOutputItem[];
 };
 
 function isTranscriptionPromptCompatibilityError(detail: string) {
@@ -44,19 +35,6 @@ const realtimeMessageSchema = z.object({
   translatedText: z.string().trim().min(1).max(4000)
 });
 
-function extractOutputText(data: ResponsesApiResponse) {
-  if (typeof data.output_text === "string") return data.output_text.trim();
-
-  return (
-    data.output
-      ?.flatMap((item) => item.content ?? [])
-      .map((content) => content.text)
-      .filter((text): text is string => typeof text === "string")
-      .join("")
-      .trim() ?? ""
-  );
-}
-
 function textField(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
@@ -66,6 +44,81 @@ function transcriptionLanguageFor(role: ParticipantRole, patientLanguage: Patien
   if (role === "staff") return "ko";
   if (patientLanguage === "zh_tw" || patientLanguage === "yue") return "zh";
   return patientLanguage;
+}
+
+async function translateProcedureSourceText(params: {
+  roomId: string;
+  role: ParticipantRole;
+  patientLanguage: PatientLanguage;
+  sourceText: string;
+  glossaryData: ClinicGlossaryData;
+}) {
+  const direction = sourceTargetFor(params.role, params.patientLanguage);
+  const targetLanguage: TargetLanguage = params.role === "staff" ? params.patientLanguage : "ko";
+  const targetLabel = targetLanguage === "ko" ? "Korean" : languageLabels[params.patientLanguage].english;
+  const verifiedMatch = matchVerifiedSentence(params.sourceText, targetLanguage, params.glossaryData);
+  if (verifiedMatch) {
+    return {
+      translatedText: normalizeClinicTranslation(verifiedMatch.translatedText, targetLanguage, params.glossaryData),
+      targetLanguage,
+      model: "verified",
+      guardFlags: undefined,
+      translationSource: "verified" as const
+    };
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return { response: NextResponse.json({ error: "OPENAI_API_KEY is not configured" }, { status: 500 }) };
+  }
+
+  const instructions = [
+    "You are a professional medical interpreter for a dermatology and plastic surgery procedure room.",
+    "Translate the user's short spoken procedure-room message accurately and naturally.",
+    `Target language: ${targetLabel}.`,
+    direction.instructions,
+    "Preserve clinical meaning, urgency, numbers, body parts, and safety instructions.",
+    "Do not add advice, diagnosis, consent language, labels, quotes, markdown, or commentary.",
+    "Return only the translated text.",
+    buildClinicGlossaryInstructions(params.patientLanguage, params.glossaryData)
+  ].join("\n");
+
+  let translation;
+  try {
+    translation = await translateWithOpenAITextSafety({
+      apiKey,
+      safetyIdentifier: `clinic-voice-room-procedure-text-${params.roomId}-${params.role}`,
+      sourceText: params.sourceText,
+      instructions,
+      glossaryData: params.glossaryData,
+      errorLabel: "[procedure-turns translation]",
+      context: "procedure-turns"
+    });
+  } catch (caught) {
+    if (caught instanceof Error && caught.message === "empty_translation") {
+      return { response: NextResponse.json({ error: "No translated text was returned" }, { status: 502 }) };
+    }
+    return { response: NextResponse.json({ error: "Procedure turn translation failed" }, { status: 502 }) };
+  }
+
+  const normalizedText = normalizeClinicTranslation(translation.translatedText, targetLanguage, params.glossaryData);
+  const guardFlags = mergeGuardFlags(
+    translation.guardFlags,
+    pendingBackTranslationGuard({
+      sourceText: params.sourceText,
+      role: params.role,
+      targetLanguage,
+      translationSource: "llm"
+    })
+  );
+
+  return {
+    translatedText: normalizedText,
+    targetLanguage,
+    model: translation.model,
+    guardFlags,
+    translationSource: "llm" as const
+  };
 }
 
 async function handleRealtimeStaffMessage(request: Request) {
@@ -81,7 +134,10 @@ async function handleRealtimeStaffMessage(request: Request) {
   });
   if (!limited.ok) return rateLimitResponse(limited.retryAfter);
 
-  const room = await prisma.translationRoom.findUnique({ where: { id: parsed.data.roomId } });
+  const room = await prisma.translationRoom.findUnique({
+    where: { id: parsed.data.roomId },
+    include: { hospital: { select: { specialty: true } } }
+  });
   if (!room || room.status === "ended" || room.patientLanguage !== parsed.data.patientLanguage || room.roomMode !== "procedure") {
     return NextResponse.json({ error: "Room not available" }, { status: 404 });
   }
@@ -96,7 +152,45 @@ async function handleRealtimeStaffMessage(request: Request) {
   }
 
   const targetLanguage: TargetLanguage = parsed.data.role === "staff" ? parsed.data.patientLanguage : "ko";
-  const normalizedText = normalizeClinicTranslation(parsed.data.translatedText, targetLanguage);
+  const glossaryData = await getGlossaryForHospital(room.hospitalId, room.hospital.specialty);
+  let normalizedText = normalizeClinicTranslation(parsed.data.translatedText, targetLanguage, glossaryData);
+  let model = "realtime";
+  let translationSource: "realtime" | "llm" | "verified" = "realtime";
+  let guardFlags: GuardFlags | undefined;
+
+  if (numberGuardEnabled() && parsed.data.sourceText) {
+    try {
+      const comparison = compareNumericSignatures(parsed.data.sourceText, parsed.data.translatedText);
+      if (!comparison.ok) {
+        const retry = await translateProcedureSourceText({
+          roomId: room.id,
+          role: parsed.data.role,
+          patientLanguage: parsed.data.patientLanguage,
+          sourceText: parsed.data.sourceText,
+          glossaryData
+        });
+        if (!retry.response) {
+          normalizedText = retry.translatedText;
+          model = retry.model;
+          guardFlags = retry.guardFlags;
+          translationSource = retry.translationSource;
+        }
+      }
+    } catch (caught) {
+      console.error("[procedure-turns realtime number-guard] fail-open", caught);
+    }
+  }
+
+  guardFlags = mergeGuardFlags(
+    guardFlags,
+    pendingBackTranslationGuard({
+      sourceText: parsed.data.sourceText,
+      role: parsed.data.role,
+      targetLanguage,
+      translationSource
+    })
+  );
+
   let savedMessage;
   try {
     savedMessage = await prisma.$transaction(async (tx) => {
@@ -112,7 +206,8 @@ async function handleRealtimeStaffMessage(request: Request) {
           speaker: parsed.data.role,
           sourceText: parsed.data.sourceText || null,
           text: normalizedText,
-          targetLanguage
+          targetLanguage,
+          guardFlags: guardFlags ? guardFlags as Prisma.InputJsonObject : undefined
         }
       });
     });
@@ -131,6 +226,18 @@ async function handleRealtimeStaffMessage(request: Request) {
     }
   }
 
+  if (guardFlags?.backTranslation?.status === "pending") {
+    after(() =>
+      runBackTranslationCheck({
+        roomId: room.id,
+        messageId: savedMessage.id,
+        sourceText: parsed.data.sourceText,
+        translatedText: savedMessage.text,
+        patientLanguage: parsed.data.patientLanguage
+      })
+    );
+  }
+
   return NextResponse.json({
     message: {
       id: savedMessage.id,
@@ -139,11 +246,12 @@ async function handleRealtimeStaffMessage(request: Request) {
       text: savedMessage.text,
       targetLanguage: savedMessage.targetLanguage ?? undefined,
       createdAt: savedMessage.createdAt.toISOString(),
-      readAt: savedMessage.readAt?.toISOString() ?? null
+      readAt: savedMessage.readAt?.toISOString() ?? null,
+      guardFlags: parseGuardFlags(savedMessage.guardFlags) ?? null
     },
     sourceText: savedMessage.sourceText ?? "",
     translatedText: savedMessage.text,
-    model: "realtime"
+    model
   });
 }
 
@@ -177,7 +285,10 @@ async function handleAudioTurn(request: Request) {
     return rateLimitResponse(limited.retryAfter);
   }
 
-  const room = await prisma.translationRoom.findUnique({ where: { id: roomId } });
+  const room = await prisma.translationRoom.findUnique({
+    where: { id: roomId },
+    include: { hospital: { select: { specialty: true } } }
+  });
   if (!room || room.status === "ended" || room.patientLanguage !== patientLanguage || room.roomMode !== "procedure") {
     return NextResponse.json({ error: "Room not available" }, { status: 404 });
   }
@@ -204,7 +315,8 @@ async function handleAudioTurn(request: Request) {
         text: existingMessage.text,
         targetLanguage: existingMessage.targetLanguage ?? undefined,
         createdAt: existingMessage.createdAt.toISOString(),
-        readAt: existingMessage.readAt?.toISOString() ?? null
+        readAt: existingMessage.readAt?.toISOString() ?? null,
+        guardFlags: parseGuardFlags(existingMessage.guardFlags) ?? null
       },
       sourceText: existingMessage.sourceText ?? "",
       translatedText: existingMessage.text,
@@ -217,12 +329,14 @@ async function handleAudioTurn(request: Request) {
     return NextResponse.json({ error: "OPENAI_API_KEY is not configured" }, { status: 500 });
   }
 
+  const glossaryData = await getGlossaryForHospital(room.hospitalId, room.hospital.specialty);
+
   const transcriptionForm = new FormData();
   transcriptionForm.set("file", audio, audio.name || `${clientTurnId}.webm`);
   transcriptionForm.set("model", normalizedTranscriptionModel(process.env.OPENAI_TRANSCRIPTION_MODEL));
   transcriptionForm.set("language", transcriptionLanguageFor(role, patientLanguage));
   transcriptionForm.set("response_format", "json");
-  transcriptionForm.set("prompt", buildClinicTranscriptionPrompt(role === "staff" ? "ko" : patientLanguage));
+  transcriptionForm.set("prompt", buildClinicTranscriptionPrompt(role === "staff" ? "ko" : patientLanguage, glossaryData.transcriptionHints));
 
   let transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
@@ -262,58 +376,9 @@ async function handleAudioTurn(request: Request) {
     return NextResponse.json({ error: "No speech was transcribed" }, { status: 422 });
   }
 
-  const direction = sourceTargetFor(role, patientLanguage);
-  const targetLanguage: TargetLanguage = role === "staff" ? patientLanguage : "ko";
-  const targetLabel = targetLanguage === "ko" ? "Korean" : languageLabels[patientLanguage].english;
-  const model = normalizedTextTranslationModel(process.env.OPENAI_TEXT_TRANSLATION_MODEL);
-  const instructions = [
-    "You are a professional medical interpreter for a dermatology and plastic surgery procedure room.",
-    "Translate the user's short spoken procedure-room message accurately and naturally.",
-    `Target language: ${targetLabel}.`,
-    direction.instructions,
-    "Preserve clinical meaning, urgency, numbers, body parts, and safety instructions.",
-    "Do not add advice, diagnosis, consent language, labels, quotes, markdown, or commentary.",
-    "Return only the translated text.",
-    buildClinicGlossaryInstructions(patientLanguage)
-  ].join("\n");
+  const translation = await translateProcedureSourceText({ roomId: room.id, role, patientLanguage, sourceText, glossaryData });
+  if (translation.response) return translation.response;
 
-  const translationResponse = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "OpenAI-Safety-Identifier": `clinic-voice-room-procedure-text-${room.id}-${role}`
-    },
-    body: JSON.stringify({
-      model,
-      reasoning: { effort: "low" },
-      text: { verbosity: "low" },
-      input: [
-        {
-          role: "system",
-          content: [{ type: "input_text", text: instructions }]
-        },
-        {
-          role: "user",
-          content: [{ type: "input_text", text: sourceText }]
-        }
-      ]
-    })
-  });
-
-  if (!translationResponse.ok) {
-    const detail = await translationResponse.text().catch(() => "");
-    console.error("[procedure-turns translation]", translationResponse.status, detail);
-    return NextResponse.json({ error: "Procedure turn translation failed" }, { status: 502 });
-  }
-
-  const translationData = (await translationResponse.json()) as ResponsesApiResponse;
-  const translatedText = extractOutputText(translationData);
-  if (!translatedText) {
-    return NextResponse.json({ error: "No translated text was returned" }, { status: 502 });
-  }
-
-  const normalizedText = normalizeClinicTranslation(translatedText, targetLanguage);
   let savedMessage;
   try {
     savedMessage = await prisma.$transaction(async (tx) => {
@@ -328,8 +393,9 @@ async function handleAudioTurn(request: Request) {
           roomId: room.id,
           speaker: role,
           sourceText,
-          text: normalizedText,
-          targetLanguage
+          text: translation.translatedText,
+          targetLanguage: translation.targetLanguage,
+          guardFlags: translation.guardFlags ? translation.guardFlags as Prisma.InputJsonObject : undefined
         }
       });
     });
@@ -344,6 +410,18 @@ async function handleAudioTurn(request: Request) {
     }
   }
 
+  if (translation.guardFlags?.backTranslation?.status === "pending") {
+    after(() =>
+      runBackTranslationCheck({
+        roomId: room.id,
+        messageId: savedMessage.id,
+        sourceText,
+        translatedText: savedMessage.text,
+        patientLanguage
+      })
+    );
+  }
+
   const message = {
     id: savedMessage.id,
     speaker: savedMessage.speaker,
@@ -351,10 +429,11 @@ async function handleAudioTurn(request: Request) {
     text: savedMessage.text,
     targetLanguage: savedMessage.targetLanguage ?? undefined,
     createdAt: savedMessage.createdAt.toISOString(),
-    readAt: savedMessage.readAt?.toISOString() ?? null
+    readAt: savedMessage.readAt?.toISOString() ?? null,
+    guardFlags: parseGuardFlags(savedMessage.guardFlags) ?? null
   };
 
-  return NextResponse.json({ message, sourceText, translatedText: normalizedText, model });
+  return NextResponse.json({ message, sourceText, translatedText: savedMessage.text, model: translation.model });
 }
 
 export async function POST(request: Request) {

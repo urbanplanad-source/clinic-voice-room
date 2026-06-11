@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Mic, PhoneOff, Send, Volume2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ClipboardList, Flag, Loader2, Mic, PhoneOff, Send, Volume2, X } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
 import { normalizeClinicTranslation } from "@/lib/clinic-glossary";
+import type { GuardFlags } from "@/lib/guard-flags";
 import { speechLanguageByPatientLanguage } from "@/lib/speech";
 import {
   broadcastRoomUpdate,
@@ -20,6 +21,7 @@ import {
   consultationDeliveryStatusCopy,
   consultationTextCopy
 } from "@/lib/consultation-templates";
+import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 const CONSULTATION_TRANSLATION_QUIET_MS = 500;
@@ -80,8 +82,38 @@ type TranslationMessage = {
   targetLanguage?: PatientLanguage | "ko";
   createdAt?: string;
   readAt?: string | null;
+  guardFlags?: GuardFlags | null;
   deliveryStatus?: "sending" | "failed";
 };
+
+type QuickPhraseStage = "intake" | "medical" | "procedure" | "price_schedule" | "summary";
+
+type QuickPhrase = {
+  id: string;
+  stage: QuickPhraseStage | null;
+  ko: string;
+  translatedText?: string | null;
+  sortOrder: number;
+};
+
+const quickPhraseStages = ["intake", "medical", "procedure", "price_schedule", "summary"] as const;
+const quickPhraseStageLabels: Record<QuickPhraseStage | "all", string> = {
+  all: "All",
+  intake: "Intake",
+  medical: "Medical",
+  procedure: "Procedure",
+  price_schedule: "Price",
+  summary: "Summary"
+};
+
+type FeedbackReason = "mistranslation" | "wrong_term" | "awkward" | "other";
+
+const feedbackReasons: Array<{ value: FeedbackReason; label: string }> = [
+  { value: "mistranslation", label: "오역" },
+  { value: "wrong_term", label: "용어 틀림" },
+  { value: "awkward", label: "어색함" },
+  { value: "other", label: "기타" }
+];
 
 type RecordingMode = "upload" | "safety";
 
@@ -103,6 +135,14 @@ export function ConsultationChatRoom({
   const [speakingStartedAt, setSpeakingStartedAt] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [ending, setEnding] = useState(false);
+  const [roomRealtimeHealthy, setRoomRealtimeHealthy] = useState(false);
+  const [messageRealtimeHealthy, setMessageRealtimeHealthy] = useState(false);
+  const [quickPhrases, setQuickPhrases] = useState<QuickPhrase[]>([]);
+  const [quickPhraseStage, setQuickPhraseStage] = useState<QuickPhraseStage | "all">("all");
+  const [quickPhraseLoading, setQuickPhraseLoading] = useState(false);
+  const [feedbackTarget, setFeedbackTarget] = useState<TranslationMessage | null>(null);
+  const [feedbackSubmittingId, setFeedbackSubmittingId] = useState("");
+  const [feedbackNotice, setFeedbackNotice] = useState("");
   const chatScrollRef = useRef<HTMLElement | null>(null);
   const isComposingTextRef = useRef(false);
   const inactivityTimerRef = useRef<number | null>(null);
@@ -135,6 +175,10 @@ export function ConsultationChatRoom({
   const browserAudioOutputEnabled = role === "staff";
   const lastIncomingMessage = messages.find((message) => message.speaker !== role && message.deliveryStatus !== "failed");
   const replayLabel = role === "staff" ? "다시 듣기" : replayCopy[room.patientLanguage];
+  const visibleQuickPhrases = useMemo(() => {
+    if (quickPhraseStage === "all") return quickPhrases;
+    return quickPhrases.filter((phrase) => phrase.stage === quickPhraseStage || phrase.stage === null);
+  }, [quickPhraseStage, quickPhrases]);
 
   const title = useMemo(() => {
     const language = languageLabels[room.patientLanguage];
@@ -691,9 +735,47 @@ export function ConsultationChatRoom({
   }, [chatMessages.length, textSubmitting]);
 
   useEffect(() => {
+    void fetch(`/api/rooms/${room.id}/warm-glossary`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(role === "patient" && roomToken ? { "x-room-token": roomToken } : {})
+      },
+      body: JSON.stringify(roomToken ? { roomToken } : {})
+    }).catch(() => undefined);
+  }, [role, room.id, roomToken]);
+
+  useEffect(() => {
+    if (role !== "staff") return;
+
+    let cancelled = false;
+    setQuickPhraseLoading(true);
+    void fetch(`/api/rooms/${room.id}/quick-phrases`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Quick phrases could not be loaded.");
+        return response.json() as Promise<{ phrases?: QuickPhrase[] }>;
+      })
+      .then((data) => {
+        if (!cancelled) setQuickPhrases(data.phrases ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setQuickPhrases([]);
+      })
+      .finally(() => {
+        if (!cancelled) setQuickPhraseLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [role, room.id]);
+
+  useEffect(() => {
     return subscribeToRoomUpdates(room.id, (updatedRoom) => {
       setRoom((current) => ({ ...current, ...updatedRoom }));
       markActivity();
+    }, (status) => {
+      setRoomRealtimeHealthy(status === "SUBSCRIBED");
     }) ?? undefined;
   }, [markActivity, room.id]);
 
@@ -705,6 +787,8 @@ export function ConsultationChatRoom({
         markIncomingMessagesRead([message]);
       }
       markActivity();
+    }, (status) => {
+      setMessageRealtimeHealthy(status === "SUBSCRIBED");
     }) ?? undefined;
   }, [appendMessage, markActivity, markIncomingMessagesRead, playQueuedTranslatedSpeech, role, room.id]);
 
@@ -712,8 +796,12 @@ export function ConsultationChatRoom({
     return prepareTranslationBroadcastChannel(room.id) ?? undefined;
   }, [room.id]);
 
-  useEffect(() => {
-    async function fetchMessages() {
+  useAdaptivePolling({
+    isRealtimeHealthy: messageRealtimeHealthy,
+    healthyIntervalMs: 10_000,
+    unhealthyIntervalMs: 1500,
+    pollKey: `consultation-messages:${room.id}:${role}:${roomToken ?? ""}`,
+    poll: async () => {
       if (messagePollInFlightRef.current) return;
 
       messagePollInFlightRef.current = true;
@@ -722,7 +810,7 @@ export function ConsultationChatRoom({
           cache: "no-store",
           headers: role === "patient" && roomToken ? { "x-room-token": roomToken } : undefined
         });
-        if (!response.ok) return;
+        if (!response.ok) throw new Error("Message polling failed.");
 
         const data = (await response.json()) as { messages?: TranslationMessage[] };
         const fetchedMessages = data.messages ?? [];
@@ -749,31 +837,26 @@ export function ConsultationChatRoom({
         messagePollInFlightRef.current = false;
       }
     }
+  });
 
-    void fetchMessages();
-    const interval = window.setInterval(() => {
-      void fetchMessages();
-    }, 1500);
-
-    return () => window.clearInterval(interval);
-  }, [markActivity, markIncomingMessagesRead, mergeMessages, playQueuedTranslatedSpeech, role, room.id, roomToken]);
-
-  useEffect(() => {
-    const interval = window.setInterval(async () => {
+  useAdaptivePolling({
+    isRealtimeHealthy: roomRealtimeHealthy,
+    healthyIntervalMs: 15_000,
+    unhealthyIntervalMs: 5000,
+    pollKey: `consultation-room:${room.id}:${role}:${roomToken ?? ""}`,
+    poll: async () => {
       const response =
         role === "staff"
           ? await fetch(`/api/rooms/${room.id}`, { cache: "no-store" })
           : roomToken
             ? await fetch(`/api/rooms/by-token/${roomToken}`, { cache: "no-store" })
             : await fetch(`/api/rooms/${room.id}/patient`, { cache: "no-store" });
-      if (!response.ok) return;
+      if (!response.ok) throw new Error("Room polling failed.");
 
       const data = await response.json();
       setRoom((current) => ({ ...current, ...data.room }));
-    }, 5000);
-
-    return () => window.clearInterval(interval);
-  }, [role, room.id, roomToken]);
+    }
+  });
 
   useEffect(() => {
     markActivity();
@@ -836,7 +919,7 @@ export function ConsultationChatRoom({
     };
   }, [stopPlayback]);
 
-  async function submitTextMessage(textOverride?: string) {
+  async function submitTextMessage(textOverride?: string, quickPhraseId?: string) {
     const sourceText = (textOverride ?? textInput).trim();
     if (!sourceText || textSubmitting || room.status === "ended") return;
 
@@ -867,7 +950,8 @@ export function ConsultationChatRoom({
           role,
           roomToken,
           patientLanguage: room.patientLanguage,
-          text: sourceText
+          text: sourceText,
+          quickPhraseId
         })
       });
       const data = (await response.json().catch(() => null)) as {
@@ -897,6 +981,46 @@ export function ConsultationChatRoom({
       setError(caught instanceof Error ? caught.message : "Text translation failed.");
     } finally {
       setTextSubmitting(false);
+    }
+  }
+
+  function sendQuickPhrase(phrase: QuickPhrase) {
+    if (textSubmitting || room.status === "ended") return;
+    void submitTextMessage(phrase.ko, phrase.id);
+  }
+
+  async function submitFeedback(reason: FeedbackReason) {
+    if (!feedbackTarget || feedbackSubmittingId) return;
+
+    setFeedbackSubmittingId(feedbackTarget.id);
+    setError("");
+    setFeedbackNotice("");
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (role === "patient" && roomToken) headers["x-room-token"] = roomToken;
+
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          roomId: room.id,
+          roomToken,
+          messageId: feedbackTarget.id,
+          reporterRole: role,
+          reason
+        })
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error ?? "Feedback could not be sent.");
+      }
+
+      setFeedbackNotice("번역 신고가 접수되었습니다.");
+      setFeedbackTarget(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Feedback could not be sent.");
+    } finally {
+      setFeedbackSubmittingId("");
     }
   }
 
@@ -936,6 +1060,9 @@ export function ConsultationChatRoom({
             {chatMessages.map((message) => {
               const mine = message.speaker === role;
               const failed = message.deliveryStatus === "failed";
+              const showGuardFlags = role === "staff" && !message.deliveryStatus;
+              const numberMismatch = showGuardFlags && message.guardFlags?.numberCheck === "mismatch";
+              const backTranslationStatus = showGuardFlags ? message.guardFlags?.backTranslation?.status : undefined;
               const sentAt = message.createdAt
                 ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(message.createdAt))
                 : "";
@@ -959,10 +1086,66 @@ export function ConsultationChatRoom({
                     }`}
                   >
                     {visibleMessageText(message)}
+                    {numberMismatch || backTranslationStatus === "pending" || backTranslationStatus === "pass" || backTranslationStatus === "fail" ? (
+                      <div className={`mt-2 space-y-2 rounded-lg px-2 py-2 text-[11px] font-bold ${mine ? "bg-white/15 text-white" : "bg-amber-50 text-amber-800"}`}>
+                        {numberMismatch ? (
+                          <div className="flex items-center gap-1.5">
+                            <AlertTriangle size={13} />
+                            숫자 확인 필요: 원문 {(message.guardFlags?.sourceNumbers ?? []).join(", ")}
+                          </div>
+                        ) : null}
+                        {backTranslationStatus === "pending" ? (
+                          <div className="flex items-center gap-1.5">
+                            <Loader2 size={13} className="animate-spin" />
+                            고위험 문장 검증 중
+                          </div>
+                        ) : null}
+                        {backTranslationStatus === "pass" ? (
+                          <div className="flex items-center gap-1.5">
+                            <CheckCircle2 size={13} />
+                            고위험 문장 검증 통과
+                          </div>
+                        ) : null}
+                        {backTranslationStatus === "fail" ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5">
+                              <AlertTriangle size={13} />
+                              역번역 확인 필요
+                            </div>
+                            {message.guardFlags?.backTranslation?.backText ? (
+                              <p className="rounded-md bg-white/70 px-2 py-1 text-slate-700">환자에게는 이렇게 전달됐을 수 있습니다: {message.guardFlags.backTranslation.backText}</p>
+                            ) : null}
+                            <div className="flex flex-wrap gap-2">
+                              <button type="button" onClick={() => void submitTextMessage(message.sourceText ?? visibleMessageText(message))} className="rounded-md bg-white/80 px-2 py-1 text-slate-700">
+                                다시 번역
+                              </button>
+                              <button type="button" onClick={() => setFeedbackTarget(message)} className="rounded-md bg-white/80 px-2 py-1 text-slate-700">
+                                오역 신고
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {sentAt || metaText ? (
                       <span className={`mt-1 block text-[11px] font-bold ${mine ? "text-white/80" : "text-slate-400"}`}>
                         {[sentAt, metaText].filter(Boolean).join(" · ")}
                       </span>
+                    ) : null}
+                    {!message.deliveryStatus ? (
+                      <button
+                        type="button"
+                        onClick={() => setFeedbackTarget(message)}
+                        disabled={feedbackSubmittingId === message.id}
+                        className={`mt-2 inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[11px] font-bold transition disabled:opacity-60 ${
+                          mine ? "bg-white/15 text-white hover:bg-white/25" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                        }`}
+                        aria-label="번역 신고"
+                        title="번역 신고"
+                      >
+                        {feedbackSubmittingId === message.id ? <Loader2 size={13} className="animate-spin" /> : <Flag size={13} />}
+                        신고
+                      </button>
                     ) : null}
                   </div>
                 </article>
@@ -1012,6 +1195,55 @@ export function ConsultationChatRoom({
           ) : null}
         </div>
 
+        {role === "staff" && (quickPhraseLoading || quickPhrases.length > 0) ? (
+          <div className="mb-2 rounded-lg bg-slate-50 p-2.5 md:p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2 text-xs font-bold text-slate-600">
+                <ClipboardList size={16} className="shrink-0 text-trust" />
+                <span className="truncate">Quick phrases</span>
+              </div>
+              <select
+                value={quickPhraseStage}
+                onChange={(event) => setQuickPhraseStage(event.target.value as QuickPhraseStage | "all")}
+                className="h-9 shrink-0 rounded-lg border border-line bg-white px-2 text-xs font-bold text-ink outline-none focus:border-trust"
+                aria-label="Quick phrase stage"
+              >
+                <option value="all">{quickPhraseStageLabels.all}</option>
+                {quickPhraseStages.map((stage) => (
+                  <option key={stage} value={stage}>
+                    {quickPhraseStageLabels[stage]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {quickPhraseLoading ? (
+              <div className="mt-2 flex h-10 items-center gap-2 text-xs font-bold text-slate-500">
+                <Loader2 size={15} className="animate-spin" />
+                Loading
+              </div>
+            ) : (
+              <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                {visibleQuickPhrases.length ? (
+                  visibleQuickPhrases.map((phrase) => (
+                    <button
+                      key={phrase.id}
+                      type="button"
+                      onClick={() => sendQuickPhrase(phrase)}
+                      disabled={textSubmitting || room.status === "ended"}
+                      title={phrase.translatedText ?? phrase.ko}
+                      className="min-h-10 max-w-[240px] shrink-0 rounded-lg border border-line bg-white px-3 py-2 text-left text-xs font-bold leading-5 text-ink shadow-sm transition hover:border-trust hover:bg-blue-50 disabled:opacity-50 md:max-w-[320px]"
+                    >
+                      <span className="line-clamp-2">{phrase.ko}</span>
+                    </button>
+                  ))
+                ) : (
+                  <span className="flex h-10 items-center text-xs font-bold text-slate-500">No phrases for this stage.</span>
+                )}
+              </div>
+            )}
+          </div>
+        ) : null}
+
         <div className="flex items-end gap-2 rounded-2xl bg-slate-50 p-1.5 md:p-2">
           <textarea
             value={textInput}
@@ -1039,6 +1271,7 @@ export function ConsultationChatRoom({
             {textSubmitting ? <Loader2 size={18} className="animate-spin" /> : <Send size={19} />}
           </button>
         </div>
+        {feedbackNotice ? <p className="mt-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{feedbackNotice}</p> : null}
         {error ? <p className="mt-2 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
         {role === "staff" ? (
           <button
@@ -1051,6 +1284,48 @@ export function ConsultationChatRoom({
           </button>
         ) : null}
       </footer>
+
+      {feedbackTarget ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/35 p-4 sm:items-center">
+          <div className="w-full max-w-md rounded-lg bg-white p-4 shadow-soft">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-trust">Translation feedback</p>
+                <h2 className="mt-0.5 text-lg font-bold text-ink">번역 신고</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFeedbackTarget(null)}
+                className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"
+                aria-label="닫기"
+                title="닫기"
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-900">
+              환자 이름, 연락처, 주민등록번호 등 개인정보가 포함된 문장은 신고하지 마세요.
+            </p>
+            <p className="mt-3 max-h-28 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold leading-6 text-ink">
+              {visibleMessageText(feedbackTarget)}
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {feedbackReasons.map((reason) => (
+                <button
+                  key={reason.value}
+                  type="button"
+                  onClick={() => void submitFeedback(reason.value)}
+                  disabled={Boolean(feedbackSubmittingId)}
+                  className="flex h-11 items-center justify-center gap-2 rounded-lg bg-trust px-3 text-sm font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
+                >
+                  {feedbackSubmittingId ? <Loader2 size={16} className="animate-spin" /> : <Flag size={16} />}
+                  {reason.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

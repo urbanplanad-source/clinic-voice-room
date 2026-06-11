@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
+import { hospitalSpecialties } from "@/lib/hospital-specialty";
 
 const schema = z.object({
   hospitalName: z.string().trim().min(1).max(80),
@@ -13,6 +14,7 @@ const schema = z.object({
     .min(2)
     .max(48)
     .regex(/^[a-z0-9-]+$/),
+  hospitalSpecialty: z.enum(hospitalSpecialties).optional().default("dermatology"),
   name: z.string().trim().min(1).max(80),
   email: z.string().trim().email().max(160),
   password: z.string().min(6).max(128).optional().or(z.literal("")),
@@ -28,6 +30,7 @@ const updateSchema = z.object({
     .min(2)
     .max(48)
     .regex(/^[a-z0-9-]+$/),
+  hospitalSpecialty: z.enum(hospitalSpecialties).optional(),
   name: z.string().trim().min(1).max(80),
   email: z.string().trim().email().max(160),
   password: z.string().min(6).max(128).optional().or(z.literal("")),
@@ -58,7 +61,7 @@ export async function GET() {
   const [hospitals, staffUsers] = await Promise.all([
     prisma.hospital.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, slug: true, status: true, planType: true }
+      select: { id: true, name: true, slug: true, status: true, specialty: true, planType: true }
     }),
     prisma.staffUser.findMany({
       orderBy: [{ hospital: { name: "asc" } }, { name: "asc" }],
@@ -69,7 +72,7 @@ export async function GET() {
         role: true,
         isActive: true,
         lastLoginAt: true,
-        hospital: { select: { name: true, slug: true } }
+        hospital: { select: { name: true, slug: true, specialty: true } }
       }
     })
   ]);
@@ -97,11 +100,13 @@ export async function POST(request: Request) {
       where: { slug: parsed.data.hospitalSlug },
       update: {
         name: parsed.data.hospitalName,
+        specialty: parsed.data.hospitalSpecialty,
         status: "active"
       },
       create: {
         name: parsed.data.hospitalName,
         slug: parsed.data.hospitalSlug,
+        specialty: parsed.data.hospitalSpecialty,
         planType: "partner_free",
         status: "active"
       }
@@ -130,7 +135,7 @@ export async function POST(request: Request) {
         email: true,
         role: true,
         isActive: true,
-        hospital: { select: { name: true, slug: true } }
+        hospital: { select: { name: true, slug: true, specialty: true } }
       }
     });
 
@@ -164,11 +169,13 @@ export async function PATCH(request: Request) {
         where: { slug: parsed.data.hospitalSlug },
         update: {
           name: parsed.data.hospitalName,
+          ...(parsed.data.hospitalSpecialty ? { specialty: parsed.data.hospitalSpecialty } : {}),
           status: "active"
         },
         create: {
           name: parsed.data.hospitalName,
           slug: parsed.data.hospitalSlug,
+          specialty: parsed.data.hospitalSpecialty ?? "dermatology",
           planType: "partner_free",
           status: "active"
         }
@@ -191,7 +198,7 @@ export async function PATCH(request: Request) {
           role: true,
           isActive: true,
           lastLoginAt: true,
-          hospital: { select: { name: true, slug: true } }
+          hospital: { select: { name: true, slug: true, specialty: true } }
         }
       });
     });
@@ -240,7 +247,7 @@ export async function DELETE(request: Request) {
         role: true,
         isActive: true,
         lastLoginAt: true,
-        hospital: { select: { name: true, slug: true } }
+        hospital: { select: { name: true, slug: true, specialty: true } }
       }
     });
 

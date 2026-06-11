@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ArrowRight, Copy, KeyRound, Loader2, Save, Trash2, UserPlus } from "lucide-react";
+import { hospitalSpecialties, hospitalSpecialtyLabels, type HospitalSpecialty } from "@/lib/hospital-specialty";
 
 type StaffRole = "staff" | "hospital_admin" | "internal_admin";
 
@@ -12,12 +13,13 @@ type StaffUser = {
   role: StaffRole;
   isActive: boolean;
   lastLoginAt?: string | null;
-  hospital: { name: string; slug: string };
+  hospital: { name: string; slug: string; specialty: HospitalSpecialty };
 };
 
 type FormState = {
   hospitalName: string;
   hospitalSlug: string;
+  hospitalSpecialty: HospitalSpecialty;
   name: string;
   email: string;
   password: string;
@@ -27,6 +29,7 @@ type FormState = {
 type EditState = {
   hospitalName: string;
   hospitalSlug: string;
+  hospitalSpecialty: HospitalSpecialty;
   name: string;
   email: string;
   password: string;
@@ -37,6 +40,7 @@ type EditState = {
 const initialForm: FormState = {
   hospitalName: "벨르몬성형외과",
   hospitalSlug: "bellemon",
+  hospitalSpecialty: "plastic_surgery",
   name: "",
   email: "",
   password: "",
@@ -47,6 +51,7 @@ function editStateFromStaff(staffUser: StaffUser): EditState {
   return {
     hospitalName: staffUser.hospital.name,
     hospitalSlug: staffUser.hospital.slug,
+    hospitalSpecialty: staffUser.hospital.specialty,
     name: staffUser.name,
     email: staffUser.email,
     password: "",
@@ -223,6 +228,7 @@ export function AdminStaffManager() {
             onChange={(value) => update("hospitalSlug", value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
             required
           />
+          <SpecialtySelect value={form.hospitalSpecialty} onChange={(value) => update("hospitalSpecialty", value)} />
           <Field label="직원 이름" value={form.name} onChange={(value) => update("name", value)} required />
           <Field label="로그인 이메일" value={form.email} onChange={(value) => update("email", value)} type="email" required />
           <Field label="임시 비밀번호" value={form.password} onChange={(value) => update("password", value)} placeholder="비워두면 자동 생성" />
@@ -255,10 +261,11 @@ export function AdminStaffManager() {
       ) : null}
 
       <section className="overflow-x-auto rounded-lg bg-white shadow-soft">
-        <table className="w-full min-w-[1180px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[1260px] border-collapse text-left text-sm">
           <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500">
             <tr>
               <th className="px-4 py-4">Hospital</th>
+              <th className="px-4 py-4">Specialty</th>
               <th className="px-4 py-4">Name</th>
               <th className="px-4 py-4">Email</th>
               <th className="px-4 py-4">Role</th>
@@ -271,7 +278,7 @@ export function AdminStaffManager() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-5 py-6 font-semibold text-slate-500">
+                <td colSpan={9} className="px-5 py-6 font-semibold text-slate-500">
                   불러오는 중...
                 </td>
               </tr>
@@ -290,6 +297,14 @@ export function AdminStaffManager() {
                           disabled={disabled}
                         />
                       </div>
+                    </td>
+                    <td className="px-4 py-4">
+                      <SpecialtySelect
+                        value={edit.hospitalSpecialty}
+                        onChange={(value) => updateEdit(staffUser.id, "hospitalSpecialty", value)}
+                        disabled={disabled}
+                        compact
+                      />
                     </td>
                     <td className="px-4 py-4">
                       <InlineInput value={edit.name} onChange={(value) => updateEdit(staffUser.id, "name", value)} disabled={disabled} />
@@ -361,6 +376,36 @@ export function AdminStaffManager() {
         </table>
       </section>
     </div>
+  );
+}
+
+function SpecialtySelect({
+  value,
+  onChange,
+  disabled = false,
+  compact = false
+}: {
+  value: HospitalSpecialty;
+  onChange: (value: HospitalSpecialty) => void;
+  disabled?: boolean;
+  compact?: boolean;
+}) {
+  return (
+    <label className="block">
+      {!compact ? <span className="text-sm font-semibold text-slate-600">진료과</span> : null}
+      <select
+        className={`${compact ? "h-10" : "mt-2 h-12"} w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none transition focus:border-trust focus:bg-white disabled:opacity-60`}
+        value={value}
+        onChange={(event) => onChange(event.target.value as HospitalSpecialty)}
+        disabled={disabled}
+      >
+        {hospitalSpecialties.map((specialty) => (
+          <option key={specialty} value={specialty}>
+            {hospitalSpecialtyLabels[specialty]}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Mic, PhoneOff } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Mic, PhoneOff } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
 import { normalizeClinicTranslation } from "@/lib/clinic-glossary";
+import type { GuardFlags } from "@/lib/guard-flags";
 import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
 import { speechLanguageByPatientLanguage } from "@/lib/speech";
 import { ConsultationChatRoom } from "@/components/ConsultationChatRoom";
+import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 import {
   broadcastRoomUpdate,
   broadcastTranslationMessage,
@@ -78,6 +80,7 @@ type TranslationMessage = {
   text: string;
   targetLanguage?: PatientLanguage | "ko";
   createdAt?: string;
+  guardFlags?: GuardFlags | null;
 };
 
 type RecordingMode = "upload" | "safety";
@@ -687,6 +690,8 @@ function ProcedureVoiceRoom({
   const [translationDraft, setTranslationDraft] = useState("");
   const [inputTranscriptDraft, setInputTranscriptDraft] = useState("");
   const [backWarning, setBackWarning] = useState(false);
+  const [roomRealtimeHealthy, setRoomRealtimeHealthy] = useState(false);
+  const [messageRealtimeHealthy, setMessageRealtimeHealthy] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
@@ -742,6 +747,8 @@ function ProcedureVoiceRoom({
     : role === "staff"
       ? "실시간 인식"
       : copy.transcript.title;
+  const latestGuardFlags = role === "staff" ? latestMessage?.guardFlags : undefined;
+  const latestBackTranslationStatus = latestGuardFlags?.backTranslation?.status;
 
   useEffect(() => {
     roomRef.current = room;
@@ -959,8 +966,21 @@ function ProcedureVoiceRoom({
     return subscribeToRoomUpdates(room.id, (updatedRoom) => {
       setRoom((current) => ({ ...current, ...updatedRoom }));
       markActivity();
+    }, (status) => {
+      setRoomRealtimeHealthy(status === "SUBSCRIBED");
     }) ?? undefined;
   }, [markActivity, room.id]);
+
+  useEffect(() => {
+    void fetch(`/api/rooms/${room.id}/warm-glossary`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(role === "patient" && roomToken ? { "x-room-token": roomToken } : {})
+      },
+      body: JSON.stringify(roomToken ? { roomToken } : {})
+    }).catch(() => undefined);
+  }, [role, room.id, roomToken]);
 
   useEffect(() => {
     return subscribeToTranslationMessages(room.id, (message) => {
@@ -969,6 +989,8 @@ function ProcedureVoiceRoom({
         markIncomingMessagesRead([message]);
       }
       markActivity();
+    }, (status) => {
+      setMessageRealtimeHealthy(status === "SUBSCRIBED");
     }) ?? undefined;
   }, [appendMessage, markActivity, markIncomingMessagesRead, role, room.id]);
 
@@ -976,10 +998,12 @@ function ProcedureVoiceRoom({
     return prepareTranslationBroadcastChannel(room.id) ?? undefined;
   }, [room.id]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchRoomMessages() {
+  useAdaptivePolling({
+    isRealtimeHealthy: messageRealtimeHealthy,
+    healthyIntervalMs: 10_000,
+    unhealthyIntervalMs: 2000,
+    pollKey: `voice-messages:${room.id}:${role}:${roomToken ?? ""}`,
+    poll: async () => {
       const params = new URLSearchParams();
       if (messageCursorRef.current) params.set("after", messageCursorRef.current);
 
@@ -987,8 +1011,8 @@ function ProcedureVoiceRoom({
       const response = await fetch(`/api/rooms/${room.id}/messages${query ? `?${query}` : ""}`, {
         cache: "no-store",
         headers: roomToken ? { "x-room-token": roomToken } : undefined
-      }).catch(() => null);
-      if (!response?.ok || cancelled) return;
+      });
+      if (!response.ok) throw new Error("Message polling failed.");
 
       const data = (await response.json().catch(() => null)) as { messages?: RealtimeTranslationMessage[] } | null;
       const nextMessages = data?.messages ?? [];
@@ -1006,14 +1030,7 @@ function ProcedureVoiceRoom({
         }
       }
     }
-
-    void fetchRoomMessages();
-    const interval = window.setInterval(fetchRoomMessages, 2000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [appendMessage, markActivity, markIncomingMessagesRead, role, room.id, roomToken]);
+  });
 
   useEffect(() => {
     cleanupRef.current = () => {
@@ -1200,21 +1217,23 @@ function ProcedureVoiceRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room.status, speakingStartedAt]);
 
-  useEffect(() => {
-    const interval = window.setInterval(async () => {
+  useAdaptivePolling({
+    isRealtimeHealthy: roomRealtimeHealthy,
+    healthyIntervalMs: 15_000,
+    unhealthyIntervalMs: 5000,
+    pollKey: `voice-room:${room.id}:${role}:${roomToken ?? ""}`,
+    poll: async () => {
       const response =
         role === "staff"
           ? await fetch(`/api/rooms/${room.id}`, { cache: "no-store" })
           : roomToken
             ? await fetch(`/api/rooms/by-token/${roomToken}`, { cache: "no-store" })
             : await fetch(`/api/rooms/${room.id}/patient`, { cache: "no-store" });
-      if (!response.ok) return;
+      if (!response.ok) throw new Error("Room polling failed.");
       const data = await response.json();
       setRoom((current) => ({ ...current, ...data.room }));
-    }, 5000);
-
-    return () => window.clearInterval(interval);
-  }, [role, room.id, roomToken]);
+    }
+  });
 
   async function ensureMicStream() {
     const currentStream = streamRef.current;
@@ -1656,6 +1675,37 @@ function ProcedureVoiceRoom({
           <article className="rounded-lg bg-blue-50 px-4 py-5">
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust">{displayLabel}</p>
             <p className="mt-2 text-2xl font-bold leading-8 text-ink">{displayText}</p>
+            {latestGuardFlags?.numberCheck === "mismatch" || latestBackTranslationStatus === "pending" || latestBackTranslationStatus === "pass" || latestBackTranslationStatus === "fail" ? (
+              <div className="mt-3 space-y-2 rounded-lg bg-white/80 px-3 py-2 text-sm font-bold text-amber-800">
+                {latestGuardFlags?.numberCheck === "mismatch" ? (
+                  <p className="flex items-center gap-2">
+                    <AlertTriangle size={16} />
+                    숫자 확인 필요: 원문 {(latestGuardFlags.sourceNumbers ?? []).join(", ")}
+                  </p>
+                ) : null}
+                {latestBackTranslationStatus === "pending" ? (
+                  <p className="flex items-center gap-2">
+                    <Loader2 size={16} className="animate-spin" />
+                    고위험 문장 검증 중
+                  </p>
+                ) : null}
+                {latestBackTranslationStatus === "pass" ? (
+                  <p className="flex items-center gap-2 text-emerald-700">
+                    <CheckCircle2 size={16} />
+                    고위험 문장 검증 통과
+                  </p>
+                ) : null}
+                {latestBackTranslationStatus === "fail" ? (
+                  <div className="space-y-1">
+                    <p className="flex items-center gap-2">
+                      <AlertTriangle size={16} />
+                      역번역 확인 필요
+                    </p>
+                    {latestGuardFlags?.backTranslation?.backText ? <p className="text-xs leading-5 text-slate-700">역번역: {latestGuardFlags.backTranslation.backText}</p> : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </article>
         ) : null}
         </section>

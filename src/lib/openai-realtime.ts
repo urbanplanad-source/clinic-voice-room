@@ -1,6 +1,6 @@
 import type { ParticipantRole, PatientLanguage } from "./languages";
 import { createHash } from "crypto";
-import { buildClinicGlossaryInstructions, buildClinicTranscriptionPrompt } from "./clinic-glossary";
+import { buildClinicGlossaryInstructions, buildClinicTranscriptionPrompt, type ClinicGlossaryData } from "./clinic-glossary";
 
 export type TranslationDirection = "staff_to_patient" | "patient_to_staff";
 
@@ -58,11 +58,11 @@ export function normalizedRealtimeTranscriptionModelName(value: string | undefin
   return trimmed;
 }
 
-function buildRealtimeTranslationInstructions(inputLanguage: PatientLanguage | "ko", outputLanguage: PatientLanguage | "ko") {
+function buildRealtimeTranslationInstructions(inputLanguage: PatientLanguage | "ko", outputLanguage: PatientLanguage | "ko", glossaryData?: ClinicGlossaryData) {
   const inputLabel = realtimeLanguageLabels[inputLanguage];
   const outputLabel = realtimeLanguageLabels[outputLanguage];
   const patientLanguage = outputLanguage === "ko" ? inputLanguage : outputLanguage;
-  const glossaryInstructions = patientLanguage === "ko" ? "" : buildClinicGlossaryInstructions(patientLanguage);
+  const glossaryInstructions = patientLanguage === "ko" ? "" : buildClinicGlossaryInstructions(patientLanguage, glossaryData);
   const characterInstruction =
     outputLanguage === "yue"
       ? "Use natural Hong Kong Cantonese wording in Traditional Chinese characters."
@@ -94,6 +94,7 @@ export async function createRealtimeSessionToken(params: {
   direction?: TranslationDirection;
   manualTurn?: boolean;
   safetyIdentifier?: string;
+  glossaryData?: ClinicGlossaryData;
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -119,7 +120,7 @@ export async function createRealtimeSessionToken(params: {
     : params.role === "staff"
       ? "ko"
       : params.patientLanguage;
-  const transcriptionPrompt = buildClinicTranscriptionPrompt(inputLanguage);
+  const transcriptionPrompt = buildClinicTranscriptionPrompt(inputLanguage, params.glossaryData?.transcriptionHints);
   const model = normalizedRealtimeModelName(process.env.OPENAI_REALTIME_MODEL);
   const transcriptionModel = normalizedRealtimeTranscriptionModelName(process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL);
   const safetyIdentifier = params.safetyIdentifier
@@ -143,7 +144,7 @@ export async function createRealtimeSessionToken(params: {
           type: "realtime",
           model,
           output_modalities: ["text"],
-          instructions: buildRealtimeTranslationInstructions(inputLanguage, outputLanguage),
+          instructions: buildRealtimeTranslationInstructions(inputLanguage, outputLanguage, params.glossaryData),
           audio: {
             input: {
               format: params.manualTurn ? { type: "audio/pcm", rate: 24000 } : undefined,

@@ -8,6 +8,7 @@ import { VoiceRoom } from "./VoiceRoom";
 import { type PatientLanguage } from "@/lib/languages";
 import type { RoomStatus } from "@/lib/room-state";
 import { subscribeToRoomUpdates } from "@/lib/supabase-realtime";
+import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 
 type StaffRoomProps = {
   room: {
@@ -122,6 +123,7 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
   const [copied, setCopied] = useState<"web" | "android" | null>(null);
   const [qrExpanded, setQrExpanded] = useState(false);
   const [returning, setReturning] = useState(false);
+  const [roomRealtimeHealthy, setRoomRealtimeHealthy] = useState(false);
   const connected = snapshot.status !== "waiting_for_patient";
   const copy = qrCopy[snapshot.patientLanguage] ?? defaultQrCopy;
   const isProcedureMode = roomMode === "procedure";
@@ -160,19 +162,32 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
   useEffect(() => {
     return subscribeToRoomUpdates(room.id, (updatedRoom) => {
       setSnapshot((current) => ({ ...current, ...updatedRoom }));
+    }, (status) => {
+      setRoomRealtimeHealthy(status === "SUBSCRIBED");
     }) ?? undefined;
   }, [room.id]);
 
   useEffect(() => {
-    if (connected) return;
-    const interval = window.setInterval(async () => {
+    void fetch(`/api/rooms/${room.id}/warm-glossary`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    }).catch(() => undefined);
+  }, [room.id]);
+
+  useAdaptivePolling({
+    enabled: !connected,
+    isRealtimeHealthy: roomRealtimeHealthy,
+    healthyIntervalMs: 15_000,
+    unhealthyIntervalMs: 5000,
+    pollKey: `staff-room:${room.id}`,
+    poll: async () => {
       const response = await fetch(`/api/rooms/${room.id}`, { cache: "no-store" });
-      if (!response.ok) return;
+      if (!response.ok) throw new Error("Room polling failed.");
       const data = await response.json();
       setSnapshot(data.room);
-    }, 5000);
-    return () => window.clearInterval(interval);
-  }, [connected, room.id]);
+    }
+  });
 
   async function copyLink(value: string, target: "web" | "android") {
     await navigator.clipboard.writeText(value);

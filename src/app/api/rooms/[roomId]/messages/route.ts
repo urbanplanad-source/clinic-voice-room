@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { isPatientRoomRequestAuthorized } from "@/lib/patient-room-session";
+import { parseGuardFlags } from "@/lib/guard-flags";
 
 export async function GET(request: Request, context: { params: Promise<{ roomId: string }> }) {
   const { roomId } = await context.params;
@@ -43,7 +44,8 @@ export async function GET(request: Request, context: { params: Promise<{ roomId:
       text: message.text,
       targetLanguage: message.targetLanguage,
       createdAt: message.createdAt.toISOString(),
-      readAt: message.readAt?.toISOString() ?? null
+      readAt: message.readAt?.toISOString() ?? null,
+      guardFlags: parseGuardFlags(message.guardFlags) ?? null
     }))
   });
 }

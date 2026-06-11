@@ -2,9 +2,13 @@ import { NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { buildClinicGlossaryInstructions, buildClinicTranscriptionPrompt, normalizeClinicTranslation } from "@/lib/clinic-glossary";
+import { getGlossaryForHospital } from "@/lib/glossary-service";
 import { isPatientLanguage, languageLabels, sourceTargetFor, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { recordLocalInterpreterUsageTurn } from "@/lib/local-interpreter-usage";
-import { normalizedTextTranslationModel, normalizedTranscriptionModel } from "@/lib/openai-models";
+import type { GuardFlags } from "@/lib/guard-flags";
+import { normalizedTranscriptionModel } from "@/lib/openai-models";
+import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
+import { matchVerifiedSentence } from "@/lib/verified-sentences";
 
 type LocalDirection = "ko_to_patient" | "patient_to_ko";
 type TargetLanguage = PatientLanguage | "ko";
@@ -13,36 +17,8 @@ type TranscriptionResponse = {
   text?: string;
 };
 
-type ResponsesApiContent = {
-  type?: string;
-  text?: string;
-};
-
-type ResponsesApiOutputItem = {
-  type?: string;
-  content?: ResponsesApiContent[];
-};
-
-type ResponsesApiResponse = {
-  output_text?: string;
-  output?: ResponsesApiOutputItem[];
-};
-
 function isTranscriptionPromptCompatibilityError(detail: string) {
   return /(?:prompt.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*prompt)/i.test(detail);
-}
-
-function extractOutputText(data: ResponsesApiResponse) {
-  if (typeof data.output_text === "string") return data.output_text.trim();
-
-  return (
-    data.output
-      ?.flatMap((item) => item.content ?? [])
-      .map((content) => content.text)
-      .filter((text): text is string => typeof text === "string")
-      .join("")
-      .trim() ?? ""
-  );
 }
 
 function textField(formData: FormData, key: string) {
@@ -116,13 +92,14 @@ export async function POST(request: Request) {
   const targetLabel = targetLanguage === "ko" ? "Korean" : languageLabels[patientLanguage].english;
   const sourceLabel = sourceLanguage === "ko" ? "Korean" : languageLabels[patientLanguage].english;
   const directionPrompt = sourceTargetFor(role, patientLanguage);
+  const glossaryData = await getGlossaryForHospital(staff.hospitalId, staff.hospital.specialty);
 
   const transcriptionForm = new FormData();
   transcriptionForm.set("file", audio, audio.name || `${clientTurnId}.wav`);
   transcriptionForm.set("model", normalizedTranscriptionModel(process.env.OPENAI_TRANSCRIPTION_MODEL));
   transcriptionForm.set("language", transcriptionLanguageFor(direction, patientLanguage));
   transcriptionForm.set("response_format", "json");
-  transcriptionForm.set("prompt", buildClinicTranscriptionPrompt(sourceLanguage));
+  transcriptionForm.set("prompt", buildClinicTranscriptionPrompt(sourceLanguage, glossaryData.transcriptionHints));
 
   let transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
@@ -162,7 +139,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No speech was transcribed" }, { status: 422 });
   }
 
-  const model = normalizedTextTranslationModel(process.env.OPENAI_TEXT_TRANSLATION_MODEL);
   const instructions = [
     "You are a professional medical interpreter for a Korean dermatology and plastic-surgery clinic.",
     "Translate this in-person, one-device voice turn accurately and naturally.",
@@ -172,45 +148,39 @@ export async function POST(request: Request) {
     "Preserve clinical meaning, numbers, body parts, brands, and safety instructions.",
     "Do not add advice, diagnosis, consent language, labels, quotes, markdown, or commentary.",
     "Return only the translated text.",
-    buildClinicGlossaryInstructions(patientLanguage)
+    buildClinicGlossaryInstructions(patientLanguage, glossaryData)
   ].join("\n");
 
-  const translationResponse = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "OpenAI-Safety-Identifier": `clinic-voice-room-local-text-${staff.hospitalId}-${staff.id}-${direction}`
-    },
-    body: JSON.stringify({
-      model,
-      reasoning: { effort: "low" },
-      text: { verbosity: "low" },
-      input: [
-        {
-          role: "system",
-          content: [{ type: "input_text", text: instructions }]
-        },
-        {
-          role: "user",
-          content: [{ type: "input_text", text: sourceText }]
-        }
-      ]
-    })
-  });
+  const verifiedMatch = matchVerifiedSentence(sourceText, targetLanguage, glossaryData);
+  let normalizedTranslatedText: string;
+  let model: string;
+  let guardFlags: GuardFlags | null = null;
 
-  if (!translationResponse.ok) {
-    const detail = await translationResponse.text().catch(() => "");
-    console.error("[local-voice-turns translation]", translationResponse.status, detail);
-    return NextResponse.json({ error: "Local voice translation failed" }, { status: 502 });
+  if (verifiedMatch) {
+    normalizedTranslatedText = normalizeClinicTranslation(verifiedMatch.translatedText, targetLanguage, glossaryData);
+    model = "verified";
+  } else {
+    let translation;
+    try {
+      translation = await translateWithOpenAITextSafety({
+        apiKey,
+        safetyIdentifier: `clinic-voice-room-local-text-${staff.hospitalId}-${staff.id}-${direction}`,
+        sourceText,
+        instructions,
+        glossaryData,
+        errorLabel: "[local-voice-turns translation]",
+        context: "local-voice-turns"
+      });
+    } catch (caught) {
+      if (caught instanceof Error && caught.message === "empty_translation") {
+        return NextResponse.json({ error: "No translated text was returned" }, { status: 502 });
+      }
+      return NextResponse.json({ error: "Local voice translation failed" }, { status: 502 });
+    }
+    normalizedTranslatedText = normalizeClinicTranslation(translation.translatedText, targetLanguage, glossaryData);
+    model = translation.model;
+    guardFlags = translation.guardFlags ?? null;
   }
-
-  const translationData = (await translationResponse.json()) as ResponsesApiResponse;
-  const translatedText = extractOutputText(translationData);
-  if (!translatedText) {
-    return NextResponse.json({ error: "No translated text was returned" }, { status: 502 });
-  }
-  const normalizedTranslatedText = normalizeClinicTranslation(translatedText, targetLanguage);
 
   await recordLocalInterpreterUsageTurn({
     staff,
@@ -230,6 +200,7 @@ export async function POST(request: Request) {
     sourceLanguage,
     targetLanguage,
     direction,
-    model
+    model,
+    guardFlags
   });
 }

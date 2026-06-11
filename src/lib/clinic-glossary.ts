@@ -1,13 +1,13 @@
 import type { PatientLanguage } from "./languages";
 
-type GlossaryTargetLanguage = PatientLanguage | "ko";
-type CriticalShortPhrase = {
+export type GlossaryTargetLanguage = PatientLanguage | "ko";
+export type CriticalShortPhrase = {
   spoken: string[];
   translations: Partial<Record<GlossaryTargetLanguage, string>> & Record<"ko" | "zh" | "zh_tw" | "ja" | "en", string>;
   note: string;
 };
 
-type ClinicGlossaryEntry = {
+export type ClinicGlossaryEntry = {
   spoken: string[];
   standardKo: string;
   zh: string;
@@ -20,9 +20,24 @@ type ClinicGlossaryEntry = {
   note: string;
 };
 
+export type VerifiedSentenceEntry = {
+  spoken: string[];
+  standardKo: string;
+  translations: Partial<Record<GlossaryTargetLanguage, string>>;
+  category: string;
+  note: string;
+};
+
+export type ClinicGlossaryData = {
+  terms: ClinicGlossaryEntry[];
+  criticalPhrases: CriticalShortPhrase[];
+  transcriptionHints: string[];
+  verifiedSentences: VerifiedSentenceEntry[];
+};
+
 const rawGlossaryTargetLanguages = new Set<GlossaryTargetLanguage>(["ko", "zh", "ja", "en", "ru", "vi", "id"]);
 
-const realtimeKoreanTranscriptionHints = [
+export const realtimeKoreanTranscriptionHints = [
   "리쥬란",
   "리주란",
   "리쥬란 힐러",
@@ -358,7 +373,7 @@ function parseClinicGlossary(): ClinicGlossaryEntry[] {
 
 export const clinicGlossary = parseClinicGlossary();
 
-const criticalShortPhrases: CriticalShortPhrase[] = [
+export const criticalShortPhrases: CriticalShortPhrase[] = [
   {
     spoken: ["아프지않으세요", "아프지 않으세요", "아프세요", "아픈가요", "아프지 않나요", "안 아프세요"],
     translations: {
@@ -708,11 +723,35 @@ function applyReplacementsLongestFirst(text: string, replacements: Array<{ sourc
   });
 }
 
-export function normalizeClinicTranslation(text: string, targetLanguage: GlossaryTargetLanguage) {
+function configuredGlossaryInstructionsMaxChars() {
+  const rawValue =
+    typeof process !== "undefined" && process.env ? process.env.GLOSSARY_INSTRUCTIONS_MAX_CHARS : undefined;
+  const parsed = Number(rawValue);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 8000;
+}
+
+function joinGlossaryInstructionLines(fixedLines: string[], termLines: string[]) {
+  const maxChars = configuredGlossaryInstructionsMaxChars();
+  const fixedText = fixedLines.join("\n");
+  if (fixedText.length >= maxChars) return fixedText;
+
+  const acceptedTermLines: string[] = [];
+  for (const line of termLines) {
+    const candidate = [...fixedLines, ...acceptedTermLines, line].join("\n");
+    if (candidate.length > maxChars) break;
+    acceptedTermLines.push(line);
+  }
+
+  return [...fixedLines, ...acceptedTermLines].join("\n");
+}
+
+export function normalizeClinicTranslation(text: string, targetLanguage: GlossaryTargetLanguage, glossaryData?: ClinicGlossaryData) {
   let normalized = text;
+  const sourceCriticalPhrases = glossaryData?.criticalPhrases ?? criticalShortPhrases;
+  const sourceClinicGlossary = glossaryData?.terms ?? clinicGlossary;
   const criticalReplacements: Array<{ source: string; target: string }> = [];
 
-  for (const entry of criticalShortPhrases) {
+  for (const entry of sourceCriticalPhrases) {
     const target = targetForCritical(entry, targetLanguage);
     const sources = new Set([
       ...entry.spoken,
@@ -727,7 +766,7 @@ export function normalizeClinicTranslation(text: string, targetLanguage: Glossar
 
   if (rawGlossaryTargetLanguages.has(targetLanguage)) {
     const glossaryReplacements: Array<{ source: string; target: string }> = [];
-    for (const entry of clinicGlossary) {
+    for (const entry of sourceClinicGlossary) {
       const target = targetFor(entry, targetLanguage);
       const sources = new Set([
         ...entry.spoken,
@@ -750,25 +789,29 @@ export function normalizeClinicTranslation(text: string, targetLanguage: Glossar
   return cleanRepeatedPunctuation(applyTargetSpecificCorrections(normalized, targetLanguage));
 }
 
-export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage) {
-  return [
+export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage, glossaryData?: ClinicGlossaryData) {
+  const sourceCriticalPhrases = glossaryData?.criticalPhrases ?? criticalShortPhrases;
+  const sourceClinicGlossary = glossaryData?.terms ?? clinicGlossary;
+  const fixedLines = [
     "Clinic glossary rules:",
     "- Preserve brand and procedure names exactly.",
     "- Use the clinic-approved speak form for counts, units, procedure names, and safety phrases.",
     "- Short Korean procedure phrases are often spoken quickly. In a procedure room, prefer the pain and safety meaning over casual meanings like sleepiness or device setup.",
     "- Critical short phrase mappings:",
-    ...criticalShortPhrases.map((entry) => `  - ${entry.spoken.join(" / ")} => ${targetForCritical(entry, patientLanguage)} (${entry.note})`),
+    ...sourceCriticalPhrases.map((entry) => `  - ${entry.spoken.join(" / ")} => ${targetForCritical(entry, patientLanguage)} (${entry.note})`),
     "- For Traditional Chinese and Cantonese, use Traditional Chinese characters even when a glossary source term is shown in Simplified Chinese.",
     "- For Thai, Vietnamese, Indonesian, Malay, Filipino/Tagalog, Mongolian, French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names.",
-    "- Do not expand brand names into generic explanations unless the staff explains them.",
-    ...(rawGlossaryTargetLanguages.has(patientLanguage)
-      ? clinicGlossary.map((entry) => `- ${entry.standardKo}: ${targetFor(entry, patientLanguage)}`)
-      : [])
-  ].join("\n");
+    "- Do not expand brand names into generic explanations unless the staff explains them."
+  ];
+  const termLines = rawGlossaryTargetLanguages.has(patientLanguage)
+    ? sourceClinicGlossary.map((entry) => `- ${entry.standardKo}: ${targetFor(entry, patientLanguage)}`)
+    : [];
+
+  return joinGlossaryInstructionLines(fixedLines, termLines);
 }
 
-export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLanguage) {
-  const koreanHints = realtimeKoreanTranscriptionHints.join(", ");
+export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLanguage, transcriptionHints = realtimeKoreanTranscriptionHints) {
+  const koreanHints = transcriptionHints.join(", ");
   if (inputLanguage === "ko") {
     return [
       "Korean dermatology and plastic surgery procedure room.",

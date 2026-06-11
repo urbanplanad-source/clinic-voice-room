@@ -36,6 +36,15 @@ The Android staff app shows the patient web link as the primary QR. Patients sti
 - After the patient enters, the server issues an HttpOnly patient room cookie and redirects away from the join-code URL.
 - The app can safely resolve the room server-side and avoid wrong-room pairing in nearby consultation rooms.
 
+## Device TTS Setup Checklist (새 병원 패드/폰 셋업 시 필수)
+
+Android 기본 TTS 엔진은 제조사(삼성 등) 엔진으로 설정된 경우 태국어·베트남어 등 일부 언어 품질이 불안정하다. 새 병원에 디바이스를 배포하기 전에 반드시 Google TTS 엔진으로 변경한다. 이 설정으로 전 언어 읽기가 안정적이므로 서버 측 뉴럴 TTS는 사용하지 않는다.
+
+1. `설정 > 접근성 > TalkBack`(또는 `읽어서 들려주기`) 경로에서 음성 출력 엔진 설정으로 이동.
+2. `텍스트 음성 변환(TTS) 출력 > 기본 엔진`을 **Google 음성 서비스(Google Text-to-speech)**로 변경. (미설치 기기는 Play 스토어에서 "Google 음성 서비스" 설치 후 선택)
+3. 해당 병원에서 쓰는 환자 언어(중국어, 일본어, 태국어, 베트남어 등) 음성 데이터를 미리 다운로드.
+4. 환자 웹 룸에서 언어별로 번역 메시지 자동 재생 + `다시 듣기`가 자연스러운 음성으로 나오는지 확인.
+
 ## Low-Latency Staff App Setup
 
 The Android staff app is the primary field-test surface for hospital staff. The patient side remains the web room opened from QR.
