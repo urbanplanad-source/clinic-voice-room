@@ -20,6 +20,7 @@ import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Base64
+import android.util.Log
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -34,6 +35,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -89,13 +91,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import okhttp3.Cookie
@@ -1261,6 +1269,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun appendLog(message: String) {
+        Log.d("ClinicVoiceRoom", message)
         val stamp = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
         updateState { it.copy(logs = (listOf("$stamp $message") + it.logs).take(40)) }
     }
@@ -3445,6 +3454,17 @@ private fun StaffAppScreen(
 ) {
     val room = state.room
     val screenKey = staffScreenKey(state)
+    val debugTapCount = androidx.compose.runtime.remember { mutableStateOf(0) }
+    val showDebugLogs = androidx.compose.runtime.remember { mutableStateOf(false) }
+    val onStatusTap = {
+        val next = debugTapCount.value + 1
+        if (next >= 5) {
+            debugTapCount.value = 0
+            showDebugLogs.value = true
+        } else {
+            debugTapCount.value = next
+        }
+    }
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -3463,7 +3483,8 @@ private fun StaffAppScreen(
                 onExit = onExitLocalInterpreter,
                 onReplayTranslation = onReplayTranslation,
                 onTtsEnabled = onTtsEnabled,
-                onRequestMicPermission = onRequestMicPermission
+                onRequestMicPermission = onRequestMicPermission,
+                onStatusTap = onStatusTap
             )
         } else {
             Box(
@@ -3500,10 +3521,11 @@ private fun StaffAppScreen(
                                     onBackendUrl = onBackendUrl,
                                     onBackendChange = onBackendChange,
                                     onEmailChange = onEmailChange,
-                                    onPasswordChange = onPasswordChange,
-                                    onRememberEmailChange = onRememberEmailChange,
-                                    onLogin = onLogin
-                                )
+                                     onPasswordChange = onPasswordChange,
+                                     onRememberEmailChange = onRememberEmailChange,
+                                     onLogin = onLogin,
+                                     onStatusTap = onStatusTap
+                                 )
 
                                 "mode" -> ModeSelectionScreen(
                                     metrics = metrics,
@@ -3525,9 +3547,9 @@ private fun StaffAppScreen(
                                     onEndRoom = onRequestEndRoom
                                 )
 
-                                "ended" -> {
-                                    StatusPanel(state, metrics)
-                                    TranslationPanel(
+                                 "ended" -> {
+                                     StatusPanel(state, metrics, onStatusTap)
+                                     TranslationPanel(
                                         state = state,
                                         metrics = metrics,
                                         onToggleSpeak = onToggleSpeak,
@@ -3543,9 +3565,9 @@ private fun StaffAppScreen(
                                     )
                                 }
 
-                                else -> {
-                                    StatusPanel(state, metrics)
-                                    TranslationPanel(
+                                 else -> {
+                                     StatusPanel(state, metrics, onStatusTap)
+                                     TranslationPanel(
                                         state = state,
                                         metrics = metrics,
                                         onToggleSpeak = onToggleSpeak,
@@ -3578,6 +3600,12 @@ private fun StaffAppScreen(
             ExitAppConfirmDialog(
                 onDismiss = onDismissExitApp,
                 onConfirm = onConfirmExitApp
+            )
+        }
+        if (showDebugLogs.value) {
+            DebugLogDialog(
+                logs = state.logs,
+                onDismiss = { showDebugLogs.value = false }
             )
         }
     }
@@ -4018,6 +4046,74 @@ private fun localInterpreterDisabledReason(state: StaffUiState, active: Boolean)
     }
 }
 
+private fun Modifier.hiddenDebugTap(onTap: () -> Unit): Modifier = pointerInput(onTap) {
+    detectTapGestures(onTap = { onTap() })
+}
+
+@Composable
+private fun DebugLogDialog(logs: List<String>, onDismiss: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    val copyText = logs.joinToString("\n")
+    val displayText = copyText.ifBlank { "로그가 아직 없습니다." }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding(),
+            color = Mist
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column {
+                    Text("디버그 로그", color = Ink, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text("최신순 최근 40줄", color = SlateText, fontWeight = FontWeight.SemiBold)
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(Color.White, RoundedCornerShape(8.dp))
+                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(8.dp))
+                        .padding(12.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        displayText,
+                        color = Ink,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { clipboard.setText(AnnotatedString(copyText)) },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("복사", fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Trust, contentColor = Color.White)
+                    ) {
+                        Text("닫기", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun LocalInterpreterScreen(
     state: StaffUiState,
@@ -4027,7 +4123,8 @@ private fun LocalInterpreterScreen(
     onExit: () -> Unit,
     onReplayTranslation: () -> Unit,
     onTtsEnabled: (Boolean) -> Unit,
-    onRequestMicPermission: () -> Unit
+    onRequestMicPermission: () -> Unit,
+    onStatusTap: () -> Unit
 ) {
     val language = patientLanguages.firstOrNull { it.code == state.selectedLanguage } ?: patientLanguages.first()
     val patientActive = state.speaking && state.localTurnDirection == LocalDirectionPatientToKo
@@ -4078,7 +4175,8 @@ private fun LocalInterpreterScreen(
                 compact = landscape,
                 onReplayTranslation = onReplayTranslation,
                 onTtsEnabled = onTtsEnabled,
-                onExit = onExit
+                onExit = onExit,
+                onStatusTap = onStatusTap
             )
 
             LocalInterpreterHalf(
@@ -4297,7 +4395,8 @@ private fun LocalInterpreterControlStrip(
     compact: Boolean,
     onReplayTranslation: () -> Unit,
     onTtsEnabled: (Boolean) -> Unit,
-    onExit: () -> Unit
+    onExit: () -> Unit,
+    onStatusTap: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -4320,7 +4419,8 @@ private fun LocalInterpreterControlStrip(
                 fontWeight = FontWeight.SemiBold,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.hiddenDebugTap(onStatusTap)
             )
         }
         OutlinedButton(
@@ -4613,7 +4713,7 @@ private fun Header(state: StaffUiState, metrics: StaffLayoutMetrics) {
 }
 
 @Composable
-private fun StatusPanel(state: StaffUiState, metrics: StaffLayoutMetrics) {
+private fun StatusPanel(state: StaffUiState, metrics: StaffLayoutMetrics, onStatusTap: () -> Unit) {
     val room = state.room
     val color = when {
         state.speaking -> Coral
@@ -4648,7 +4748,12 @@ private fun StatusPanel(state: StaffUiState, metrics: StaffLayoutMetrics) {
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(state.status, color = SlateText, fontWeight = FontWeight.SemiBold)
+        Text(
+            state.status,
+            color = SlateText,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.hiddenDebugTap(onStatusTap)
+        )
     }
 }
 
@@ -4661,7 +4766,8 @@ private fun LoginPanel(
     onEmailChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onRememberEmailChange: (Boolean) -> Unit,
-    onLogin: () -> Unit
+    onLogin: () -> Unit,
+    onStatusTap: () -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
     SectionCard("직원 로그인", metrics) {
@@ -4715,7 +4821,9 @@ private fun LoginPanel(
             fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.bodySmall,
             textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .hiddenDebugTap(onStatusTap)
         )
         TextButton(
             onClick = { uriHandler.openUri("${normalizedBackendUrl(state.backendUrl)}/privacy") },
