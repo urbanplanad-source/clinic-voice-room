@@ -311,6 +311,7 @@ private data class StaffUiState(
     val ttsPlaybackActive: Boolean = false,
     val ttsStatus: String = "휴대폰 미디어 출력 준비 중",
     val recordAudioGranted: Boolean = false,
+    val localRealtimeReady: Boolean = false,
     val sourceDraft: String = "",
     val translatedDraft: String = "",
     val lastMessageSpeaker: String = "",
@@ -1583,6 +1584,7 @@ class MainActivity : ComponentActivity() {
                 speaking = false,
                 busy = false,
                 ttsPlaybackActive = false,
+                localRealtimeReady = false,
                 sourceDraft = "",
                 translatedDraft = "",
                 lastMessageSpeaker = "",
@@ -1598,6 +1600,7 @@ class MainActivity : ComponentActivity() {
         }
         closeLocalRealtimeTurnClients()
         prepareLocalRealtimeTurnClientsAsync(state.selectedLanguage, force = true)
+        warmLocalVoiceTurnsAsync(state.selectedLanguage)
         appendLog("대면 통역 시작: ${state.selectedLanguage}")
     }
 
@@ -1704,6 +1707,22 @@ class MainActivity : ComponentActivity() {
             runCatching { client.close() }
         }
         realtimeTurnActive = false
+        updateState { it.copy(localRealtimeReady = false) }
+    }
+
+    private fun updateLocalRealtimeReadyState(patientLanguage: String) {
+        val state = uiState.value
+        val ready = state.setupStep == SetupStepLocalInterpreter &&
+            state.room == null &&
+            state.selectedLanguage == patientLanguage &&
+            synchronized(localRealtimeLock) {
+                localRealtimeTurnClients[localRealtimeKey(patientLanguage, LocalDirectionKoToPatient)]?.isReady() == true &&
+                    localRealtimeTurnClients[localRealtimeKey(patientLanguage, LocalDirectionPatientToKo)]?.isReady() == true
+            }
+
+        if (state.localRealtimeReady != ready) {
+            updateState { it.copy(localRealtimeReady = ready) }
+        }
     }
 
     private fun resumeRealtimeAndPollingAfterStart() {
@@ -2156,10 +2175,14 @@ class MainActivity : ComponentActivity() {
                 val token = requestRealtimeToken(room)
                 val client = AndroidRealtimeTurnClient(http, token, ::appendLog)
                 client.connect()
-                if (uiState.value.room?.id == room.id && !recordingActive && !realtimeTurnActive) {
-                    runCatching { realtimeTurnClient?.close() }
+                val currentRoom = uiState.value.room
+                if (currentRoom?.id == room.id && currentRoom.status != "ended") {
+                    val previous = realtimeTurnClient
                     realtimeTurnClient = client
                     realtimeTurnRoomId = room.id
+                    if (previous !== activeRealtimeTurnClient) {
+                        runCatching { previous?.close() }
+                    }
                     appendLog("Realtime ready ${SystemClock.elapsedRealtime() - startedAt}ms")
                 } else {
                     client.close()
@@ -2225,9 +2248,7 @@ class MainActivity : ComponentActivity() {
                 if (
                     localSetupActive &&
                     state.room == null &&
-                    state.selectedLanguage == patientLanguage &&
-                    !recordingActive &&
-                    !realtimeTurnActive
+                    state.selectedLanguage == patientLanguage
                 ) {
                     val previous = synchronized(localRealtimeLock) {
                         val old = localRealtimeTurnClients[key]
@@ -2235,15 +2256,20 @@ class MainActivity : ComponentActivity() {
                         localRealtimePreparingKeys.remove(key)
                         old
                     }
-                    runCatching { previous?.close() }
+                    if (previous !== activeRealtimeTurnClient) {
+                        runCatching { previous?.close() }
+                    }
+                    updateLocalRealtimeReadyState(patientLanguage)
                     appendLog("Local Realtime ready ${SystemClock.elapsedRealtime() - startedAt}ms: $direction")
                 } else {
                     client.close()
                     synchronized(localRealtimeLock) { localRealtimePreparingKeys.remove(key) }
+                    updateLocalRealtimeReadyState(patientLanguage)
                 }
             }.onFailure {
                 appendLog("Local Realtime prepare failed: ${it.message}")
                 synchronized(localRealtimeLock) { localRealtimePreparingKeys.remove(key) }
+                updateLocalRealtimeReadyState(patientLanguage)
             }
         }
     }
@@ -2268,6 +2294,7 @@ class MainActivity : ComponentActivity() {
             synchronized(localRealtimeLock) {
                 localRealtimeTurnClients.remove(key)
             }?.close()
+            updateLocalRealtimeReadyState(patientLanguage)
             prepareLocalRealtimeTurnClientAsync(patientLanguage, direction, force = true)
         }.getOrDefault(false)
     }
@@ -2592,6 +2619,7 @@ class MainActivity : ComponentActivity() {
                     synchronized(localRealtimeLock) {
                         localRealtimeTurnClients.remove(key)
                     }?.close()
+                    updateLocalRealtimeReadyState(patientLanguage)
                     prepareLocalRealtimeTurnClientAsync(patientLanguage, direction, force = true)
                 }
             }
@@ -2634,6 +2662,7 @@ class MainActivity : ComponentActivity() {
             synchronized(localRealtimeLock) {
                 localRealtimeTurnClients.remove(key)
             }?.close()
+            updateLocalRealtimeReadyState(patientLanguage)
             prepareLocalRealtimeTurnClientAsync(patientLanguage, direction, force = true)
         }.getOrNull()
     }
@@ -2811,6 +2840,31 @@ class MainActivity : ComponentActivity() {
                 appendLog("Local usage logged: $transport ${durationSeconds}s")
             }.onFailure {
                 appendLog("Local usage log failed: ${it.message}")
+            }
+        }
+    }
+
+    private fun warmLocalVoiceTurnsAsync(patientLanguage: String) {
+        val backend = normalizedBackendUrl(uiState.value.backendUrl)
+        sessionExecutor.execute {
+            val startedAt = SystemClock.elapsedRealtime()
+            runCatching {
+                val body = MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("warm", "1")
+                    .addFormDataPart("patientLanguage", patientLanguage)
+                    .build()
+                val request = Request.Builder()
+                    .url("$backend/api/local-voice-turns")
+                    .post(body)
+                    .build()
+                http.newCall(request).execute().use { response ->
+                    val text = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) error(apiErrorMessage(text, response.code))
+                }
+                appendLog("Local voice warm ${SystemClock.elapsedRealtime() - startedAt}ms")
+            }.onFailure {
+                appendLog("Local voice warm failed: ${it.message}")
             }
         }
     }
@@ -4141,6 +4195,7 @@ private fun LocalInterpreterScreen(
     }
     val patientLanguageLabel = languageNativeLabel(language)
     val canStart = !state.busy && !state.speaking && !state.ttsPlaybackActive
+    val realtimeConnecting = !state.localRealtimeReady && !state.busy && !state.speaking
     val patientDisabledReason = localInterpreterDisabledReason(state, patientActive)
     val staffDisabledReason = localInterpreterDisabledReason(state, staffActive)
 
@@ -4156,6 +4211,7 @@ private fun LocalInterpreterScreen(
                 active = patientActive,
                 busy = state.busy,
                 disabledReason = patientDisabledReason,
+                realtimeConnecting = realtimeConnecting,
                 micEnabled = patientActive || canStart || !state.recordAudioGranted,
                 buttonColor = Mint,
                 landscape = landscape,
@@ -4185,6 +4241,7 @@ private fun LocalInterpreterScreen(
                 active = staffActive,
                 busy = state.busy,
                 disabledReason = staffDisabledReason,
+                realtimeConnecting = realtimeConnecting,
                 micEnabled = staffActive || canStart || !state.recordAudioGranted,
                 buttonColor = Trust,
                 landscape = landscape,
@@ -4207,6 +4264,7 @@ private fun LocalInterpreterHalf(
     active: Boolean,
     busy: Boolean,
     disabledReason: String,
+    realtimeConnecting: Boolean,
     micEnabled: Boolean,
     buttonColor: Color,
     landscape: Boolean,
@@ -4243,6 +4301,7 @@ private fun LocalInterpreterHalf(
                 LocalInterpreterMicButton(
                     active = active,
                     disabledReason = disabledReason,
+                    realtimeConnecting = realtimeConnecting,
                     busy = busy,
                     micEnabled = micEnabled,
                     buttonColor = buttonColor,
@@ -4268,6 +4327,7 @@ private fun LocalInterpreterHalf(
                 LocalInterpreterMicButton(
                     active = active,
                     disabledReason = disabledReason,
+                    realtimeConnecting = realtimeConnecting,
                     busy = busy,
                     micEnabled = micEnabled,
                     buttonColor = buttonColor,
@@ -4340,6 +4400,7 @@ private fun LocalInterpreterTextPane(
 private fun LocalInterpreterMicButton(
     active: Boolean,
     disabledReason: String,
+    realtimeConnecting: Boolean,
     busy: Boolean,
     micEnabled: Boolean,
     buttonColor: Color,
@@ -4374,7 +4435,16 @@ private fun LocalInterpreterMicButton(
                 )
             }
         }
-        if (!micEnabled && disabledReason.isNotBlank()) {
+        if (realtimeConnecting) {
+            Text(
+                "연결 중...",
+                color = Trust,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                maxLines = 1
+            )
+        } else if (!micEnabled && disabledReason.isNotBlank()) {
             Text(
                 disabledReason,
                 color = SlateText,

@@ -57,6 +57,7 @@ The Android staff app is the primary field-test surface for hospital staff. The 
 - If microphone permission was denied, enter a room and use the in-room `마이크 권한 허용` button rather than a separate diagnostic screen.
 - In consultation mode, staff should use the Android push-to-talk mic first; use Android text fallback only when speech recognition is not reliable.
 - In procedure mode, staff should speak short Korean chunks through the Android push-to-talk mic and replay translated audio when needed.
+- 대면 모드는 시작 후 `연결 중...` 표시가 사라진 뒤 첫 발화를 시작하면 가장 빠르다.
 - Use two devices: Android hospital phone for staff, patient phone browser for the patient.
 - In consultation mode, each side should hear incoming translated messages automatically when browser/Android TTS is available.
 - Use the `Replay` / `다시 듣기` button after a missed or noisy translated message.

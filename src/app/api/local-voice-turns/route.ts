@@ -47,6 +47,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid local voice payload" }, { status: 400 });
   }
 
+  if (textField(formData, "warm") === "1") {
+    const staff = await getCurrentStaff();
+    if (!staff) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    await getGlossaryForHospital(staff.hospitalId, staff.hospital.specialty);
+    return NextResponse.json({ ok: true });
+  }
+
   const clientTurnId = textField(formData, "clientTurnId");
   const patientLanguage = textField(formData, "patientLanguage");
   const direction = textField(formData, "direction") as LocalDirection;
