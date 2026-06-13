@@ -14,6 +14,7 @@ import { mergeGuardFlags, parseGuardFlags, type GuardFlags } from "@/lib/guard-f
 import { compareNumericSignatures, numberGuardEnabled } from "@/lib/number-guard";
 import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
+import { broadcastServerTranslationMessage } from "@/lib/supabase-realtime-server";
 
 type TargetLanguage = PatientLanguage | "ko";
 
@@ -271,6 +272,23 @@ async function handleRealtimeStaffMessage(request: Request) {
     );
   }
 
+  const messageGuardFlags = parseGuardFlags(message.guardFlags) ?? undefined;
+  const messageTargetLanguage = (message.targetLanguage ?? undefined) as TargetLanguage | undefined;
+  after(() =>
+    broadcastServerTranslationMessage(parsed.data.roomId, {
+      id: message.id,
+      speaker: message.speaker,
+      sourceText: message.sourceText ?? undefined,
+      text: message.text,
+      targetLanguage: messageTargetLanguage,
+      createdAt: message.createdAt.toISOString(),
+      readAt: message.readAt?.toISOString() ?? null,
+      guardFlags: messageGuardFlags
+    }).catch((caught) => {
+      console.error("[consultation-voice-turns realtime broadcast]", caught);
+    })
+  );
+
   return NextResponse.json({
     message: {
       id: message.id,
@@ -280,7 +298,7 @@ async function handleRealtimeStaffMessage(request: Request) {
       targetLanguage: message.targetLanguage,
       createdAt: message.createdAt.toISOString(),
       readAt: message.readAt?.toISOString() ?? null,
-      guardFlags: parseGuardFlags(message.guardFlags) ?? null
+      guardFlags: messageGuardFlags ?? null
     },
     sourceText: parsed.data.sourceText,
     translatedText: message.text,
