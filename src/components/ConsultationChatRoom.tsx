@@ -22,6 +22,7 @@ import {
   consultationTextCopy
 } from "@/lib/consultation-templates";
 import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
+import { patientAutoStopHelperCopy, patientAutoStopSpeakingCopy, startVoiceAutoStop } from "@/lib/web-voice-auto-stop";
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 const CONSULTATION_TRANSLATION_QUIET_MS = 500;
@@ -154,8 +155,10 @@ export function ConsultationChatRoom({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
   const recordingModeRef = useRef<RecordingMode | null>(null);
+  const voiceAutoStopCleanupRef = useRef<() => void>(() => undefined);
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
   const realtimePreconnectStartedRef = useRef(false);
+  const stopVoiceTurnRef = useRef<() => Promise<void>>(async () => undefined);
   const speechQueueRef = useRef(Promise.resolve());
   const spokenMessageIdsRef = useRef(new Set<string>());
 
@@ -434,6 +437,11 @@ export function ConsultationChatRoom({
     return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
   }
 
+  function stopVoiceAutoStop() {
+    voiceAutoStopCleanupRef.current();
+    voiceAutoStopCleanupRef.current = () => undefined;
+  }
+
   function beginUploadRecording(stream: MediaStream, mode: RecordingMode) {
     const recorder = createAudioRecorder(stream);
     mediaChunksRef.current = [];
@@ -445,6 +453,12 @@ export function ConsultationChatRoom({
     recordingModeRef.current = mode;
     setMicEnabled(true);
     setSpeakingStartedAt(Date.now());
+    stopVoiceAutoStop();
+    voiceAutoStopCleanupRef.current = startVoiceAutoStop(stream, {
+      onStop: () => {
+        void stopVoiceTurnRef.current();
+      }
+    });
   }
 
   function beginRealtimeSafetyRecording(stream: MediaStream) {
@@ -485,6 +499,7 @@ export function ConsultationChatRoom({
   }
 
   async function stopAndClearRecorder() {
+    stopVoiceAutoStop();
     const audio = await stopPatientRecorder();
     mediaRecorderRef.current = null;
     recordingModeRef.current = null;
@@ -493,6 +508,7 @@ export function ConsultationChatRoom({
   }
 
   function discardRecorderSoon() {
+    stopVoiceAutoStop();
     const recorder = mediaRecorderRef.current;
     mediaRecorderRef.current = null;
     recordingModeRef.current = null;
@@ -723,6 +739,10 @@ export function ConsultationChatRoom({
   }
 
   useEffect(() => {
+    stopVoiceTurnRef.current = stopVoiceTurn;
+  });
+
+  useEffect(() => {
     const chatScroll = chatScrollRef.current;
     if (!chatScroll) return;
 
@@ -906,6 +926,7 @@ export function ConsultationChatRoom({
 
   useEffect(() => {
     return () => {
+      stopVoiceAutoStop();
       stopPlayback();
       realtimeClientRef.current?.close();
       realtimeClientRef.current = null;
@@ -1031,6 +1052,9 @@ export function ConsultationChatRoom({
     event.preventDefault();
     void submitTextMessage();
   }
+
+  const activeSpeakingLabel = role === "patient" ? patientAutoStopSpeakingCopy[room.patientLanguage] : voiceText.speaking;
+  const activeHelperText = role === "patient" && isSpeaking ? patientAutoStopHelperCopy[room.patientLanguage] : voiceText.helper;
 
   return (
     <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col overflow-hidden rounded-lg bg-white shadow-soft md:min-h-[720px]">
@@ -1206,15 +1230,15 @@ export function ConsultationChatRoom({
             className={`tap-highlight-none mx-auto grid h-20 w-20 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 md:h-24 md:w-24 ${
               isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
             }`}
-            aria-label={isSpeaking ? voiceText.speaking : voiceText.ready}
-            title={isSpeaking ? voiceText.speaking : voiceText.ready}
+            aria-label={isSpeaking ? activeSpeakingLabel : voiceText.ready}
+            title={isSpeaking ? activeSpeakingLabel : voiceText.ready}
           >
             {voiceBusy && !isSpeaking ? <Loader2 size={30} className="animate-spin" /> : <Mic size={34} />}
           </button>
           <p className="mt-2 text-base font-bold text-ink md:text-lg">
-            {room.status === "ended" ? (role === "staff" ? "상담 종료" : copy.statusEnded) : isSpeaking ? voiceText.speaking : micEnabled ? voiceText.ready : voiceText.waiting}
+            {room.status === "ended" ? (role === "staff" ? "상담 종료" : copy.statusEnded) : isSpeaking ? activeSpeakingLabel : micEnabled ? voiceText.ready : voiceText.waiting}
           </p>
-          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 md:text-sm">{voiceText.helper}</p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 md:text-sm">{activeHelperText}</p>
           {browserAudioOutputEnabled && lastIncomingMessage ? (
             <button
               type="button"

@@ -11,6 +11,7 @@ import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
 import { speechLanguageByPatientLanguage } from "@/lib/speech";
 import { ConsultationChatRoom } from "@/components/ConsultationChatRoom";
 import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
+import { patientAutoStopHelperCopy, patientAutoStopSpeakingCopy, startVoiceAutoStop } from "@/lib/web-voice-auto-stop";
 import {
   broadcastRoomUpdate,
   broadcastTranslationMessage,
@@ -696,6 +697,7 @@ function ProcedureVoiceRoom({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaChunksRef = useRef<Blob[]>([]);
   const recordingModeRef = useRef<RecordingMode | null>(null);
+  const voiceAutoStopCleanupRef = useRef<() => void>(() => undefined);
   const roomRootRef = useRef<HTMLDivElement | null>(null);
   const hardwareCaptureRef = useRef<HTMLInputElement | null>(null);
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
@@ -1036,6 +1038,7 @@ function ProcedureVoiceRoom({
     cleanupRef.current = () => {
       void flushUsage();
       void releaseScreenWakeLock();
+      stopVoiceAutoStop();
       stopPlayback();
       realtimeClientRef.current?.close();
       realtimeClientRef.current = null;
@@ -1315,6 +1318,11 @@ function ProcedureVoiceRoom({
     return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
   }
 
+  function stopVoiceAutoStop() {
+    voiceAutoStopCleanupRef.current();
+    voiceAutoStopCleanupRef.current = () => undefined;
+  }
+
   function beginUploadRecording(stream: MediaStream, mode: RecordingMode) {
     const recorder = createAudioRecorder(stream);
     mediaChunksRef.current = [];
@@ -1327,6 +1335,12 @@ function ProcedureVoiceRoom({
     setMicEnabled(true);
     setSpeakingStartedAt(Date.now());
     setRealtimeStatus(mode === "upload" ? "Recording fallback turn" : "Recording safety fallback");
+    stopVoiceAutoStop();
+    voiceAutoStopCleanupRef.current = startVoiceAutoStop(stream, {
+      onStop: () => {
+        void stopSpeakingRef.current();
+      }
+    });
   }
 
   function beginRealtimeSafetyRecording(stream: MediaStream) {
@@ -1367,6 +1381,7 @@ function ProcedureVoiceRoom({
   }
 
   async function stopAndClearRecorder() {
+    stopVoiceAutoStop();
     const audio = await stopRecorder();
     mediaRecorderRef.current = null;
     recordingModeRef.current = null;
@@ -1375,6 +1390,7 @@ function ProcedureVoiceRoom({
   }
 
   function discardRecorderSoon() {
+    stopVoiceAutoStop();
     const recorder = mediaRecorderRef.current;
     mediaRecorderRef.current = null;
     recordingModeRef.current = null;
@@ -1618,6 +1634,9 @@ function ProcedureVoiceRoom({
     stopSpeakingRef.current = stopSpeaking;
   });
 
+  const activeSpeakingLabel = role === "patient" ? patientAutoStopSpeakingCopy[room.patientLanguage] : copy.primary.speaking;
+  const activeSpeakingHelper = role === "patient" ? patientAutoStopHelperCopy[room.patientLanguage] : copy.helper.speaking;
+
   return (
     <div
       ref={roomRootRef}
@@ -1722,14 +1741,14 @@ function ProcedureVoiceRoom({
           className={`tap-highlight-none mx-auto grid h-44 w-44 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 md:h-52 md:w-52 ${
             isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
           }`}
-          aria-label={isSpeaking ? copy.primary.speaking : copy.primary.ready}
+          aria-label={isSpeaking ? activeSpeakingLabel : copy.primary.ready}
         >
           {busy && !isSpeaking ? <Loader2 size={44} className="animate-spin" /> : <Mic size={56} />}
         </button>
         <p className="mt-4 text-xl font-bold text-ink">
-          {room.status === "ended" ? copy.primary.ended : isSpeaking ? copy.primary.speaking : micEnabled ? copy.primary.ready : copy.primary.waiting}
+          {room.status === "ended" ? copy.primary.ended : isSpeaking ? activeSpeakingLabel : micEnabled ? copy.primary.ready : copy.primary.waiting}
         </p>
-        {isSpeaking ? <p className="mt-2 text-sm font-semibold text-slate-500">{copy.helper.speaking}</p> : null}
+        {isSpeaking ? <p className="mt-2 text-sm font-semibold text-slate-500">{activeSpeakingHelper}</p> : null}
         {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
       </section>
 
