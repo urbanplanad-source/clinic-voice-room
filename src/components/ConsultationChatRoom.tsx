@@ -141,6 +141,7 @@ export function ConsultationChatRoom({
   const [quickPhraseStage, setQuickPhraseStage] = useState<QuickPhraseStage | "all">("all");
   const [quickPhraseLoading, setQuickPhraseLoading] = useState(false);
   const [feedbackTarget, setFeedbackTarget] = useState<TranslationMessage | null>(null);
+  const [activeFeedbackMenuId, setActiveFeedbackMenuId] = useState("");
   const [feedbackSubmittingId, setFeedbackSubmittingId] = useState("");
   const [feedbackNotice, setFeedbackNotice] = useState("");
   const chatScrollRef = useRef<HTMLElement | null>(null);
@@ -990,14 +991,13 @@ export function ConsultationChatRoom({
   }
 
   async function submitFeedback(reason: FeedbackReason) {
-    if (!feedbackTarget || feedbackSubmittingId) return;
+    if (role !== "staff" || !feedbackTarget || feedbackSubmittingId) return;
 
     setFeedbackSubmittingId(feedbackTarget.id);
     setError("");
     setFeedbackNotice("");
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (role === "patient" && roomToken) headers["x-room-token"] = roomToken;
 
       const response = await fetch("/api/feedback", {
         method: "POST",
@@ -1072,7 +1072,8 @@ export function ConsultationChatRoom({
                   : deliveryStatusCopy.failed
                 : mine && message.readAt
                   ? deliveryStatusCopy.read
-                  : "";
+                : "";
+              const feedbackMenuOpen = role === "staff" && activeFeedbackMenuId === message.id;
               return (
                 <article key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                   {!mine ? (
@@ -1081,7 +1082,20 @@ export function ConsultationChatRoom({
                     </div>
                   ) : null}
                   <div
-                    className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm font-semibold leading-6 shadow-sm md:max-w-[70%] md:text-base ${
+                    role={role === "staff" && !message.deliveryStatus ? "button" : undefined}
+                    tabIndex={role === "staff" && !message.deliveryStatus ? 0 : undefined}
+                    onClick={() => {
+                      if (role !== "staff" || message.deliveryStatus) return;
+                      setActiveFeedbackMenuId((current) => (current === message.id ? "" : message.id));
+                    }}
+                    onKeyDown={(event) => {
+                      if (role !== "staff" || message.deliveryStatus) return;
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setActiveFeedbackMenuId((current) => (current === message.id ? "" : message.id));
+                      }
+                    }}
+                    className={`relative max-w-[78%] rounded-2xl px-4 py-3 text-sm font-semibold leading-6 shadow-sm outline-none transition focus:ring-2 focus:ring-trust/30 md:max-w-[70%] md:text-base ${
                       mine ? (failed ? "rounded-br-md bg-rose-500 text-white" : "rounded-br-md bg-trust text-white") : "rounded-bl-md bg-white text-ink"
                     }`}
                   >
@@ -1116,10 +1130,25 @@ export function ConsultationChatRoom({
                               <p className="rounded-md bg-white/70 px-2 py-1 text-slate-700">환자에게는 이렇게 전달됐을 수 있습니다: {message.guardFlags.backTranslation.backText}</p>
                             ) : null}
                             <div className="flex flex-wrap gap-2">
-                              <button type="button" onClick={() => void submitTextMessage(message.sourceText ?? visibleMessageText(message))} className="rounded-md bg-white/80 px-2 py-1 text-slate-700">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void submitTextMessage(message.sourceText ?? visibleMessageText(message));
+                                }}
+                                className="rounded-md bg-white/80 px-2 py-1 text-slate-700"
+                              >
                                 다시 번역
                               </button>
-                              <button type="button" onClick={() => setFeedbackTarget(message)} className="rounded-md bg-white/80 px-2 py-1 text-slate-700">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setActiveFeedbackMenuId("");
+                                  setFeedbackTarget(message);
+                                }}
+                                className="rounded-md bg-white/80 px-2 py-1 text-slate-700"
+                              >
                                 오역 신고
                               </button>
                             </div>
@@ -1132,20 +1161,25 @@ export function ConsultationChatRoom({
                         {[sentAt, metaText].filter(Boolean).join(" · ")}
                       </span>
                     ) : null}
-                    {!message.deliveryStatus ? (
-                      <button
-                        type="button"
-                        onClick={() => setFeedbackTarget(message)}
-                        disabled={feedbackSubmittingId === message.id}
-                        className={`mt-2 inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[11px] font-bold transition disabled:opacity-60 ${
-                          mine ? "bg-white/15 text-white hover:bg-white/25" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                    {feedbackMenuOpen ? (
+                      <div
+                        className={`absolute top-full z-20 mt-1 min-w-20 rounded-md border border-slate-200 bg-white py-1 text-xs font-bold text-slate-700 shadow-soft ${
+                          mine ? "right-0" : "left-0"
                         }`}
-                        aria-label="번역 신고"
-                        title="번역 신고"
+                        onClick={(event) => event.stopPropagation()}
                       >
-                        {feedbackSubmittingId === message.id ? <Loader2 size={13} className="animate-spin" /> : <Flag size={13} />}
-                        신고
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveFeedbackMenuId("");
+                            setFeedbackTarget(message);
+                          }}
+                          disabled={feedbackSubmittingId === message.id}
+                          className="block w-full px-3 py-2 text-left hover:bg-slate-50 disabled:opacity-60"
+                        >
+                          {feedbackSubmittingId === message.id ? "전송 중" : "신고"}
+                        </button>
+                      </div>
                     ) : null}
                   </div>
                 </article>
