@@ -134,6 +134,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
+import kotlin.math.sqrt
 
 private val Ink = Color(0xFF191F28)
 private val Mist = Color(0xFFF7F8FA)
@@ -239,6 +240,11 @@ private const val RealtimeInputTranscriptFastWaitMs = 650L
 private const val RealtimeInputTranscriptRepairWaitMs = 2400L
 private const val RecordingStopJoinMs = 250L
 private const val StaffRecordingMaxMs = 60_000L
+private const val StaffAutoStopMinRecordingMs = 850L
+private const val StaffAutoStopMinVoiceMs = 220L
+private const val StaffAutoStopSilenceMs = 950L
+private const val StaffAutoStopSpeechRms = 900.0
+private const val StaffAutoStopSpeechPeak = 2600
 private const val LocalValidationTimeoutMs = 900L
 private const val LocalValidationMaxSourceChars = 18
 private const val LocalValidationMaxTranslatedChars = 36
@@ -1591,7 +1597,7 @@ class MainActivity : ComponentActivity() {
                 localTurnDirection = LocalDirectionKoToPatient,
                 messages = emptyList(),
                 textInput = "",
-                status = "대면 통역 준비됨. 말할 쪽의 마이크를 누르세요."
+                status = "연결 준비중입니다. 잠시만 기다려주세요."
             )
         }
         warmTtsLanguage(Locale.KOREA, "한국어")
@@ -1721,7 +1727,25 @@ class MainActivity : ComponentActivity() {
             }
 
         if (state.localRealtimeReady != ready) {
-            updateState { it.copy(localRealtimeReady = ready) }
+            updateState { current ->
+                val nextStatus = when {
+                    ready &&
+                        current.setupStep == SetupStepLocalInterpreter &&
+                        current.room == null &&
+                        !current.busy &&
+                        !current.speaking &&
+                        current.status.startsWith("연결 준비중") -> "대면 통역 준비됨. 말할 쪽의 마이크를 누르세요."
+
+                    !ready &&
+                        current.setupStep == SetupStepLocalInterpreter &&
+                        current.room == null &&
+                        !current.busy &&
+                        !current.speaking -> "연결 준비중입니다. 잠시만 기다려주세요."
+
+                    else -> current.status
+                }
+                current.copy(localRealtimeReady = ready, status = nextStatus)
+            }
         }
     }
 
@@ -2043,17 +2067,17 @@ class MainActivity : ComponentActivity() {
                 sourceDraft = "",
                 translatedDraft = "",
                 status = if (normalizedDirection == LocalDirectionKoToPatient) {
-                    "한국어를 듣고 있습니다. 끝나면 다시 누르세요."
+                    "한국어를 듣고 있습니다. 말이 끝나면 자동 번역합니다."
                 } else {
-                    "환자 언어를 듣고 있습니다. 끝나면 다시 누르세요."
+                    "환자 언어를 듣고 있습니다. 말이 끝나면 자동 번역합니다."
                 }
             )
         }
         realtimeTurnActive = tryStartPreparedLocalRealtimeTurn(state.selectedLanguage, normalizedDirection)
         val recordingStatus = if (realtimeTurnActive) {
-            "Realtime 연결됨. 말하는 중입니다. 끝나면 다시 누르세요."
+            "Realtime 연결됨. 말이 끝나면 자동 번역합니다."
         } else {
-            "Realtime 준비 중입니다. 녹음은 시작됐으니 계속 말씀하세요."
+            "Realtime 준비 중입니다. 녹음은 시작됐고 말이 끝나면 자동 번역합니다."
         }
         startStaffRecording(recordingStatus)
         appendLog("대면 통역 녹음 시작: $normalizedDirection")
@@ -2069,7 +2093,7 @@ class MainActivity : ComponentActivity() {
                 speaking = true,
                 sourceDraft = "",
                 translatedDraft = "",
-                status = "Realtime 준비 중입니다. 녹음은 바로 시작됐으니 말씀하세요."
+                status = "Realtime 준비 중입니다. 녹음은 시작됐고 말이 끝나면 자동 번역합니다."
             )
         }
         realtimeTurnActive = tryStartPreparedRealtimeTurn(room)
@@ -2308,9 +2332,9 @@ class MainActivity : ComponentActivity() {
         }
         recordingActive = true
         val recordingStatus = statusOverride ?: if (realtimeTurnActive) {
-            "Realtime 연결됨. 말하는 중입니다. 끝나면 다시 누르세요."
+            "Realtime 연결됨. 말이 끝나면 자동 번역합니다."
         } else {
-            "Realtime 준비 중입니다. 녹음은 시작됐으니 계속 말씀하세요."
+            "Realtime 준비 중입니다. 녹음은 시작됐고 말이 끝나면 자동 번역합니다."
         }
         updateState {
             it.copy(
@@ -2352,11 +2376,19 @@ class MainActivity : ComponentActivity() {
                 val buffer = ShortArray(bufferBytes / 2)
                 val byteBuffer = ByteArray(buffer.size * 2)
                 val startedAt = System.currentTimeMillis()
+                var voiceMs = 0L
+                var lastVoiceAt = startedAt
+                var autoStopPosted = false
                 activeRecorder.startRecording()
 
                 while (recordingActive && System.currentTimeMillis() - startedAt < StaffRecordingMaxMs) {
                     val count = activeRecorder.read(buffer, 0, buffer.size)
                     if (count <= 0) continue
+                    val now = System.currentTimeMillis()
+                    if (voiceDetected(buffer, count)) {
+                        voiceMs += (count * 1000L) / sampleRate
+                        lastVoiceAt = now
+                    }
                     for (index in 0 until count) {
                         val value = buffer[index].toInt()
                         byteBuffer[index * 2] = (value and 0xff).toByte()
@@ -2368,9 +2400,21 @@ class MainActivity : ComponentActivity() {
                     if (realtimeTurnActive) {
                         activeRealtimeTurnClient?.appendPcm(byteBuffer, count * 2)
                     }
+
+                    if (
+                        voiceMs >= StaffAutoStopMinVoiceMs &&
+                        now - startedAt >= StaffAutoStopMinRecordingMs &&
+                        now - lastVoiceAt >= StaffAutoStopSilenceMs
+                    ) {
+                        autoStopPosted = true
+                        recordingActive = false
+                        appendLog("마이크 자동 종료: ${now - lastVoiceAt}ms silence")
+                        mainHandler.post { stopActiveRecordingAndTranslate() }
+                        break
+                    }
                 }
 
-                if (recordingActive) {
+                if (recordingActive && !autoStopPosted) {
                     recordingActive = false
                     mainHandler.post { stopActiveRecordingAndTranslate() }
                 }
@@ -2526,6 +2570,22 @@ class MainActivity : ComponentActivity() {
         return max(1, (samples + RealtimePcmSampleRate - 1) / RealtimePcmSampleRate)
     }
 
+    private fun voiceDetected(buffer: ShortArray, count: Int): Boolean {
+        if (count <= 0) return false
+
+        var sumSquares = 0.0
+        var peak = 0
+        for (index in 0 until count) {
+            val value = buffer[index].toInt()
+            val magnitude = if (value < 0) -value else value
+            if (magnitude > peak) peak = magnitude
+            sumSquares += value.toDouble() * value.toDouble()
+        }
+
+        val rms = sqrt(sumSquares / count)
+        return rms >= StaffAutoStopSpeechRms || peak >= StaffAutoStopSpeechPeak
+    }
+
     private fun localTranslationNeedsRetry(
         direction: String,
         patientLanguage: String,
@@ -2605,6 +2665,10 @@ class MainActivity : ComponentActivity() {
                     val startedAt = SystemClock.elapsedRealtime()
                     val result = realtime.stopTurnAndTranslate()
                     appendLog("Local Realtime translation complete ${SystemClock.elapsedRealtime() - startedAt}ms")
+                    val currentForDirection = synchronized(localRealtimeLock) { localRealtimeTurnClients[key] }
+                    if (currentForDirection !== realtime) {
+                        runCatching { realtime.close() }
+                    }
                     recordLocalInterpreterUsageAsync(
                         direction = direction,
                         patientLanguage = patientLanguage,
@@ -2721,6 +2785,9 @@ class MainActivity : ComponentActivity() {
                     val result = realtime.stopTurnAndTranslate()
                     val sourceText = normalizeKoreanSourceText(result.sourceText)
                     appendLog("Realtime translation complete ${SystemClock.elapsedRealtime() - startedAt}ms")
+                    if (realtimeTurnClient !== realtime) {
+                        runCatching { realtime.close() }
+                    }
                     val messageId = "staff-realtime-android-${System.currentTimeMillis()}"
                     persistRealtimeStaffVoiceTurnAsync(room, messageId, sourceText, result.translatedText)
                     return localRealtimeStaffVoiceTurn(room, messageId, sourceText, result.translatedText)
@@ -3820,6 +3887,29 @@ private fun languageNativeLabel(language: PatientLanguageOption): String {
     }
 }
 
+private fun localConnectionPreparingText(code: String): String {
+    return when (code) {
+        "zh" -> "正在准备连接，请稍候。"
+        "yue" -> "正在準備連接，請稍候。"
+        "zh_tw" -> "正在準備連線，請稍候。"
+        "ja" -> "接続を準備しています。少々お待ちください。"
+        "en" -> "Preparing the connection. Please wait."
+        "th" -> "กำลังเตรียมการเชื่อมต่อ กรุณารอสักครู่"
+        "vi" -> "Đang chuẩn bị kết nối. Vui lòng chờ."
+        "id" -> "Sedang menyiapkan koneksi. Mohon tunggu."
+        "ms" -> "Sedang menyediakan sambungan. Sila tunggu."
+        "tl" -> "Inihahanda ang koneksyon. Pakihintay."
+        "mn" -> "Холболтыг бэлдэж байна. Түр хүлээнэ үү."
+        "ru" -> "Подготавливается подключение. Пожалуйста, подождите."
+        "fr" -> "Préparation de la connexion. Veuillez patienter."
+        "es" -> "Preparando la conexión. Espere un momento."
+        "de" -> "Die Verbindung wird vorbereitet. Bitte warten."
+        "it" -> "Preparazione della connessione. Attenda."
+        "pt" -> "Preparando a conexão. Aguarde."
+        else -> "Preparing the connection. Please wait."
+    }
+}
+
 private fun languageEnglishLabel(code: String): String {
     return when (code) {
         "zh" -> "Simplified Chinese"
@@ -4196,6 +4286,8 @@ private fun LocalInterpreterScreen(
     val patientLanguageLabel = languageNativeLabel(language)
     val canStart = !state.busy && !state.speaking && !state.ttsPlaybackActive
     val realtimeConnecting = !state.localRealtimeReady && !state.busy && !state.speaking
+    val visibleKoreanText = if (realtimeConnecting) "연결 준비중입니다." else koreanText
+    val visiblePatientLanguageText = if (realtimeConnecting) localConnectionPreparingText(language.code) else patientLanguageText
     val patientDisabledReason = localInterpreterDisabledReason(state, patientActive)
     val staffDisabledReason = localInterpreterDisabledReason(state, staffActive)
 
@@ -4207,12 +4299,13 @@ private fun LocalInterpreterScreen(
         ) {
             LocalInterpreterHalf(
                 label = patientLanguageLabel,
-                text = patientLanguageText,
+                text = visiblePatientLanguageText,
                 active = patientActive,
                 busy = state.busy,
+                emphasizeText = realtimeConnecting,
                 disabledReason = patientDisabledReason,
                 realtimeConnecting = realtimeConnecting,
-                micEnabled = patientActive || canStart || !state.recordAudioGranted,
+                micEnabled = patientActive || (canStart && state.localRealtimeReady),
                 buttonColor = Mint,
                 landscape = landscape,
                 modifier = Modifier
@@ -4237,12 +4330,13 @@ private fun LocalInterpreterScreen(
 
             LocalInterpreterHalf(
                 label = "한국어",
-                text = koreanText,
+                text = visibleKoreanText,
                 active = staffActive,
                 busy = state.busy,
+                emphasizeText = realtimeConnecting,
                 disabledReason = staffDisabledReason,
                 realtimeConnecting = realtimeConnecting,
-                micEnabled = staffActive || canStart || !state.recordAudioGranted,
+                micEnabled = staffActive || (canStart && state.localRealtimeReady),
                 buttonColor = Trust,
                 landscape = landscape,
                 modifier = Modifier
@@ -4263,6 +4357,7 @@ private fun LocalInterpreterHalf(
     text: String,
     active: Boolean,
     busy: Boolean,
+    emphasizeText: Boolean,
     disabledReason: String,
     realtimeConnecting: Boolean,
     micEnabled: Boolean,
@@ -4293,6 +4388,7 @@ private fun LocalInterpreterHalf(
                     label = label,
                     text = text,
                     active = active,
+                    emphasizeText = emphasizeText,
                     landscape = true,
                     modifier = Modifier
                         .weight(1f)
@@ -4319,6 +4415,7 @@ private fun LocalInterpreterHalf(
                     label = label,
                     text = text,
                     active = active,
+                    emphasizeText = emphasizeText,
                     landscape = false,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -4344,6 +4441,7 @@ private fun LocalInterpreterTextPane(
     label: String,
     text: String,
     active: Boolean,
+    emphasizeText: Boolean,
     landscape: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -4351,6 +4449,8 @@ private fun LocalInterpreterTextPane(
     val displayText = localTranscriptDisplayText(text, active)
     val longText = displayText.length > if (landscape) 90 else 70
     val textStyle = when {
+        emphasizeText && displayText.length > 36 -> MaterialTheme.typography.headlineLarge
+        emphasizeText -> MaterialTheme.typography.displaySmall
         displayText.length > 150 -> MaterialTheme.typography.titleMedium
         longText -> MaterialTheme.typography.titleLarge
         landscape -> MaterialTheme.typography.headlineMedium
