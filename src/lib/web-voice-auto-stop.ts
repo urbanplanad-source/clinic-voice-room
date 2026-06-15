@@ -14,9 +14,9 @@ type VoiceAutoStopOptions = {
 };
 
 const defaultOptions = {
-  minRecordingMs: 650,
-  minVoiceMs: 140,
-  silenceMs: 700,
+  minRecordingMs: 1000,
+  minVoiceMs: 220,
+  silenceMs: 1600,
   rmsThreshold: 0.018,
   peakThreshold: 0.06
 };
