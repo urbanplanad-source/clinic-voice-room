@@ -20,6 +20,7 @@ export const patientLanguages = [
 
 export type PatientLanguage = (typeof patientLanguages)[number];
 export type ParticipantRole = "staff" | "patient";
+export type TranslationLanguage = PatientLanguage | "ko";
 
 export const languageLabels: Record<PatientLanguage, { ko: string; native: string; english: string }> = {
   zh: { ko: "중국어 간체", native: "简体中文", english: "Simplified Chinese" },
@@ -40,6 +41,13 @@ export const languageLabels: Record<PatientLanguage, { ko: string; native: strin
   it: { ko: "이탈리아어", native: "Italiano", english: "Italian" },
   pt: { ko: "포르투갈어", native: "Português", english: "Portuguese" }
 };
+
+export const translationLanguages = ["ko", ...patientLanguages] as const satisfies readonly TranslationLanguage[];
+
+export const translationLanguageLabels = {
+  ko: { ko: "한국어", native: "한국어", english: "Korean" },
+  ...languageLabels
+} satisfies Record<TranslationLanguage, { ko: string; native: string; english: string }>;
 
 export const languageInstructions: Record<PatientLanguage, string> = {
   zh: "Translate spoken Korean into natural Simplified Chinese, and Simplified Chinese into Korean. Keep output concise and suitable for a dermatology or plastic surgery consultation.",
@@ -63,6 +71,10 @@ export const languageInstructions: Record<PatientLanguage, string> = {
 
 export function isPatientLanguage(value: unknown): value is PatientLanguage {
   return typeof value === "string" && patientLanguages.includes(value as PatientLanguage);
+}
+
+export function isTranslationLanguage(value: unknown): value is TranslationLanguage {
+  return value === "ko" || isPatientLanguage(value);
 }
 
 export function sourceTargetFor(role: ParticipantRole, patientLanguage: PatientLanguage) {

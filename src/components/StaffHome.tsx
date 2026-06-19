@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Languages, Loader2, LogOut, MessageSquareText, Stethoscope } from "lucide-react";
+import { ArrowLeft, FileText, Languages, Loader2, LogOut, MessageSquareText, Stethoscope } from "lucide-react";
 import { languageLabels, patientLanguages, type PatientLanguage } from "@/lib/languages";
 import type { RoomMode } from "@/lib/room-mode";
 import type { RoomStatus } from "@/lib/room-state";
@@ -124,41 +124,56 @@ export function StaffHome({
       </header>
 
       {!selectedMode ? (
-        <section className="grid gap-4 md:grid-cols-2">
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedMode("consultation");
-              setError("");
-            }}
-            className="flex min-h-[220px] flex-col justify-between rounded-lg bg-white p-6 text-left shadow-soft transition hover:bg-blue-50 md:min-h-[280px] md:p-8"
-          >
-            <span className="grid h-14 w-14 place-items-center rounded-lg bg-blue-50 text-trust">
-              <MessageSquareText size={28} />
-            </span>
+        <>
+          <section className="grid gap-4 md:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedMode("consultation");
+                setError("");
+              }}
+              className="flex min-h-[220px] flex-col justify-between rounded-lg bg-white p-6 text-left shadow-soft transition hover:bg-blue-50 md:min-h-[280px] md:p-8"
+            >
+              <span className="grid h-14 w-14 place-items-center rounded-lg bg-blue-50 text-trust">
+                <MessageSquareText size={28} />
+              </span>
               <span>
                 <span className="block text-[28px] font-bold leading-tight text-ink md:text-[34px]">상담방 만들기</span>
-              <span className="mt-3 block text-base font-semibold leading-7 text-slate-500">음성 중심 AI 번역 상담</span>
+                <span className="mt-3 block text-base font-semibold leading-7 text-slate-500">음성 중심 AI 번역 상담</span>
               </span>
-          </button>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedMode("procedure");
-              setError("");
-            }}
-            className="flex min-h-[220px] flex-col justify-between rounded-lg bg-white p-6 text-left shadow-soft transition hover:bg-slate-50 md:min-h-[280px] md:p-8"
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedMode("procedure");
+                setError("");
+              }}
+              className="flex min-h-[220px] flex-col justify-between rounded-lg bg-white p-6 text-left shadow-soft transition hover:bg-slate-50 md:min-h-[280px] md:p-8"
+            >
+              <span className="grid h-14 w-14 place-items-center rounded-lg bg-slate-100 text-ink">
+                <Stethoscope size={28} />
+              </span>
+              <span>
+                <span className="block text-[28px] font-bold leading-tight text-ink md:text-[34px]">시술방 만들기</span>
+                <span className="mt-3 block text-base font-semibold leading-7 text-slate-500">시술 중 안내 번역</span>
+              </span>
+            </button>
+          </section>
+
+          <Link
+            href="/staff/text-translate"
+            className="flex min-h-[96px] items-center gap-4 rounded-lg bg-white p-5 text-left shadow-soft transition hover:bg-emerald-50 md:min-h-[112px] md:p-6"
           >
-            <span className="grid h-14 w-14 place-items-center rounded-lg bg-slate-100 text-ink">
-              <Stethoscope size={28} />
+            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-emerald-50 text-mint">
+              <FileText size={28} />
             </span>
-            <span>
-              <span className="block text-[28px] font-bold leading-tight text-ink md:text-[34px]">시술방 만들기</span>
-              <span className="mt-3 block text-base font-semibold leading-7 text-slate-500">시술 중 안내 번역</span>
+            <span className="min-w-0">
+              <span className="block text-[24px] font-bold leading-tight text-ink md:text-[30px]">텍스트 번역하기</span>
+              <span className="mt-2 block text-sm font-semibold leading-6 text-slate-500 md:text-base">상담 문장 바로 번역</span>
             </span>
-          </button>
-        </section>
+          </Link>
+        </>
       ) : (
         <section className="rounded-lg bg-white p-2.5 shadow-soft sm:p-3 md:p-4">
           <div className="flex justify-end">
