@@ -3,6 +3,8 @@ import type { GuardFlags } from "./guard-flags";
 import { compareNumericSignatures, numberGuardEnabled } from "./number-guard";
 import { logModelRoute, routeTranslationModel } from "./model-router";
 
+const textTranslationReasoningEffort = "medium";
+
 type ResponsesApiContent = {
   type?: string;
   text?: string;
@@ -54,7 +56,7 @@ async function callResponsesTranslation(params: {
     },
     body: JSON.stringify({
       model: params.model,
-      reasoning: { effort: "low" },
+      reasoning: { effort: textTranslationReasoningEffort },
       text: { verbosity: "low" },
       input: [
         {
@@ -89,8 +91,12 @@ export async function translateWithOpenAITextSafety(params: {
   glossaryData: ClinicGlossaryData;
   errorLabel: string;
   context: string;
+  forceStandard?: boolean;
 }): Promise<OpenAITextTranslationResult> {
-  const route = routeTranslationModel(params.sourceText, params.glossaryData);
+  const routed = routeTranslationModel(params.sourceText, params.glossaryData);
+  const route = params.forceStandard
+    ? { ...routed, tier: "standard" as const, model: routed.standardModel, reason: "force_standard" }
+    : routed;
   logModelRoute(params.context, route);
 
   let model = route.model;

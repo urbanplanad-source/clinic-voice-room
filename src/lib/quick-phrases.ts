@@ -88,7 +88,7 @@ export async function translateQuickPhraseForAllLanguages({
       },
       body: JSON.stringify({
         model,
-        reasoning: { effort: "low" },
+        reasoning: { effort: "medium" },
         text: { verbosity: "low" },
         input: [
           {

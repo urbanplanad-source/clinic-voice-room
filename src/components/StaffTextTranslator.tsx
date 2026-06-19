@@ -61,6 +61,7 @@ const speechLocales = {
 
 type TranslatorResponse = {
   translatedText?: string;
+  polishedSourceText?: string | null;
   error?: string;
 };
 
@@ -131,6 +132,7 @@ export function StaffTextTranslator({
   const [targetLanguage, setTargetLanguage] = useState<TranslationLanguage>("zh");
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
+  const [polishedSourceText, setPolishedSourceText] = useState("");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
@@ -141,6 +143,8 @@ export function StaffTextTranslator({
 
   const characters = input.length;
   const canTranslate = input.trim().length > 0 && characters <= maxCharacters && sourceLanguage !== targetLanguage && !loading;
+  const shouldShowPolishedSource =
+    sourceLanguage === "ko" && targetLanguage !== "ko" && output.trim().length > 0 && polishedSourceText.trim().length > 0;
   const suggestedPhrases = useMemo(() => {
     if (input.trim().length < 3) return [];
 
@@ -204,6 +208,7 @@ export function StaffTextTranslator({
   function updateSourceLanguage(nextLanguage: TranslationLanguage) {
     setCopied(false);
     setError("");
+    setPolishedSourceText("");
     if (nextLanguage === targetLanguage) {
       setTargetLanguage(sourceLanguage);
     }
@@ -213,6 +218,7 @@ export function StaffTextTranslator({
   function updateTargetLanguage(nextLanguage: TranslationLanguage) {
     setCopied(false);
     setError("");
+    setPolishedSourceText("");
     if (nextLanguage === sourceLanguage) {
       setSourceLanguage(targetLanguage);
     }
@@ -222,6 +228,7 @@ export function StaffTextTranslator({
   function swapLanguages() {
     setCopied(false);
     setError("");
+    setPolishedSourceText("");
     setSourceLanguage(targetLanguage);
     setTargetLanguage(sourceLanguage);
     if (output) {
@@ -230,12 +237,12 @@ export function StaffTextTranslator({
     }
   }
 
-  function rememberPhrase(sourceText: string, translatedText: string) {
+  function rememberPhrase(sourceText: string, translatedText: string, serverPolishedText?: string | null) {
     const text = sourceText.trim();
     if (text.length < 3) return;
 
     const now = Date.now();
-    const polishedText = polishHospitalPhrase(text);
+    const polishedText = serverPolishedText?.trim() || polishHospitalPhrase(text);
     const normalizedText = normalizeForPhraseMatch(polishedText);
     setRememberedPhrases((current) => {
       const existing = current.find(
@@ -279,6 +286,7 @@ export function StaffTextTranslator({
     setLoading(true);
     setCopied(false);
     setError("");
+    setPolishedSourceText("");
     try {
       const response = await fetch("/api/staff-text-translate", {
         method: "POST",
@@ -297,7 +305,8 @@ export function StaffTextTranslator({
       }
 
       setOutput(data.translatedText);
-      rememberPhrase(text, data.translatedText);
+      setPolishedSourceText(data.polishedSourceText?.trim() ?? "");
+      rememberPhrase(text, data.translatedText, data.polishedSourceText);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "번역하지 못했습니다.");
     } finally {
@@ -331,6 +340,7 @@ export function StaffTextTranslator({
   function applyTextPhrase(phrase: string) {
     setInput(phrase);
     setOutput("");
+    setPolishedSourceText("");
     setSourceLanguage("ko");
     if (targetLanguage === "ko") {
       setTargetLanguage("zh");
@@ -347,8 +357,10 @@ export function StaffTextTranslator({
     setError("");
     if (phrase.targetLanguage === targetLanguage && phrase.translatedText) {
       setOutput(phrase.translatedText);
+      setPolishedSourceText(phrase.sourceLanguage === "ko" && phrase.targetLanguage !== "ko" ? phrase.polishedText : "");
     } else {
       setOutput("");
+      setPolishedSourceText("");
     }
   }
 
@@ -398,6 +410,7 @@ export function StaffTextTranslator({
               onClick={() => {
                 setInput("");
                 setOutput("");
+                setPolishedSourceText("");
                 setError("");
               }}
               className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-50 hover:text-coral"
@@ -412,6 +425,8 @@ export function StaffTextTranslator({
             value={input}
             onChange={(event) => {
               setInput(event.target.value);
+              setOutput("");
+              setPolishedSourceText("");
               setError("");
             }}
             onCompositionStart={() => {
@@ -520,7 +535,15 @@ export function StaffTextTranslator({
                 번역 중
               </div>
             ) : output ? (
-              output
+              <div className="space-y-4">
+                <div>{output}</div>
+                {shouldShowPolishedSource ? (
+                  <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-sm font-semibold leading-6 text-slate-600">
+                    <span className="mb-1 block text-xs font-bold text-trust">번역 기준 한국어</span>
+                    <span className="whitespace-pre-wrap">{polishedSourceText}</span>
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <span className="text-slate-300">번역 결과가 여기에 표시됩니다</span>
             )}
