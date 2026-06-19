@@ -35,7 +35,7 @@ export type ClinicGlossaryData = {
   verifiedSentences: VerifiedSentenceEntry[];
 };
 
-const rawGlossaryTargetLanguages = new Set<GlossaryTargetLanguage>(["ko", "zh", "ja", "en", "ru", "vi", "id"]);
+const rawGlossaryTargetLanguages = new Set<GlossaryTargetLanguage>(["ko", "zh", "zh_tw", "yue", "ja", "en", "ru", "vi", "id"]);
 
 export const realtimeKoreanTranscriptionHints = [
   "리쥬란",
@@ -672,6 +672,236 @@ function cleanRepeatedPunctuation(text: string) {
     .replace(/\s+([?.!,。？！])/g, "$1");
 }
 
+const commonClinicCountWords: Array<[string, string]> = [
+  ["six hundred", "600"],
+  ["five hundred fifty", "550"],
+  ["five hundred", "500"],
+  ["four hundred fifty", "450"],
+  ["four hundred", "400"],
+  ["three hundred fifty", "350"],
+  ["three hundred", "300"],
+  ["two hundred fifty", "250"],
+  ["two hundred", "200"],
+  ["one hundred fifty", "150"],
+  ["one hundred", "100"],
+  ["fifty", "50"],
+  ["twenty", "20"],
+  ["ten", "10"],
+  ["six", "6"],
+  ["five", "5"],
+  ["four", "4"],
+  ["three", "3"],
+  ["two", "2"],
+  ["one", "1"]
+];
+
+const chineseClinicCountWords: Array<[string, string]> = [
+  ["六百", "600"],
+  ["五百五十", "550"],
+  ["五百", "500"],
+  ["四百五十", "450"],
+  ["四百", "400"],
+  ["三百五十", "350"],
+  ["三百", "300"],
+  ["两百五十", "250"],
+  ["兩百五十", "250"],
+  ["二百五十", "250"],
+  ["两百", "200"],
+  ["兩百", "200"],
+  ["二百", "200"],
+  ["一百五十", "150"],
+  ["一百", "100"],
+  ["五十", "50"],
+  ["二十", "20"],
+  ["十", "10"],
+  ["六", "6"],
+  ["五", "5"],
+  ["四", "4"],
+  ["三", "3"],
+  ["二", "2"],
+  ["两", "2"],
+  ["兩", "2"],
+  ["一", "1"]
+];
+
+const japaneseClinicCountWords: Array<[string, string]> = [
+  ["ろっぴゃく", "600"],
+  ["ごひゃくごじゅう", "550"],
+  ["ごひゃく", "500"],
+  ["よんひゃくごじゅう", "450"],
+  ["よんひゃく", "400"],
+  ["さんびゃくごじゅう", "350"],
+  ["さんびゃく", "300"],
+  ["にひゃくごじゅう", "250"],
+  ["にひゃく", "200"],
+  ["ひゃくごじゅう", "150"],
+  ["ひゃく", "100"],
+  ["ごじゅう", "50"],
+  ["にじゅう", "20"],
+  ["じゅう", "10"],
+  ["ろく", "6"],
+  ["ご", "5"],
+  ["よん", "4"],
+  ["さん", "3"],
+  ["に", "2"],
+  ["いち", "1"],
+  ["六百", "600"],
+  ["五百五十", "550"],
+  ["五百", "500"],
+  ["四百五十", "450"],
+  ["四百", "400"],
+  ["三百五十", "350"],
+  ["三百", "300"],
+  ["二百五十", "250"],
+  ["二百", "200"],
+  ["一百五十", "150"],
+  ["一百", "100"],
+  ["五十", "50"]
+];
+
+function isChineseDisplayLanguage(targetLanguage: GlossaryTargetLanguage) {
+  return targetLanguage === "zh" || targetLanguage === "zh_tw" || targetLanguage === "yue";
+}
+
+function isTraditionalChineseDisplay(targetLanguage: GlossaryTargetLanguage) {
+  return targetLanguage === "zh_tw" || targetLanguage === "yue";
+}
+
+function applyChineseScriptDisplay(text: string, targetLanguage: GlossaryTargetLanguage) {
+  if (!isChineseDisplayLanguage(targetLanguage)) return text;
+
+  const replacements: Array<[RegExp, string]> = isTraditionalChineseDisplay(targetLanguage)
+    ? [
+        [/热玛吉/g, "熱瑪吉"],
+        [/热马吉/g, "熱瑪吉"],
+        [/热麻吉/g, "熱瑪吉"],
+        [/热妈吉/g, "熱瑪吉"],
+        [/韩元/g, "韓元"],
+        [/价格/g, "價格"],
+        [/单位/g, "單位"],
+        [/发/g, "發"],
+        [/万/g, "萬"]
+      ]
+    : [
+        [/熱瑪吉/g, "热玛吉"],
+        [/熱馬吉/g, "热玛吉"],
+        [/熱麻吉/g, "热玛吉"],
+        [/熱媽吉/g, "热玛吉"],
+        [/韓元/g, "韩元"],
+        [/價格/g, "价格"],
+        [/單位/g, "单位"],
+        [/發/g, "发"],
+        [/萬/g, "万"]
+      ];
+
+  return replacements.reduce((current, [pattern, replacement]) => current.replace(pattern, replacement), text);
+}
+
+function normalizeChineseCountDisplay(text: string, targetLanguage: GlossaryTargetLanguage) {
+  const shotCounter = isTraditionalChineseDisplay(targetLanguage) ? "發" : "发";
+  const unitCounter = isTraditionalChineseDisplay(targetLanguage) ? "單位" : "单位";
+  let normalized = text;
+
+  for (const [word, value] of chineseClinicCountWords) {
+    normalized = normalized.replace(
+      new RegExp(`${escapeRegExp(word)}(?=\\s*(?:发|發|单位|單位|次|支|瓶|cc|ml|mL))`, "g"),
+      value
+    );
+  }
+
+  return normalized
+    .replace(/(\d+)\s*(?:发|發)/g, `$1${shotCounter}`)
+    .replace(/(\d+)\s*(?:单位|單位)/g, `$1${unitCounter}`)
+    .replace(/(\d+)\s*(cc|ml|mL)\b/g, "$1$2");
+}
+
+function joinClinicProductAndCount(product: string, countWithCounter: string) {
+  const cleanedProduct = product.trim().replace(/[。.,，\s]+$/g, "");
+  return /[A-Za-z0-9)]$/.test(cleanedProduct) ? `${cleanedProduct} ${countWithCounter}` : `${cleanedProduct}${countWithCounter}`;
+}
+
+function normalizeChinesePricePhrasing(text: string, targetLanguage: GlossaryTargetLanguage) {
+  const shotCounter = isTraditionalChineseDisplay(targetLanguage) ? "發" : "发";
+  const priceWord = isTraditionalChineseDisplay(targetLanguage) ? "價格" : "价格";
+  const tenThousandWord = isTraditionalChineseDisplay(targetLanguage) ? "萬" : "万";
+  const krwWord = isTraditionalChineseDisplay(targetLanguage) ? "韓元" : "韩元";
+  const pricePattern = "([\\d,.]+)\\s*(?:万|萬)\\s*(?:韩元|韓元)";
+  const countPattern = "(\\d+)\\s*(?:发|發)";
+
+  let normalized = text.replace(
+    new RegExp(`^(您好)[。.,，\\s]*(.+?)\\s*${countPattern}\\s*(?:是|为|為)\\s*${pricePattern}[。.]?$`),
+    (_match, greeting: string, product: string, count: string, price: string) =>
+      `${greeting}，${joinClinicProductAndCount(product, `${count}${shotCounter}`)}的${priceWord}是${price}${tenThousandWord}${krwWord}。`
+  );
+
+  normalized = normalized.replace(
+    new RegExp(`^(.+?)\\s*${countPattern}\\s*(?:是|为|為)\\s*${pricePattern}[。.]?$`),
+    (_match, product: string, count: string, price: string) =>
+      `${joinClinicProductAndCount(product, `${count}${shotCounter}`)}的${priceWord}是${price}${tenThousandWord}${krwWord}。`
+  );
+
+  return normalized;
+}
+
+function normalizeJapaneseCountDisplay(text: string) {
+  let normalized = text;
+  for (const [word, value] of japaneseClinicCountWords) {
+    normalized = normalized.replace(new RegExp(`${escapeRegExp(word)}(?=\\s*(?:ショット|ユニット|cc|ml|mL))`, "g"), value);
+  }
+
+  return normalized.replace(/(\d+)\s*(ショット|ユニット|cc|ml|mL)\b/g, "$1$2");
+}
+
+function normalizeJapanesePricePhrasing(text: string) {
+  const pricePattern = "([\\d,.]+)\\s*万\\s*ウォン";
+  const countPattern = "(\\d+)\\s*ショット";
+
+  let normalized = text.replace(
+    new RegExp(`^(こんにちは)[。.\\s]*(.+?)\\s*${countPattern}\\s*(?:は|が|で)\\s*${pricePattern}\\s*です[。.]?$`),
+    (_match, greeting: string, product: string, count: string, price: string) =>
+      `${greeting}。${joinClinicProductAndCount(product, `${count}ショット`)}の料金は${price}万ウォンです。`
+  );
+
+  normalized = normalized.replace(
+    new RegExp(`^(.+?)\\s*${countPattern}\\s*(?:は|が|で)\\s*${pricePattern}\\s*です[。.]?$`),
+    (_match, product: string, count: string, price: string) =>
+      `${joinClinicProductAndCount(product, `${count}ショット`)}の料金は${price}万ウォンです。`
+  );
+
+  return normalized;
+}
+
+function normalizeEnglishCountDisplay(text: string) {
+  let normalized = text;
+  for (const [word, value] of commonClinicCountWords) {
+    normalized = normalized.replace(
+      new RegExp(`\\b${escapeRegExp(word)}\\b(?=\\s+(?:shots?|units?|vials?|cc|ml|milliliters?))`, "gi"),
+      value
+    );
+  }
+
+  return normalized.replace(/(\d+)\s+(cc|ml)\b/gi, "$1$2");
+}
+
+function applyTextDisplayFormatting(text: string, targetLanguage: GlossaryTargetLanguage) {
+  if (isChineseDisplayLanguage(targetLanguage)) {
+    return normalizeChinesePricePhrasing(
+      applyChineseScriptDisplay(normalizeChineseCountDisplay(text, targetLanguage), targetLanguage),
+      targetLanguage
+    );
+  }
+
+  if (targetLanguage === "ja") {
+    return normalizeJapanesePricePhrasing(normalizeJapaneseCountDisplay(text));
+  }
+
+  if (targetLanguage === "en") {
+    return normalizeEnglishCountDisplay(text);
+  }
+
+  return text;
+}
+
 function targetFor(entry: ClinicGlossaryEntry, targetLanguage: GlossaryTargetLanguage) {
   if (targetLanguage === "ko") return entry.standardKo;
   if (targetLanguage === "zh" || targetLanguage === "zh_tw" || targetLanguage === "yue") return entry.zh;
@@ -786,7 +1016,7 @@ export function normalizeClinicTranslation(text: string, targetLanguage: Glossar
     normalized = applyReplacementsLongestFirst(normalized, glossaryReplacements);
   }
 
-  return cleanRepeatedPunctuation(applyTargetSpecificCorrections(normalized, targetLanguage));
+  return cleanRepeatedPunctuation(applyTextDisplayFormatting(applyTargetSpecificCorrections(normalized, targetLanguage), targetLanguage));
 }
 
 export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage, glossaryData?: ClinicGlossaryData) {
@@ -794,8 +1024,9 @@ export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage
   const sourceClinicGlossary = glossaryData?.terms ?? clinicGlossary;
   const fixedLines = [
     "Clinic glossary rules:",
-    "- Preserve brand and procedure names exactly.",
-    "- Use the clinic-approved speak form for counts, units, procedure names, and safety phrases.",
+    "- Preserve approved brand and procedure display forms exactly, but translate grammar, counters, particles, and price phrasing naturally.",
+    "- In text output, prefer Arabic numerals for shots, units, cc, vial counts, and prices.",
+    "- Use the clinic-approved speak form for high-risk short procedure instructions and safety phrases.",
     "- Short Korean procedure phrases are often spoken quickly. In a procedure room, prefer the pain and safety meaning over casual meanings like sleepiness or device setup.",
     "- Critical short phrase mappings:",
     ...sourceCriticalPhrases.map((entry) => `  - ${entry.spoken.join(" / ")} => ${targetForCritical(entry, patientLanguage)} (${entry.note})`),
