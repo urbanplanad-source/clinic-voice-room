@@ -228,7 +228,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.14"
+private const val AppDisplayVersion = "0.3.15"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -243,6 +243,11 @@ private const val RealtimeOutputQuietMs = 300L
 private const val RealtimeInstantTemplateProbeMs = 240L
 private const val RealtimeInputTranscriptFastWaitMs = 650L
 private const val RealtimeInputTranscriptRepairWaitMs = 2400L
+private const val ExperimentalRealtimeTurnWaitMs = 5000L
+private const val ExperimentalRealtimeOutputQuietMs = 220L
+private const val ExperimentalRealtimeInstantTemplateProbeMs = 120L
+private const val ExperimentalRealtimeInputTranscriptFastWaitMs = 250L
+private const val ExperimentalRealtimeInputTranscriptRepairWaitMs = 1200L
 private const val RecordingStopJoinMs = 250L
 private const val StaffRecordingMaxMs = 60_000L
 private const val StaffAutoStopMinRecordingMs = 1000L
@@ -462,6 +467,30 @@ private data class RealtimeTurnResult(
     val instantTemplateId: String? = null
 )
 
+private data class RealtimeTurnTiming(
+    val timeoutMs: Long,
+    val outputQuietMs: Long,
+    val instantTemplateProbeMs: Long,
+    val inputTranscriptFastWaitMs: Long,
+    val inputTranscriptRepairWaitMs: Long
+)
+
+private val DefaultRealtimeTurnTiming = RealtimeTurnTiming(
+    timeoutMs = RealtimeTurnWaitMs,
+    outputQuietMs = RealtimeOutputQuietMs,
+    instantTemplateProbeMs = RealtimeInstantTemplateProbeMs,
+    inputTranscriptFastWaitMs = RealtimeInputTranscriptFastWaitMs,
+    inputTranscriptRepairWaitMs = RealtimeInputTranscriptRepairWaitMs
+)
+
+private val ExperimentalRealtimeTurnTiming = RealtimeTurnTiming(
+    timeoutMs = ExperimentalRealtimeTurnWaitMs,
+    outputQuietMs = ExperimentalRealtimeOutputQuietMs,
+    instantTemplateProbeMs = ExperimentalRealtimeInstantTemplateProbeMs,
+    inputTranscriptFastWaitMs = ExperimentalRealtimeInputTranscriptFastWaitMs,
+    inputTranscriptRepairWaitMs = ExperimentalRealtimeInputTranscriptRepairWaitMs
+)
+
 private class AndroidRealtimeTurnClient(
     private val http: OkHttpClient,
     private val token: RealtimeToken,
@@ -576,7 +605,7 @@ private class AndroidRealtimeTurnClient(
     }
 
     fun stopTurnAndTranslate(
-        timeoutMs: Long = RealtimeTurnWaitMs,
+        timing: RealtimeTurnTiming = DefaultRealtimeTurnTiming,
         instantTemplateResolver: ((String) -> InstantTemplateMatch?)? = null
     ): RealtimeTurnResult {
         if (!open) error("Realtime connection is not open")
@@ -584,7 +613,7 @@ private class AndroidRealtimeTurnClient(
         val useDirectAudio = token.outputAudio
         if (useDirectAudio && shouldPlayDirectAudio()) ensureOutputAudioTrack()
         send(JSONObject().put("type", "input_audio_buffer.commit"))
-        waitForInstantTemplateMatch(instantTemplateResolver)?.let { match ->
+        waitForInstantTemplateMatch(instantTemplateResolver, timing.instantTemplateProbeMs)?.let { match ->
             deleteCommittedInputItemForInstantTemplate()
             log("Local instant template matched: ${match.templateId}")
             return RealtimeTurnResult(
@@ -605,7 +634,7 @@ private class AndroidRealtimeTurnClient(
         )
         markResponseStarted()
 
-        val deadlineAt = System.currentTimeMillis() + timeoutMs
+        val deadlineAt = System.currentTimeMillis() + timing.timeoutMs
         val doneLatch = turnDoneLatch
         var lastLength = -1
         var stableSince = 0L
@@ -619,14 +648,14 @@ private class AndroidRealtimeTurnClient(
                     lastLength = length
                     stableSince = now
                 }
-                shouldFinish = responseDone || now - stableSince >= RealtimeOutputQuietMs
+                shouldFinish = responseDone || now - stableSince >= timing.outputQuietMs
             } else if (responseDone) {
                 shouldFinish = true
             }
             if (shouldFinish) break
 
             val waitMs = if (length > 0 && stableSince > 0L) {
-                (RealtimeOutputQuietMs - (now - stableSince)).coerceIn(1L, 50L)
+                (timing.outputQuietMs - (now - stableSince)).coerceIn(1L, 50L)
             } else {
                 (deadlineAt - now).coerceIn(1L, 50L)
             }
@@ -635,7 +664,10 @@ private class AndroidRealtimeTurnClient(
         errorRef.get()?.let { throw it }
         val translated = synchronized(this) { outputText.toString().trim() }
         if (translated.isBlank()) error("Realtime returned no translated text")
-        val sourceTranscriptComplete = waitForInputTranscriptIfNeeded()
+        val sourceTranscriptComplete = waitForInputTranscriptIfNeeded(
+            timing.inputTranscriptFastWaitMs,
+            timing.inputTranscriptRepairWaitMs
+        )
         val rawSourceText = synchronized(this) { inputText.toString().trim() }
         val cleanedSourceText = hideUnsafeReplacementCharacters(repairKoreanClinicTextArtifacts(rawSourceText))
             .replace(Regex("\\s{2,}"), " ")
@@ -877,9 +909,9 @@ private class AndroidRealtimeTurnClient(
         }
     }
 
-    private fun waitForInputTranscriptIfNeeded(): Boolean {
+    private fun waitForInputTranscriptIfNeeded(fastWaitMs: Long, repairWaitMs: Long): Boolean {
         val startedAt = SystemClock.elapsedRealtime()
-        var deadlineAt = startedAt + RealtimeInputTranscriptFastWaitMs
+        var deadlineAt = startedAt + fastWaitMs
         var repairWindowEnabled = false
 
         while (SystemClock.elapsedRealtime() < deadlineAt) {
@@ -888,7 +920,7 @@ private class AndroidRealtimeTurnClient(
             if (inputTranscriptDone) return true
             if (!repairWindowEnabled && currentText.contains('\uFFFD')) {
                 repairWindowEnabled = true
-                deadlineAt = startedAt + RealtimeInputTranscriptRepairWaitMs
+                deadlineAt = startedAt + repairWaitMs
             }
             Thread.sleep(40)
         }
@@ -896,11 +928,14 @@ private class AndroidRealtimeTurnClient(
         return inputTranscriptDone
     }
 
-    private fun waitForInstantTemplateMatch(resolver: ((String) -> InstantTemplateMatch?)?): InstantTemplateMatch? {
+    private fun waitForInstantTemplateMatch(
+        resolver: ((String) -> InstantTemplateMatch?)?,
+        probeMs: Long
+    ): InstantTemplateMatch? {
         if (resolver == null) return null
 
         val startedAt = SystemClock.elapsedRealtime()
-        while (SystemClock.elapsedRealtime() - startedAt <= RealtimeInstantTemplateProbeMs) {
+        while (SystemClock.elapsedRealtime() - startedAt <= probeMs) {
             errorRef.get()?.let { throw it }
             val currentText = synchronized(this) { inputText.toString().trim() }
             if (currentText.isNotBlank()) {
@@ -2954,7 +2989,15 @@ class MainActivity : ComponentActivity() {
     private fun translateLocalVoiceTurn(direction: String, patientLanguage: String, pcm: ByteArray, durationSeconds: Int): JSONObject {
         if (isExperimentalLocalInterpreterMode(uiState.value.selectedRoomMode)) {
             return ExperimentalFaceToFaceEngine(
-                translateWithRealtimeFirst = ::translateLocalVoiceTurnRealtimeFirst,
+                translateWithRealtimeFirst = { fastDirection, fastPatientLanguage, fastPcm, fastDurationSeconds ->
+                    translateLocalVoiceTurnRealtimeFirst(
+                        fastDirection,
+                        fastPatientLanguage,
+                        fastPcm,
+                        fastDurationSeconds,
+                        experimentalFastTurn = true
+                    )
+                },
                 log = ::appendLog
             ).translate(direction, patientLanguage, pcm, durationSeconds)
         }
@@ -2962,7 +3005,14 @@ class MainActivity : ComponentActivity() {
         return translateLocalVoiceTurnRealtimeFirst(direction, patientLanguage, pcm, durationSeconds)
     }
 
-    private fun translateLocalVoiceTurnRealtimeFirst(direction: String, patientLanguage: String, pcm: ByteArray, durationSeconds: Int): JSONObject {
+    private fun translateLocalVoiceTurnRealtimeFirst(
+        direction: String,
+        patientLanguage: String,
+        pcm: ByteArray,
+        durationSeconds: Int,
+        experimentalFastTurn: Boolean = false
+    ): JSONObject {
+        val timing = if (experimentalFastTurn) ExperimentalRealtimeTurnTiming else DefaultRealtimeTurnTiming
         val realtimeWasActive = realtimeTurnActive
         realtimeTurnActive = false
 
@@ -2974,6 +3024,7 @@ class MainActivity : ComponentActivity() {
                 runCatching {
                     val startedAt = SystemClock.elapsedRealtime()
                     val result = realtime.stopTurnAndTranslate(
+                        timing = timing,
                         instantTemplateResolver = instantTemplateResolverFor(direction, patientLanguage)
                     )
                     appendLog("Local Realtime translation complete ${SystemClock.elapsedRealtime() - startedAt}ms")
@@ -3009,7 +3060,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        translateLocalPcmWithPreparedRealtime(direction, patientLanguage, pcm, durationSeconds)?.let { return it }
+        translateLocalPcmWithPreparedRealtime(direction, patientLanguage, pcm, durationSeconds, timing)?.let { return it }
 
         val wav = pcm16ToWav(pcm, RealtimePcmSampleRate, 1)
         appendLog("Local voice upload (${wav.size} bytes)")
@@ -3020,7 +3071,8 @@ class MainActivity : ComponentActivity() {
         direction: String,
         patientLanguage: String,
         pcm: ByteArray,
-        durationSeconds: Int
+        durationSeconds: Int,
+        timing: RealtimeTurnTiming = DefaultRealtimeTurnTiming
     ): JSONObject? {
         val key = localRealtimeKey(patientLanguage, direction)
         val realtime = synchronized(localRealtimeLock) { localRealtimeTurnClients[key] }
@@ -3031,6 +3083,7 @@ class MainActivity : ComponentActivity() {
             realtime.startTurn()
             streamPcmToRealtime(realtime, pcm)
             val result = realtime.stopTurnAndTranslate(
+                timing = timing,
                 instantTemplateResolver = instantTemplateResolverFor(direction, patientLanguage)
             )
             appendLog("Local buffered Realtime complete ${SystemClock.elapsedRealtime() - startedAt}ms")

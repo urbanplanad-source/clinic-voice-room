@@ -74,13 +74,13 @@ cd "C:\Users\user\Desktop\개발 작업\clinic-voice-room\android-staff-app"
 Installable field-test APK after build:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/medivoice-0.3.14-field.apk
+android-staff-app/app/build/outputs/apk/field/medivoice-0.3.15-field.apk
 ```
 
 Latest local field-test APK:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/medivoice-0.3.14-field.apk
+android-staff-app/app/build/outputs/apk/field/medivoice-0.3.15-field.apk
 SHA256: build locally to generate
 ```
 
@@ -115,8 +115,8 @@ Do not install or distribute the unsigned release APK. Use it only to verify rel
 
 Current app version:
 
-- versionName: `0.3.14`
-- versionCode: `26`
+- versionName: `0.3.15`
+- versionCode: `27`
 
 Pinned build stack:
 
@@ -126,8 +126,8 @@ Pinned build stack:
 - Compose BOM: 2024.12.01
 - minSdk: 26
 - compileSdk/targetSdk: 35
-- Google Play field APK: `android-staff-app/app/build/outputs/apk/field/medivoice-0.3.14-field.apk`
-- Google Play release AAB filename after bundle build: `android-staff-app/app/build/outputs/bundle/release/medivoice-0.3.14-release.aab`
+- Google Play field APK: `android-staff-app/app/build/outputs/apk/field/medivoice-0.3.15-field.apk`
+- Google Play release AAB filename after bundle build: `android-staff-app/app/build/outputs/bundle/release/medivoice-0.3.15-release.aab`
 - Store privacy policy page draft: `/privacy`
 
 `android.overridePathCheck=true` is set for Korean workspace paths.
@@ -219,6 +219,7 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
+- Android v0.3.15 makes the face-to-face experimental mode use a faster Realtime turn timing similar to the consultation room path, while keeping instant templates and the existing retry-on-mismatch guard isolated to the experimental mode.
 - Android v0.3.14 adds a separate Android-only face-to-face experimental mode with instant templates first, a Realtime-v1 engine boundary for future Bidi replacement, experiment/result status labels, and TTS interruption for the next speaker.
 - Android v0.3.13 adds a conservative Android local-interpreter instant-template path for 20 approved Korean staff phrases, including Brazilian Portuguese translations, while keeping unmatched speech on the existing Realtime text-only path.
 - Android v0.3.12 switches local interpreter Realtime back to text-only responses, uses warmed Android TTS for playback, and shortens the translated-output quiet window to reduce the delay after the mic button is released.
@@ -243,6 +244,6 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 - Android v0.2.3 makes Android and web staff QR links both include `?mode=consultation|procedure` for clearer field-test handoff. The server still uses `TranslationRoom.roomMode` as the source of truth.
 - Android v0.2.2 puts the active translation panel before room metadata after the patient joins, so staff see chat/mic controls first.
 - Android v0.2.1 and later use the phone's normal media volume/output route for TTS and request no Bluetooth permission.
-- The v0.3.14 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
+- The v0.3.15 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
 - A real two-phone field test is required before marking the app production-ready.
 
