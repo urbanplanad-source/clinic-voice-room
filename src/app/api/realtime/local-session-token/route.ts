@@ -9,7 +9,8 @@ import { isPatientLanguage, type ParticipantRole, type PatientLanguage } from "@
 const schema = z.object({
   patientLanguage: z.custom<PatientLanguage>((value) => isPatientLanguage(value)),
   direction: z.enum(["ko_to_patient", "patient_to_ko"]),
-  manualTurn: z.boolean().optional()
+  manualTurn: z.boolean().optional(),
+  outputAudio: z.boolean().optional()
 });
 
 export async function POST(request: Request) {
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
       patientLanguage: parsed.data.patientLanguage,
       direction: realtimeDirection,
       manualTurn: parsed.data.manualTurn,
+      outputAudio: parsed.data.outputAudio,
       glossaryData,
       safetyIdentifier: `${staff.hospitalId}:${staff.id}:local:${parsed.data.patientLanguage}:${parsed.data.direction}`
     });

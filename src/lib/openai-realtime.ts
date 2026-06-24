@@ -88,11 +88,20 @@ function isPromptCompatibilityError(detail: string) {
   return /(?:audio\.input\.transcription\.prompt|transcription\.prompt|prompt.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*prompt)/i.test(detail);
 }
 
+function isAudioOutputCompatibilityError(detail: string) {
+  return /(?:output_modalities|audio\.output|output_audio|voice|audio output|output.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*output|audio.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*audio)/i.test(detail);
+}
+
+function buildRealtimeTurnDetection(manualTurn?: boolean) {
+  return manualTurn ? null : undefined;
+}
+
 export async function createRealtimeSessionToken(params: {
   role: ParticipantRole;
   patientLanguage: PatientLanguage;
   direction?: TranslationDirection;
   manualTurn?: boolean;
+  outputAudio?: boolean;
   safetyIdentifier?: string;
   glossaryData?: ClinicGlossaryData;
 }) {
@@ -123,12 +132,16 @@ export async function createRealtimeSessionToken(params: {
   const transcriptionPrompt = buildClinicTranscriptionPrompt(inputLanguage, params.glossaryData?.transcriptionHints);
   const model = normalizedRealtimeModelName(process.env.OPENAI_REALTIME_MODEL);
   const transcriptionModel = normalizedRealtimeTranscriptionModelName(process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL);
+  const realtimeVoice = process.env.OPENAI_REALTIME_VOICE?.trim() || "marin";
   const safetyIdentifier = params.safetyIdentifier
     ? `clinic-voice-room-${createHash("sha256").update(params.safetyIdentifier).digest("hex").slice(0, 32)}`
     : `clinic-voice-room-${params.role}`;
+  const requestedOutputAudio = Boolean(params.outputAudio);
 
-  const requestSessionToken = (includeTranscriptionPrompt: boolean) =>
-    fetch("https://api.openai.com/v1/realtime/client_secrets", {
+  const requestSessionToken = (includeTranscriptionPrompt: boolean, outputAudio: boolean) => {
+    const manualTurnForRequest = Boolean(params.manualTurn);
+
+    return fetch("https://api.openai.com/v1/realtime/client_secrets", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -143,30 +156,50 @@ export async function createRealtimeSessionToken(params: {
         session: {
           type: "realtime",
           model,
-          output_modalities: ["text"],
+          output_modalities: outputAudio ? ["audio"] : ["text"],
           instructions: buildRealtimeTranslationInstructions(inputLanguage, outputLanguage, params.glossaryData),
           audio: {
             input: {
-              format: params.manualTurn ? { type: "audio/pcm", rate: 24000 } : undefined,
+              format: manualTurnForRequest ? { type: "audio/pcm", rate: 24000 } : undefined,
               transcription: includeTranscriptionPrompt
                 ? { model: transcriptionModel, prompt: transcriptionPrompt, language: realtimeInputLanguageHints[inputLanguage] }
                 : { model: transcriptionModel, language: realtimeInputLanguageHints[inputLanguage] },
               noise_reduction: { type: "near_field" },
-              turn_detection: params.manualTurn ? null : undefined
-            }
+              turn_detection: buildRealtimeTurnDetection(manualTurnForRequest)
+            },
+            output: outputAudio ? { voice: realtimeVoice } : undefined
           }
         }
       })
     });
+  };
 
-  let response = await requestSessionToken(Boolean(transcriptionPrompt));
+  let outputAudioEnabled = requestedOutputAudio;
+  let response = await requestSessionToken(Boolean(transcriptionPrompt), outputAudioEnabled);
   let detail = "";
 
   if (!response.ok) {
     detail = await response.text();
     if (transcriptionPrompt && isPromptCompatibilityError(detail)) {
-      response = await requestSessionToken(false);
+      response = await requestSessionToken(false, outputAudioEnabled);
       detail = "";
+    }
+  }
+
+  if (!response.ok && requestedOutputAudio) {
+    detail ||= await response.text();
+    if (isAudioOutputCompatibilityError(detail)) {
+      outputAudioEnabled = false;
+      response = await requestSessionToken(Boolean(transcriptionPrompt), false);
+      detail = "";
+
+      if (!response.ok) {
+        detail = await response.text();
+        if (transcriptionPrompt && isPromptCompatibilityError(detail)) {
+          response = await requestSessionToken(false, false);
+          detail = "";
+        }
+      }
     }
   }
 
@@ -179,6 +212,7 @@ export async function createRealtimeSessionToken(params: {
   return {
     ...token,
     realtimeModel: model,
-    realtimeTranscriptionModel: transcriptionModel
+    realtimeTranscriptionModel: transcriptionModel,
+    realtimeOutputAudio: outputAudioEnabled
   };
 }

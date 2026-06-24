@@ -10,6 +10,7 @@ import android.graphics.Bitmap
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioRecord
+import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
@@ -147,6 +148,8 @@ private val Panel = Color(0xFFF8FAFC)
 private val BlueTint = Color(0xFFEFF6FF)
 private val GreenTint = Color(0xFFEFFCF7)
 private val RoseTint = Color(0xFFFFF1F2)
+private val Experiment = Color(0xFFD97706)
+private val ExperimentTint = Color(0xFFFFF7ED)
 
 private data class StaffLayoutMetrics(
     val isTablet: Boolean,
@@ -225,17 +228,19 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.9"
+private const val AppDisplayVersion = "0.3.14"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
 private const val SetupStepLocalInterpreter = "local_interpreter"
 private const val RoomModeLocalInterpreter = "local_interpreter"
+private const val RoomModeLocalInterpreterExperimental = "local_interpreter_experimental"
 private const val LocalDirectionKoToPatient = "ko_to_patient"
 private const val LocalDirectionPatientToKo = "patient_to_ko"
 private const val RealtimePcmSampleRate = 24000
 private const val RealtimeTurnWaitMs = 5500L
-private const val RealtimeOutputQuietMs = 550L
+private const val RealtimeOutputQuietMs = 300L
+private const val RealtimeInstantTemplateProbeMs = 240L
 private const val RealtimeInputTranscriptFastWaitMs = 650L
 private const val RealtimeInputTranscriptRepairWaitMs = 2400L
 private const val RecordingStopJoinMs = 250L
@@ -251,6 +256,14 @@ private const val LocalValidationMaxTranslatedChars = 36
 private const val LocalValidationMaxSourceWords = 3
 private const val TtsSpeechUtterancePrefix = "cvr-speak"
 private const val TtsWarmUtterancePrefix = "cvr-warm"
+
+private fun isLocalInterpreterMode(mode: String): Boolean {
+    return mode == RoomModeLocalInterpreter || mode == RoomModeLocalInterpreterExperimental
+}
+
+private fun isExperimentalLocalInterpreterMode(mode: String): Boolean {
+    return mode == RoomModeLocalInterpreterExperimental
+}
 
 private data class PatientLanguageOption(
     val code: String,
@@ -276,7 +289,7 @@ private val patientLanguages = listOf(
     PatientLanguageOption("es", "스페인어", "Español", Locale("es", "ES")),
     PatientLanguageOption("de", "독일어", "Deutsch", Locale.GERMANY),
     PatientLanguageOption("it", "이탈리아어", "Italiano", Locale.ITALY),
-    PatientLanguageOption("pt", "포르투갈어", "Português", Locale("pt", "PT"))
+    PatientLanguageOption("pt", "포르투갈어", "Português", Locale("pt", "BR"))
 )
 
 private data class RoomInfo(
@@ -322,6 +335,8 @@ private data class StaffUiState(
     val translatedDraft: String = "",
     val lastMessageSpeaker: String = "",
     val localTurnDirection: String = LocalDirectionKoToPatient,
+    val localEngineStatus: String = "",
+    val localResultBadge: String = "",
     val messages: List<StaffMessage> = emptyList(),
     val textInput: String = "",
     val lastKey: String = "없음",
@@ -435,19 +450,23 @@ private class PersistentCookieJar(private val preferences: SharedPreferences) : 
 
 private data class RealtimeToken(
     val value: String,
-    val model: String
+    val model: String,
+    val outputAudio: Boolean = false
 )
 
 private data class RealtimeTurnResult(
     val sourceText: String,
     val translatedText: String,
-    val sourceTranscriptComplete: Boolean
+    val sourceTranscriptComplete: Boolean,
+    val audioPlayed: Boolean = false,
+    val instantTemplateId: String? = null
 )
 
 private class AndroidRealtimeTurnClient(
     private val http: OkHttpClient,
     private val token: RealtimeToken,
-    private val log: (String) -> Unit
+    private val log: (String) -> Unit,
+    private val shouldPlayDirectAudio: () -> Boolean = { true }
 ) {
     private var webSocket: WebSocket? = null
     private var openLatch = CountDownLatch(1)
@@ -455,6 +474,8 @@ private class AndroidRealtimeTurnClient(
     private val errorRef = AtomicReference<Throwable?>(null)
     private val outputText = StringBuilder()
     private val inputText = StringBuilder()
+    private val outputAudioLock = Any()
+    private var outputAudioTrack: AudioTrack? = null
     @Volatile
     private var open = false
     @Volatile
@@ -464,9 +485,16 @@ private class AndroidRealtimeTurnClient(
     @Volatile
     private var inputTranscriptItemId: String? = null
     @Volatile
+    private var committedInputItemId: String? = null
+    @Volatile
     private var responseRequestedAt = 0L
     @Volatile
+    private var turnStartedAt = 0L
     private var firstOutputLogged = false
+    @Volatile
+    private var firstAudioLogged = false
+    @Volatile
+    private var outputAudioPlayed = false
 
     fun connect() {
         if (open) return
@@ -518,15 +546,20 @@ private class AndroidRealtimeTurnClient(
 
     fun startTurn() {
         connect()
+        releaseOutputAudioTrack()
         synchronized(this) {
             outputText.clear()
             inputText.clear()
             inputTranscriptItemId = null
+            committedInputItemId = null
         }
         responseDone = false
         inputTranscriptDone = false
         responseRequestedAt = 0L
+        turnStartedAt = SystemClock.elapsedRealtime()
         firstOutputLogged = false
+        firstAudioLogged = false
+        outputAudioPlayed = false
         errorRef.set(null)
         turnDoneLatch = CountDownLatch(1)
         send(JSONObject().put("type", "input_audio_buffer.clear"))
@@ -542,19 +575,35 @@ private class AndroidRealtimeTurnClient(
         )
     }
 
-    fun stopTurnAndTranslate(timeoutMs: Long = RealtimeTurnWaitMs): RealtimeTurnResult {
+    fun stopTurnAndTranslate(
+        timeoutMs: Long = RealtimeTurnWaitMs,
+        instantTemplateResolver: ((String) -> InstantTemplateMatch?)? = null
+    ): RealtimeTurnResult {
         if (!open) error("Realtime connection is not open")
 
+        val useDirectAudio = token.outputAudio
+        if (useDirectAudio && shouldPlayDirectAudio()) ensureOutputAudioTrack()
         send(JSONObject().put("type", "input_audio_buffer.commit"))
+        waitForInstantTemplateMatch(instantTemplateResolver)?.let { match ->
+            deleteCommittedInputItemForInstantTemplate()
+            log("Local instant template matched: ${match.templateId}")
+            return RealtimeTurnResult(
+                sourceText = match.sourceText,
+                translatedText = match.translatedText,
+                sourceTranscriptComplete = true,
+                audioPlayed = false,
+                instantTemplateId = match.templateId
+            )
+        }
         send(
             JSONObject()
                 .put("type", "response.create")
                 .put(
                     "response",
-                    JSONObject().put("output_modalities", JSONArray().put("text"))
+                    JSONObject().put("output_modalities", JSONArray().put(if (useDirectAudio) "audio" else "text"))
                 )
         )
-        responseRequestedAt = SystemClock.elapsedRealtime()
+        markResponseStarted()
 
         val deadlineAt = System.currentTimeMillis() + timeoutMs
         val doneLatch = turnDoneLatch
@@ -591,12 +640,14 @@ private class AndroidRealtimeTurnClient(
         val cleanedSourceText = hideUnsafeReplacementCharacters(repairKoreanClinicTextArtifacts(rawSourceText))
             .replace(Regex("\\s{2,}"), " ")
             .trim()
-        log("Realtime local result ${SystemClock.elapsedRealtime() - responseRequestedAt}ms")
+        val responseAnchor = if (responseRequestedAt > 0L) responseRequestedAt else turnStartedAt
+        log("Realtime local result ${SystemClock.elapsedRealtime() - responseAnchor}ms")
 
         return RealtimeTurnResult(
             sourceText = cleanedSourceText.ifBlank { rawSourceText },
             translatedText = translated,
-            sourceTranscriptComplete = sourceTranscriptComplete && !cleanedSourceText.contains('\uFFFD')
+            sourceTranscriptComplete = sourceTranscriptComplete && !cleanedSourceText.contains('\uFFFD'),
+            audioPlayed = outputAudioPlayed
         )
     }
 
@@ -604,6 +655,7 @@ private class AndroidRealtimeTurnClient(
         runCatching { webSocket?.cancel() }
         webSocket = null
         open = false
+        releaseOutputAudioTrack()
     }
 
     private fun send(event: JSONObject) {
@@ -615,9 +667,14 @@ private class AndroidRealtimeTurnClient(
         runCatching {
             val event = JSONObject(text)
             when (val type = event.optString("type")) {
+                "response.created" -> {
+                    markResponseStarted()
+                }
+
                 "session.output_transcript.delta",
                 "response.output_audio_transcript.delta",
                 "response.output_text.delta" -> {
+                    markResponseStarted()
                     if (type == "response.output_audio_transcript.delta" && !firstOutputLogged) {
                         log("Realtime audio transcript event received")
                     }
@@ -635,9 +692,20 @@ private class AndroidRealtimeTurnClient(
                     }
                 }
 
+                "response.output_audio.delta" -> {
+                    markResponseStarted()
+                    playOutputAudioDelta(event.optString("delta"))
+                }
+
+                "response.output_audio.done" -> {
+                    markResponseStarted()
+                    log("Realtime output audio done")
+                }
+
                 "session.output_transcript.done",
                 "response.output_audio_transcript.done",
                 "response.output_text.done" -> {
+                    markResponseStarted()
                     if (type == "response.output_audio_transcript.done") {
                         log("Realtime audio transcript done received")
                     }
@@ -651,6 +719,7 @@ private class AndroidRealtimeTurnClient(
                 }
 
                 "response.content_part.done" -> {
+                    markResponseStarted()
                     val finalText = event.optJSONObject("part")?.optString("text").orEmpty()
                     if (finalText.isNotBlank()) synchronized(this) {
                         outputText.clear()
@@ -661,6 +730,7 @@ private class AndroidRealtimeTurnClient(
                 }
 
                 "response.output_item.done" -> {
+                    markResponseStarted()
                     val finalText = collectRealtimeItemText(event.optJSONObject("item"))
                     if (finalText.isNotBlank()) synchronized(this) {
                         outputText.clear()
@@ -687,6 +757,7 @@ private class AndroidRealtimeTurnClient(
                 }
 
                 "response.done" -> {
+                    markResponseStarted()
                     responseDone = true
                     turnDoneLatch.countDown()
                 }
@@ -697,6 +768,11 @@ private class AndroidRealtimeTurnClient(
                     errorRef.set(IllegalStateException(message))
                     turnDoneLatch.countDown()
                     log("Realtime API error: $message")
+                }
+
+                "input_audio_buffer.committed" -> {
+                    committedInputItemId = event.optString("item_id").takeIf { it.isNotBlank() }
+                    log("Realtime event: $type")
                 }
 
                 else -> if (type.isNotBlank() && type.startsWith("input_audio_buffer.")) {
@@ -733,6 +809,74 @@ private class AndroidRealtimeTurnClient(
         return parts.joinToString("").trim()
     }
 
+    private fun markResponseStarted() {
+        if (responseRequestedAt == 0L) {
+            responseRequestedAt = SystemClock.elapsedRealtime()
+        }
+    }
+
+    private fun ensureOutputAudioTrack(): AudioTrack {
+        synchronized(outputAudioLock) {
+            outputAudioTrack?.let { return it }
+            val fallbackBufferSize = RealtimePcmSampleRate / 5 * 2
+            val minBufferSize = AudioTrack.getMinBufferSize(
+                RealtimePcmSampleRate,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            ).takeIf { it > 0 } ?: fallbackBufferSize
+            val track = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(RealtimePcmSampleRate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
+                .setBufferSizeInBytes(max(minBufferSize, fallbackBufferSize))
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+            track.play()
+            outputAudioTrack = track
+            return track
+        }
+    }
+
+    private fun playOutputAudioDelta(delta: String) {
+        if (delta.isBlank() || !shouldPlayDirectAudio()) return
+        runCatching {
+            val bytes = Base64.decode(delta, Base64.DEFAULT)
+            if (bytes.isEmpty()) return@runCatching
+            val written = ensureOutputAudioTrack().write(bytes, 0, bytes.size)
+            if (written > 0) {
+                outputAudioPlayed = true
+                if (!firstAudioLogged && responseRequestedAt > 0L) {
+                    firstAudioLogged = true
+                    log("Realtime first audio ${SystemClock.elapsedRealtime() - responseRequestedAt}ms")
+                }
+            }
+        }.onFailure {
+            log("Realtime audio delta skipped: ${it.message}")
+        }
+    }
+
+    private fun releaseOutputAudioTrack() {
+        synchronized(outputAudioLock) {
+            val track = outputAudioTrack
+            outputAudioTrack = null
+            runCatching {
+                track?.pause()
+                track?.flush()
+                track?.release()
+            }
+        }
+    }
+
     private fun waitForInputTranscriptIfNeeded(): Boolean {
         val startedAt = SystemClock.elapsedRealtime()
         var deadlineAt = startedAt + RealtimeInputTranscriptFastWaitMs
@@ -750,6 +894,36 @@ private class AndroidRealtimeTurnClient(
         }
         log("Realtime input transcript incomplete after ${SystemClock.elapsedRealtime() - startedAt}ms")
         return inputTranscriptDone
+    }
+
+    private fun waitForInstantTemplateMatch(resolver: ((String) -> InstantTemplateMatch?)?): InstantTemplateMatch? {
+        if (resolver == null) return null
+
+        val startedAt = SystemClock.elapsedRealtime()
+        while (SystemClock.elapsedRealtime() - startedAt <= RealtimeInstantTemplateProbeMs) {
+            errorRef.get()?.let { throw it }
+            val currentText = synchronized(this) { inputText.toString().trim() }
+            if (currentText.isNotBlank()) {
+                resolver(currentText)?.let { return it }
+            }
+            if (inputTranscriptDone) break
+            Thread.sleep(30)
+        }
+
+        return null
+    }
+
+    private fun deleteCommittedInputItemForInstantTemplate() {
+        val itemId = synchronized(this) { committedInputItemId ?: inputTranscriptItemId }.orEmpty()
+        if (itemId.isBlank()) {
+            log("Local instant template input item delete skipped: missing item id")
+            return
+        }
+        send(
+            JSONObject()
+                .put("type", "conversation.item.delete")
+                .put("item_id", itemId)
+        )
     }
 }
 
@@ -1026,17 +1200,19 @@ class MainActivity : ComponentActivity() {
                         onLogout = ::logout,
                         onLanguage = { code ->
                             updateState { it.copy(selectedLanguage = code) }
-                            if (uiState.value.selectedRoomMode == RoomModeLocalInterpreter) {
+                            if (isLocalInterpreterMode(uiState.value.selectedRoomMode)) {
                                 closeLocalRealtimeTurnClients()
                             }
                         },
                         onRoomMode = { mode ->
-                            if (mode != RoomModeLocalInterpreter) closeLocalRealtimeTurnClients()
+                            if (!isLocalInterpreterMode(mode)) closeLocalRealtimeTurnClients()
                             updateState {
                                 it.copy(
                                     selectedRoomMode = mode,
                                     setupStep = SetupStepLanguage,
-                                    status = languageSelectionStatus(mode)
+                                    status = languageSelectionStatus(mode),
+                                    localEngineStatus = "",
+                                    localResultBadge = ""
                                 )
                             }
                         },
@@ -1044,6 +1220,7 @@ class MainActivity : ComponentActivity() {
                         onToggleSpeak = ::toggleSpeaking,
                         onStartLocalTurn = ::toggleLocalSpeaking,
                         onExitLocalInterpreter = ::exitLocalInterpreter,
+                        onSwitchToStableLocalInterpreter = ::switchToStableLocalInterpreter,
                         onRequestEndRoom = { updateState { it.copy(showEndRoomConfirm = true) } },
                         onConfirmEndRoom = ::endRoom,
                         onDismissEndRoom = { updateState { it.copy(showEndRoomConfirm = false) } },
@@ -1527,7 +1704,7 @@ class MainActivity : ComponentActivity() {
 
     private fun createRoom() {
         val state = uiState.value
-        if (state.selectedRoomMode == RoomModeLocalInterpreter) {
+        if (isLocalInterpreterMode(state.selectedRoomMode)) {
             startLocalInterpreter()
             return
         }
@@ -1577,8 +1754,45 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun localModeDisplayName(mode: String): String {
+        return if (isExperimentalLocalInterpreterMode(mode)) "대면 실험" else "대면 통역"
+    }
+
+    private fun localConnectingStatus(mode: String): String {
+        return if (isExperimentalLocalInterpreterMode(mode)) {
+            "대면 실험 연결 준비중입니다. 잠시만 기다려주세요."
+        } else {
+            "연결 준비중입니다. 잠시만 기다려주세요."
+        }
+    }
+
+    private fun localReadyStatus(mode: String): String {
+        return if (isExperimentalLocalInterpreterMode(mode)) {
+            "대면 실험 준비됨. 말할 쪽의 마이크를 누르세요."
+        } else {
+            "대면 통역 준비됨. 말할 쪽의 마이크를 누르세요."
+        }
+    }
+
+    private fun localTranslatingStatus(mode: String): String {
+        return if (isExperimentalLocalInterpreterMode(mode)) {
+            "대면 실험 번역 중입니다..."
+        } else {
+            "대면 통역 번역 중입니다..."
+        }
+    }
+
+    private fun localCompleteStatus(mode: String): String {
+        return if (isExperimentalLocalInterpreterMode(mode)) {
+            "대면 실험 완료. 다음 발화 쪽 마이크를 누르세요."
+        } else {
+            "대면 통역 완료. 다음 발화 쪽 마이크를 누르세요."
+        }
+    }
+
     private fun startLocalInterpreter() {
         val state = uiState.value
+        val experimental = isExperimentalLocalInterpreterMode(state.selectedRoomMode)
         closeRealtimeTurnClient()
         stopRoomPolling()
         resetMessagePolling()
@@ -1595,6 +1809,8 @@ class MainActivity : ComponentActivity() {
                 translatedDraft = "",
                 lastMessageSpeaker = "",
                 localTurnDirection = LocalDirectionKoToPatient,
+                localEngineStatus = if (experimental) "실험 대기" else "",
+                localResultBadge = if (experimental) "실험" else "",
                 messages = emptyList(),
                 textInput = "",
                 status = "연결 준비중입니다. 잠시만 기다려주세요."
@@ -1632,6 +1848,35 @@ class MainActivity : ComponentActivity() {
                 status = languageSelectionStatus(it.selectedRoomMode)
             )
         }
+    }
+
+    private fun switchToStableLocalInterpreter() {
+        val state = uiState.value
+        if (
+            state.setupStep != SetupStepLocalInterpreter ||
+            state.room != null ||
+            state.busy ||
+            state.speaking ||
+            !isExperimentalLocalInterpreterMode(state.selectedRoomMode)
+        ) return
+
+        stopTtsPlayback()
+        closeLocalRealtimeTurnClients()
+        updateState {
+            it.copy(
+                selectedRoomMode = RoomModeLocalInterpreter,
+                localRealtimeReady = false,
+                sourceDraft = "",
+                translatedDraft = "",
+                lastMessageSpeaker = "",
+                localTurnDirection = LocalDirectionKoToPatient,
+                localEngineStatus = "",
+                localResultBadge = "",
+                status = localConnectingStatus(RoomModeLocalInterpreter)
+            )
+        }
+        prepareLocalRealtimeTurnClientsAsync(state.selectedLanguage, force = true)
+        appendLog("대면 실험에서 안정 대면으로 전환")
     }
 
     private fun roomInfoFromJson(room: JSONObject, backend: String, fallback: RoomInfo? = null): RoomInfo {
@@ -1744,7 +1989,22 @@ class MainActivity : ComponentActivity() {
 
                     else -> current.status
                 }
-                current.copy(localRealtimeReady = ready, status = nextStatus)
+                val adjustedStatus = when {
+                    ready &&
+                        current.setupStep == SetupStepLocalInterpreter &&
+                        current.room == null &&
+                        !current.busy &&
+                        !current.speaking -> localReadyStatus(current.selectedRoomMode)
+
+                    !ready &&
+                        current.setupStep == SetupStepLocalInterpreter &&
+                        current.room == null &&
+                        !current.busy &&
+                        !current.speaking -> localConnectingStatus(current.selectedRoomMode)
+
+                    else -> nextStatus
+                }
+                current.copy(localRealtimeReady = ready, status = adjustedStatus)
             }
         }
     }
@@ -1789,7 +2049,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureTranslationRealtimeForRoom(room: RoomInfo?) {
-        if (room == null || room.roomMode == RoomModeLocalInterpreter) {
+        if (room == null || isLocalInterpreterMode(room.roomMode)) {
             closeTranslationRealtimeClient()
             return
         }
@@ -2047,6 +2307,11 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (state.busy) return
+        if ((state.ttsPlaybackActive || ttsPlaybackActive) && isExperimentalLocalInterpreterMode(state.selectedRoomMode)) {
+            stopTtsPlayback()
+            toggleLocalSpeaking(direction)
+            return
+        }
         if (state.ttsPlaybackActive || ttsPlaybackActive) {
             updateState { it.copy(status = "음성 재생이 끝난 뒤 마이크를 눌러주세요.") }
             return
@@ -2066,6 +2331,8 @@ class MainActivity : ComponentActivity() {
                 localTurnDirection = normalizedDirection,
                 sourceDraft = "",
                 translatedDraft = "",
+                localEngineStatus = if (isExperimentalLocalInterpreterMode(it.selectedRoomMode)) "Realtime 처리" else "",
+                localResultBadge = if (isExperimentalLocalInterpreterMode(it.selectedRoomMode)) "실험" else "",
                 status = if (normalizedDirection == LocalDirectionKoToPatient) {
                     "한국어를 듣고 있습니다. 말이 끝나면 자동 번역합니다."
                 } else {
@@ -2149,6 +2416,8 @@ class MainActivity : ComponentActivity() {
             .put("patientLanguage", patientLanguage)
             .put("direction", direction)
             .put("manualTurn", true)
+            // Text-only Realtime returns the translated text sooner; warmed Android TTS handles playback.
+            .put("outputAudio", false)
             .toString()
         val startedAt = SystemClock.elapsedRealtime()
         val data = postJson("$backend/api/realtime/local-session-token", payload)
@@ -2166,7 +2435,8 @@ class MainActivity : ComponentActivity() {
         }.ifBlank { error("Realtime token response was missing a client secret") }
         return RealtimeToken(
             value = value,
-            model = token.optString("realtimeModel", "gpt-realtime").ifBlank { "gpt-realtime" }
+            model = token.optString("realtimeModel", "gpt-realtime").ifBlank { "gpt-realtime" },
+            outputAudio = token.optBoolean("realtimeOutputAudio", false)
         )
     }
 
@@ -2197,7 +2467,12 @@ class MainActivity : ComponentActivity() {
                 val startedAt = SystemClock.elapsedRealtime()
                 appendLog("Realtime preparing")
                 val token = requestRealtimeToken(room)
-                val client = AndroidRealtimeTurnClient(http, token, ::appendLog)
+                val client = AndroidRealtimeTurnClient(
+                    http,
+                    token,
+                    ::appendLog,
+                    shouldPlayDirectAudio = { uiState.value.ttsEnabled }
+                )
                 client.connect()
                 val currentRoom = uiState.value.room
                 if (currentRoom?.id == room.id && currentRoom.status != "ended") {
@@ -2264,11 +2539,16 @@ class MainActivity : ComponentActivity() {
                 val startedAt = SystemClock.elapsedRealtime()
                 appendLog("Local Realtime preparing: $direction")
                 val token = requestLocalRealtimeToken(patientLanguage, direction)
-                val client = AndroidRealtimeTurnClient(http, token, ::appendLog)
+                val client = AndroidRealtimeTurnClient(
+                    http,
+                    token,
+                    ::appendLog,
+                    shouldPlayDirectAudio = { uiState.value.ttsEnabled }
+                )
                 client.connect()
                 val state = uiState.value
                 val localSetupActive = state.setupStep == SetupStepLocalInterpreter ||
-                    (state.setupStep == SetupStepLanguage && state.selectedRoomMode == RoomModeLocalInterpreter)
+                    (state.setupStep == SetupStepLanguage && isLocalInterpreterMode(state.selectedRoomMode))
                 if (
                     localSetupActive &&
                     state.room == null &&
@@ -2511,16 +2791,29 @@ class MainActivity : ComponentActivity() {
                 val sourceLanguage = result.optString("sourceLanguage")
                 val targetLanguage = result.optString("targetLanguage")
                 val sourceTranscriptComplete = result.optBoolean("sourceTranscriptComplete", true)
+                val isInstantTemplate = result.optString("model") == "instant-template"
+                val experimentalMode = isExperimentalLocalInterpreterMode(snapshot.selectedRoomMode)
+                val experimentalBadge = if (experimentalMode) {
+                    result.optString("experimentalResultBadge").ifBlank { if (isInstantTemplate) "템플릿" else "Realtime" }
+                } else {
+                    ""
+                }
+                val experimentalEngineStatus = if (experimentalMode) {
+                    result.optString("experimentalEngineStatus").ifBlank { if (isInstantTemplate) "템플릿 즉시" else "Realtime 처리" }
+                } else {
+                    ""
+                }
                 val source = if (sourceLanguage == "ko") {
                     normalizeKoreanSourceText(result.optString("sourceText"))
                 } else {
                     result.optString("sourceText").trim()
                 }
                 val translated = normalizeClinicText(result.optString("translatedText"), targetLanguage)
+                val realtimeAudioPlayed = result.optBoolean("audioPlayed", false)
                 val speaker = if (direction == LocalDirectionKoToPatient) "staff" else "patient"
                 prepareLocalRealtimeTurnClientsAsync(patientLanguage)
 
-                if (sourceTranscriptComplete && localTranslationNeedsRetry(direction, patientLanguage, source, translated)) {
+                if (!isInstantTemplate && sourceTranscriptComplete && localTranslationNeedsRetry(direction, patientLanguage, source, translated)) {
                     val retryKorean = localRetryPromptKorean()
                     val retryPatient = localRetryPromptForPatientLanguage(patientLanguage)
                     updateState {
@@ -2531,6 +2824,8 @@ class MainActivity : ComponentActivity() {
                             translatedDraft = if (direction == LocalDirectionKoToPatient) retryPatient else retryKorean,
                             lastMessageSpeaker = speaker,
                             localTurnDirection = direction,
+                            localEngineStatus = if (experimentalMode) "검증 후 재생" else "",
+                            localResultBadge = if (experimentalMode) "보류됨" else "",
                             status = "번역 내용이 서로 맞지 않아 다시 말해주세요."
                         )
                     }
@@ -2543,6 +2838,8 @@ class MainActivity : ComponentActivity() {
                         busy = false,
                         speaking = false,
                         sourceDraft = source,
+                        localEngineStatus = experimentalEngineStatus,
+                        localResultBadge = experimentalBadge,
                         translatedDraft = translated,
                         lastMessageSpeaker = speaker,
                         localTurnDirection = direction,
@@ -2550,10 +2847,12 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                if (direction == LocalDirectionKoToPatient) {
-                    speakTranslatedText(translated, patientLanguage)
-                } else {
-                    speakKoreanText(translated)
+                if (!realtimeAudioPlayed) {
+                    if (direction == LocalDirectionKoToPatient) {
+                        speakTranslatedText(translated, patientLanguage)
+                    } else {
+                        speakKoreanText(translated)
+                    }
                 }
                 appendLog("대면 통역 완료")
             }.onFailure { caught ->
@@ -2653,6 +2952,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun translateLocalVoiceTurn(direction: String, patientLanguage: String, pcm: ByteArray, durationSeconds: Int): JSONObject {
+        if (isExperimentalLocalInterpreterMode(uiState.value.selectedRoomMode)) {
+            return ExperimentalFaceToFaceEngine(
+                translateWithRealtimeFirst = ::translateLocalVoiceTurnRealtimeFirst,
+                log = ::appendLog
+            ).translate(direction, patientLanguage, pcm, durationSeconds)
+        }
+
+        return translateLocalVoiceTurnRealtimeFirst(direction, patientLanguage, pcm, durationSeconds)
+    }
+
+    private fun translateLocalVoiceTurnRealtimeFirst(direction: String, patientLanguage: String, pcm: ByteArray, durationSeconds: Int): JSONObject {
         val realtimeWasActive = realtimeTurnActive
         realtimeTurnActive = false
 
@@ -2663,7 +2973,9 @@ class MainActivity : ComponentActivity() {
             if (realtime != null) {
                 runCatching {
                     val startedAt = SystemClock.elapsedRealtime()
-                    val result = realtime.stopTurnAndTranslate()
+                    val result = realtime.stopTurnAndTranslate(
+                        instantTemplateResolver = instantTemplateResolverFor(direction, patientLanguage)
+                    )
                     appendLog("Local Realtime translation complete ${SystemClock.elapsedRealtime() - startedAt}ms")
                     val currentForDirection = synchronized(localRealtimeLock) { localRealtimeTurnClients[key] }
                     if (currentForDirection !== realtime) {
@@ -2677,7 +2989,15 @@ class MainActivity : ComponentActivity() {
                         sourceText = result.sourceText,
                         translatedText = result.translatedText
                     )
-                    return localRealtimeVoiceTurn(direction, patientLanguage, result.sourceText, result.translatedText, result.sourceTranscriptComplete)
+                    return localRealtimeVoiceTurn(
+                        direction,
+                        patientLanguage,
+                        result.sourceText,
+                        result.translatedText,
+                        result.sourceTranscriptComplete,
+                        result.audioPlayed,
+                        result.instantTemplateId
+                    )
                 }.onFailure {
                     appendLog("Local Realtime failed, falling back to upload: ${it.message}")
                     synchronized(localRealtimeLock) {
@@ -2710,7 +3030,9 @@ class MainActivity : ComponentActivity() {
             val startedAt = SystemClock.elapsedRealtime()
             realtime.startTurn()
             streamPcmToRealtime(realtime, pcm)
-            val result = realtime.stopTurnAndTranslate()
+            val result = realtime.stopTurnAndTranslate(
+                instantTemplateResolver = instantTemplateResolverFor(direction, patientLanguage)
+            )
             appendLog("Local buffered Realtime complete ${SystemClock.elapsedRealtime() - startedAt}ms")
             recordLocalInterpreterUsageAsync(
                 direction = direction,
@@ -2720,7 +3042,15 @@ class MainActivity : ComponentActivity() {
                 sourceText = result.sourceText,
                 translatedText = result.translatedText
             )
-            localRealtimeVoiceTurn(direction, patientLanguage, result.sourceText, result.translatedText, result.sourceTranscriptComplete)
+            localRealtimeVoiceTurn(
+                direction,
+                patientLanguage,
+                result.sourceText,
+                result.translatedText,
+                result.sourceTranscriptComplete,
+                result.audioPlayed,
+                result.instantTemplateId
+            )
         }.onFailure {
             appendLog("Local buffered Realtime failed, falling back to upload: ${it.message}")
             synchronized(localRealtimeLock) {
@@ -2741,12 +3071,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun instantTemplateResolverFor(
+        direction: String,
+        patientLanguage: String
+    ): ((String) -> InstantTemplateMatch?)? {
+        if (direction != LocalDirectionKoToPatient) return null
+        return { sourceText -> findAndroidLocalInstantTemplateMatch(sourceText, patientLanguage) }
+    }
+
     private fun localRealtimeVoiceTurn(
         direction: String,
         patientLanguage: String,
         sourceText: String,
         translatedText: String,
-        sourceTranscriptComplete: Boolean = true
+        sourceTranscriptComplete: Boolean = true,
+        audioPlayed: Boolean = false,
+        instantTemplateId: String? = null
     ): JSONObject {
         val targetLanguage = if (direction == LocalDirectionKoToPatient) patientLanguage else "ko"
         val sourceLanguage = if (direction == LocalDirectionKoToPatient) "ko" else patientLanguage
@@ -2757,7 +3097,9 @@ class MainActivity : ComponentActivity() {
             .put("targetLanguage", targetLanguage)
             .put("direction", direction)
             .put("sourceTranscriptComplete", sourceTranscriptComplete)
-            .put("model", "realtime-local")
+            .put("audioPlayed", audioPlayed)
+            .put("model", if (instantTemplateId == null) "realtime-local" else "instant-template")
+            .put("instantTemplateId", instantTemplateId ?: JSONObject.NULL)
     }
 
     private fun recoverRoomToReady(context: String) {
@@ -3298,6 +3640,7 @@ private fun statusHelperText(status: String): String {
 private fun roomModeLabel(mode: String): String {
     return when (mode) {
         "procedure" -> "시술"
+        RoomModeLocalInterpreterExperimental -> "대면 실험"
         RoomModeLocalInterpreter -> "대면"
         else -> "상담"
     }
@@ -3306,13 +3649,14 @@ private fun roomModeLabel(mode: String): String {
 private fun roomModeDescription(mode: String): String {
     return when (mode) {
         "procedure" -> "누워 있는 환자에게 짧은 안내를 바로 번역해 들려줍니다."
+        RoomModeLocalInterpreterExperimental -> "템플릿 우선 + Realtime 실험으로 더 빠른 대면 통역을 테스트합니다."
         RoomModeLocalInterpreter -> "병원 기기 하나를 마주 보고 놓고 양방향 음성 통역을 합니다."
         else -> "직원과 환자가 채팅하듯이 짧게 말하고 번역을 주고받습니다."
     }
 }
 
 private fun languageSelectionStatus(mode: String): String {
-    return if (mode == RoomModeLocalInterpreter) {
+    return if (isLocalInterpreterMode(mode)) {
         "대면 통역에 사용할 환자 언어를 선택하세요."
     } else {
         "${roomModeLabel(mode)} 통역방에 사용할 환자 언어를 선택하세요."
@@ -3561,6 +3905,7 @@ private fun StaffAppScreen(
     onToggleSpeak: () -> Unit,
     onStartLocalTurn: (String) -> Unit,
     onExitLocalInterpreter: () -> Unit,
+    onSwitchToStableLocalInterpreter: () -> Unit,
     onRequestEndRoom: () -> Unit,
     onConfirmEndRoom: () -> Unit,
     onDismissEndRoom: () -> Unit,
@@ -3602,6 +3947,7 @@ private fun StaffAppScreen(
                     .padding(horizontal = metrics.outerHorizontalPadding, vertical = metrics.outerVerticalPadding),
                 onStartLocalTurn = onStartLocalTurn,
                 onExit = onExitLocalInterpreter,
+                onSwitchToStable = onSwitchToStableLocalInterpreter,
                 onReplayTranslation = onReplayTranslation,
                 onTtsEnabled = onTtsEnabled,
                 onRequestMicPermission = onRequestMicPermission,
@@ -3784,6 +4130,23 @@ private fun ModeSelectionScreen(
             onClick = { onRoomMode(RoomModeLocalInterpreter) }
         )
 
+        ModeLargeCard(
+            metrics = metrics,
+            title = "대면 실험",
+            body = "템플릿 우선 + Realtime 실험",
+            badge = "실험",
+            badgeColor = Experiment,
+            icon = {
+                Icon(
+                    Icons.Outlined.Translate,
+                    contentDescription = null,
+                    tint = Experiment,
+                    modifier = Modifier.size(metrics.modeIconSize)
+                )
+            },
+            onClick = { onRoomMode(RoomModeLocalInterpreterExperimental) }
+        )
+
         MainScreenFooter(onLogout = onLogout)
     }
 }
@@ -3825,6 +4188,8 @@ private fun ModeLargeCard(
     metrics: StaffLayoutMetrics,
     title: String,
     body: String,
+    badge: String? = null,
+    badgeColor: Color = Trust,
     icon: @Composable () -> Unit,
     onClick: () -> Unit
 ) {
@@ -3857,14 +4222,18 @@ private fun ModeLargeCard(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(if (metrics.isTablet) 6.dp else 4.dp)
             ) {
-                Text(
-                    title,
-                    color = Ink,
-                    style = if (metrics.isTablet) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        title,
+                        color = Ink,
+                        style = if (metrics.isTablet) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (badge != null) StatusPill(badge, badgeColor)
+                }
                 Text(
                     body,
                     color = SlateText,
@@ -3936,6 +4305,7 @@ private fun languageEnglishLabel(code: String): String {
 private fun modeEnglishLabel(mode: String): String {
     return when (mode) {
         "procedure" -> "Procedure"
+        RoomModeLocalInterpreterExperimental -> "Face to face lab"
         RoomModeLocalInterpreter -> "Face to face"
         else -> "Consultation"
     }
@@ -3944,17 +4314,20 @@ private fun modeEnglishLabel(mode: String): String {
 private fun modeKoreanLabel(mode: String): String {
     return when (mode) {
         "procedure" -> "시술"
+        RoomModeLocalInterpreterExperimental -> "대면 실험"
         RoomModeLocalInterpreter -> "대면"
         else -> "상담"
     }
 }
 
 private fun languageRoomTitle(mode: String): String {
+    if (mode == RoomModeLocalInterpreterExperimental) return "대면 실험"
     if (mode == RoomModeLocalInterpreter) return "대면 통역"
     return "${modeKoreanLabel(mode)} 통역방"
 }
 
 private fun createRoomButtonLabel(mode: String): String {
+    if (mode == RoomModeLocalInterpreterExperimental) return "대면 실험 시작"
     if (mode == RoomModeLocalInterpreter) return "대면 통역 시작"
     return "${modeKoreanLabel(mode)} 통역방 생성"
 }
@@ -4265,6 +4638,7 @@ private fun LocalInterpreterScreen(
     modifier: Modifier = Modifier,
     onStartLocalTurn: (String) -> Unit,
     onExit: () -> Unit,
+    onSwitchToStable: () -> Unit,
     onReplayTranslation: () -> Unit,
     onTtsEnabled: (Boolean) -> Unit,
     onRequestMicPermission: () -> Unit,
@@ -4284,7 +4658,9 @@ private fun LocalInterpreterScreen(
         else -> ""
     }
     val patientLanguageLabel = languageNativeLabel(language)
-    val canStart = !state.busy && !state.speaking && !state.ttsPlaybackActive
+    val experimentalMode = isExperimentalLocalInterpreterMode(state.selectedRoomMode)
+    val canInterruptPlayback = experimentalMode && state.ttsPlaybackActive
+    val canStartOrInterrupt = !state.busy && !state.speaking && (!state.ttsPlaybackActive || canInterruptPlayback)
     val realtimeConnecting = !state.localRealtimeReady && !state.busy && !state.speaking
     val visibleKoreanText = if (realtimeConnecting) "연결 준비중입니다." else koreanText
     val visiblePatientLanguageText = if (realtimeConnecting) localConnectionPreparingText(language.code) else patientLanguageText
@@ -4305,7 +4681,7 @@ private fun LocalInterpreterScreen(
                 emphasizeText = realtimeConnecting,
                 disabledReason = patientDisabledReason,
                 realtimeConnecting = realtimeConnecting,
-                micEnabled = patientActive || (canStart && state.localRealtimeReady),
+                micEnabled = patientActive || (canStartOrInterrupt && state.localRealtimeReady),
                 buttonColor = Mint,
                 landscape = landscape,
                 modifier = Modifier
@@ -4325,6 +4701,7 @@ private fun LocalInterpreterScreen(
                 onReplayTranslation = onReplayTranslation,
                 onTtsEnabled = onTtsEnabled,
                 onExit = onExit,
+                onSwitchToStable = onSwitchToStable,
                 onStatusTap = onStatusTap
             )
 
@@ -4336,7 +4713,7 @@ private fun LocalInterpreterScreen(
                 emphasizeText = realtimeConnecting,
                 disabledReason = staffDisabledReason,
                 realtimeConnecting = realtimeConnecting,
-                micEnabled = staffActive || (canStart && state.localRealtimeReady),
+                micEnabled = staffActive || (canStartOrInterrupt && state.localRealtimeReady),
                 buttonColor = Trust,
                 landscape = landscape,
                 modifier = Modifier
@@ -4566,8 +4943,10 @@ private fun LocalInterpreterControlStrip(
     onReplayTranslation: () -> Unit,
     onTtsEnabled: (Boolean) -> Unit,
     onExit: () -> Unit,
+    onSwitchToStable: () -> Unit,
     onStatusTap: () -> Unit
 ) {
+    val experimentalMode = isExperimentalLocalInterpreterMode(state.selectedRoomMode)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -4583,6 +4962,17 @@ private fun LocalInterpreterControlStrip(
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.titleMedium
             )
+            if (experimentalMode) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                ) {
+                    StatusPill("실험", Experiment)
+                    if (state.localEngineStatus.isNotBlank()) StatusPill(state.localEngineStatus, Experiment)
+                    if (state.localResultBadge.isNotBlank()) StatusPill(state.localResultBadge, Trust)
+                }
+            }
             Text(
                 state.status,
                 color = Color(0xFFCBD5E1),
@@ -4592,6 +4982,14 @@ private fun LocalInterpreterControlStrip(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.hiddenDebugTap(onStatusTap)
             )
+        }
+        if (experimentalMode) {
+            TextButton(
+                onClick = onSwitchToStable,
+                enabled = !state.busy && !state.speaking
+            ) {
+                Text("안정 대면", color = Color.White, fontWeight = FontWeight.Bold)
+            }
         }
         OutlinedButton(
             onClick = onReplayTranslation,
@@ -5114,6 +5512,18 @@ private fun RoomPanel(
                     body = "시술 중 누워 있는 환자에게 짧은 안내를 들려줍니다.",
                     selected = state.selectedRoomMode == "procedure",
                     onClick = { onRoomMode("procedure") }
+                )
+                ModeChoiceButton(
+                    title = "대면 통역",
+                    body = "한 기기로 마주 보고 쓰는 안정 대면 모드입니다.",
+                    selected = state.selectedRoomMode == RoomModeLocalInterpreter,
+                    onClick = { onRoomMode(RoomModeLocalInterpreter) }
+                )
+                ModeChoiceButton(
+                    title = "대면 실험",
+                    body = "템플릿 우선 + Realtime 실험 모드입니다.",
+                    selected = state.selectedRoomMode == RoomModeLocalInterpreterExperimental,
+                    onClick = { onRoomMode(RoomModeLocalInterpreterExperimental) }
                 )
             }
             Spacer(Modifier.height(12.dp))
