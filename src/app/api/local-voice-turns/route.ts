@@ -21,6 +21,14 @@ function isTranscriptionPromptCompatibilityError(detail: string) {
   return /(?:prompt.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*prompt)/i.test(detail);
 }
 
+function isTranscriptionLanguageCompatibilityError(detail: string) {
+  return /(?:language.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*language)/i.test(detail);
+}
+
+function shouldSendTranscriptionLanguageHint(language: string) {
+  return language !== "mn";
+}
+
 function textField(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
@@ -106,7 +114,10 @@ export async function POST(request: Request) {
   const transcriptionForm = new FormData();
   transcriptionForm.set("file", audio, audio.name || `${clientTurnId}.wav`);
   transcriptionForm.set("model", normalizedTranscriptionModel(process.env.OPENAI_TRANSCRIPTION_MODEL));
-  transcriptionForm.set("language", transcriptionLanguageFor(direction, patientLanguage));
+  const transcriptionLanguage = transcriptionLanguageFor(direction, patientLanguage);
+  if (shouldSendTranscriptionLanguageHint(transcriptionLanguage)) {
+    transcriptionForm.set("language", transcriptionLanguage);
+  }
   transcriptionForm.set("response_format", "json");
   transcriptionForm.set("prompt", buildClinicTranscriptionPrompt(sourceLanguage, glossaryData.transcriptionHints));
 
@@ -122,6 +133,22 @@ export async function POST(request: Request) {
 
   if (!transcriptionResponse.ok) {
     transcriptionErrorDetail = await transcriptionResponse.text().catch(() => "");
+    if (transcriptionForm.has("language") && isTranscriptionLanguageCompatibilityError(transcriptionErrorDetail)) {
+      transcriptionForm.delete("language");
+      transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "OpenAI-Safety-Identifier": `clinic-voice-room-local-stt-${staff.hospitalId}-${staff.id}-${direction}`
+        },
+        body: transcriptionForm
+      });
+      transcriptionErrorDetail = "";
+    }
+  }
+
+  if (!transcriptionResponse.ok) {
+    transcriptionErrorDetail ||= await transcriptionResponse.text().catch(() => "");
     if (isTranscriptionPromptCompatibilityError(transcriptionErrorDetail)) {
       transcriptionForm.delete("prompt");
       transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {

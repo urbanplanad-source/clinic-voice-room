@@ -26,6 +26,14 @@ function isTranscriptionPromptCompatibilityError(detail: string) {
   return /(?:prompt.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*prompt)/i.test(detail);
 }
 
+function isTranscriptionLanguageCompatibilityError(detail: string) {
+  return /(?:language.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*language)/i.test(detail);
+}
+
+function shouldSendTranscriptionLanguageHint(language: string) {
+  return language !== "mn";
+}
+
 const realtimeMessageSchema = z.object({
   roomId: z.string(),
   roomToken: z.string().optional(),
@@ -352,7 +360,10 @@ async function handleAudioTurn(request: Request) {
   const transcriptionForm = new FormData();
   transcriptionForm.set("file", audio, audio.name || `${clientTurnId}.webm`);
   transcriptionForm.set("model", normalizedTranscriptionModel(process.env.OPENAI_TRANSCRIPTION_MODEL));
-  transcriptionForm.set("language", transcriptionLanguageFor(role, patientLanguage));
+  const transcriptionLanguage = transcriptionLanguageFor(role, patientLanguage);
+  if (shouldSendTranscriptionLanguageHint(transcriptionLanguage)) {
+    transcriptionForm.set("language", transcriptionLanguage);
+  }
   transcriptionForm.set("response_format", "json");
   transcriptionForm.set("prompt", buildClinicTranscriptionPrompt(role === "staff" ? "ko" : patientLanguage, glossaryData.transcriptionHints));
 
@@ -368,6 +379,22 @@ async function handleAudioTurn(request: Request) {
 
   if (!transcriptionResponse.ok) {
     transcriptionErrorDetail = await transcriptionResponse.text().catch(() => "");
+    if (transcriptionForm.has("language") && isTranscriptionLanguageCompatibilityError(transcriptionErrorDetail)) {
+      transcriptionForm.delete("language");
+      transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "OpenAI-Safety-Identifier": `clinic-voice-room-procedure-stt-${room.id}-${role}`
+        },
+        body: transcriptionForm
+      });
+      transcriptionErrorDetail = "";
+    }
+  }
+
+  if (!transcriptionResponse.ok) {
+    transcriptionErrorDetail ||= await transcriptionResponse.text().catch(() => "");
     if (isTranscriptionPromptCompatibilityError(transcriptionErrorDetail)) {
       transcriptionForm.delete("prompt");
       transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {

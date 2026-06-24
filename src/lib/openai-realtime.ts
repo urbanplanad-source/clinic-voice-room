@@ -88,12 +88,34 @@ function isPromptCompatibilityError(detail: string) {
   return /(?:audio\.input\.transcription\.prompt|transcription\.prompt|prompt.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*prompt)/i.test(detail);
 }
 
+function isLanguageCompatibilityError(detail: string) {
+  return /(?:audio\.input\.transcription\.language|transcription\.language|language.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*language)/i.test(detail);
+}
+
 function isAudioOutputCompatibilityError(detail: string) {
   return /(?:output_modalities|audio\.output|output_audio|voice|audio output|output.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*output|audio.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*audio)/i.test(detail);
 }
 
 function buildRealtimeTurnDetection(manualTurn?: boolean) {
   return manualTurn ? null : undefined;
+}
+
+function shouldSendRealtimeLanguageHint(inputLanguage: PatientLanguage | "ko") {
+  return inputLanguage !== "mn";
+}
+
+function realtimeTranscriptionConfig(
+  inputLanguage: PatientLanguage | "ko",
+  transcriptionModel: string,
+  transcriptionPrompt: string,
+  includeTranscriptionPrompt: boolean,
+  includeLanguageHint: boolean
+) {
+  return {
+    model: transcriptionModel,
+    ...(includeTranscriptionPrompt ? { prompt: transcriptionPrompt } : {}),
+    ...(includeLanguageHint ? { language: realtimeInputLanguageHints[inputLanguage] } : {})
+  };
 }
 
 export async function createRealtimeSessionToken(params: {
@@ -138,7 +160,7 @@ export async function createRealtimeSessionToken(params: {
     : `clinic-voice-room-${params.role}`;
   const requestedOutputAudio = Boolean(params.outputAudio);
 
-  const requestSessionToken = (includeTranscriptionPrompt: boolean, outputAudio: boolean) => {
+  const requestSessionToken = (includeTranscriptionPrompt: boolean, outputAudio: boolean, includeLanguageHint: boolean) => {
     const manualTurnForRequest = Boolean(params.manualTurn);
 
     return fetch("https://api.openai.com/v1/realtime/client_secrets", {
@@ -161,9 +183,13 @@ export async function createRealtimeSessionToken(params: {
           audio: {
             input: {
               format: manualTurnForRequest ? { type: "audio/pcm", rate: 24000 } : undefined,
-              transcription: includeTranscriptionPrompt
-                ? { model: transcriptionModel, prompt: transcriptionPrompt, language: realtimeInputLanguageHints[inputLanguage] }
-                : { model: transcriptionModel, language: realtimeInputLanguageHints[inputLanguage] },
+              transcription: realtimeTranscriptionConfig(
+                inputLanguage,
+                transcriptionModel,
+                transcriptionPrompt,
+                includeTranscriptionPrompt,
+                includeLanguageHint
+              ),
               noise_reduction: { type: "near_field" },
               turn_detection: buildRealtimeTurnDetection(manualTurnForRequest)
             },
@@ -174,32 +200,40 @@ export async function createRealtimeSessionToken(params: {
     });
   };
 
-  let outputAudioEnabled = requestedOutputAudio;
-  let response = await requestSessionToken(Boolean(transcriptionPrompt), outputAudioEnabled);
-  let detail = "";
+  const requestCompatibleSessionToken = async (outputAudio: boolean) => {
+    let includeTranscriptionPrompt = Boolean(transcriptionPrompt);
+    let includeLanguageHint = shouldSendRealtimeLanguageHint(inputLanguage);
+    let response = await requestSessionToken(includeTranscriptionPrompt, outputAudio, includeLanguageHint);
+    let detail = "";
 
-  if (!response.ok) {
-    detail = await response.text();
-    if (transcriptionPrompt && isPromptCompatibilityError(detail)) {
-      response = await requestSessionToken(false, outputAudioEnabled);
-      detail = "";
+    for (let attempt = 0; attempt < 3 && !response.ok; attempt += 1) {
+      detail = await response.text();
+      if (includeLanguageHint && isLanguageCompatibilityError(detail)) {
+        includeLanguageHint = false;
+        response = await requestSessionToken(includeTranscriptionPrompt, outputAudio, includeLanguageHint);
+        detail = "";
+        continue;
+      }
+      if (includeTranscriptionPrompt && isPromptCompatibilityError(detail)) {
+        includeTranscriptionPrompt = false;
+        response = await requestSessionToken(includeTranscriptionPrompt, outputAudio, includeLanguageHint);
+        detail = "";
+        continue;
+      }
+      break;
     }
-  }
+
+    return { response, detail };
+  };
+
+  let outputAudioEnabled = requestedOutputAudio;
+  let { response, detail } = await requestCompatibleSessionToken(outputAudioEnabled);
 
   if (!response.ok && requestedOutputAudio) {
     detail ||= await response.text();
     if (isAudioOutputCompatibilityError(detail)) {
       outputAudioEnabled = false;
-      response = await requestSessionToken(Boolean(transcriptionPrompt), false);
-      detail = "";
-
-      if (!response.ok) {
-        detail = await response.text();
-        if (transcriptionPrompt && isPromptCompatibilityError(detail)) {
-          response = await requestSessionToken(false, false);
-          detail = "";
-        }
-      }
+      ({ response, detail } = await requestCompatibleSessionToken(false));
     }
   }
 
