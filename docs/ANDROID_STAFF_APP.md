@@ -219,7 +219,7 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
-- Android v0.3.15 makes the face-to-face experimental mode use a faster Realtime turn timing similar to the consultation room path, while keeping instant templates and the existing retry-on-mismatch guard isolated to the experimental mode.
+- Android v0.3.15 makes the face-to-face experimental mode use faster Realtime turn timing similar to the consultation room path. Instant templates remain part of Android local interpreter behavior, and high-risk experimental results are labeled as needing confirmation rather than as already verified.
 - Android v0.3.14 adds a separate Android-only face-to-face experimental mode with instant templates first, a Realtime-v1 engine boundary for future Bidi replacement, experiment/result status labels, and TTS interruption for the next speaker.
 - Android v0.3.13 adds a conservative Android local-interpreter instant-template path for 20 approved Korean staff phrases, including Brazilian Portuguese translations, while keeping unmatched speech on the existing Realtime text-only path.
 - Android v0.3.12 switches local interpreter Realtime back to text-only responses, uses warmed Android TTS for playback, and shortens the translated-output quiet window to reduce the delay after the mic button is released.

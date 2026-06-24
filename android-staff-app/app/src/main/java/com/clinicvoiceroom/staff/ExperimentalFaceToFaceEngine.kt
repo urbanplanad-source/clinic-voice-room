@@ -17,7 +17,7 @@ class ExperimentalFaceToFaceEngine(
 
         val policy = when {
             model == "instant-template" -> ExperimentalPlaybackPolicy.Template
-            highRisk -> ExperimentalPlaybackPolicy.VerifiedFinal
+            highRisk -> ExperimentalPlaybackPolicy.HighRiskReview
             else -> ExperimentalPlaybackPolicy.Realtime
         }
 
@@ -45,7 +45,7 @@ private enum class ExperimentalPlaybackPolicy(
 ) {
     Template("template", "템플릿", "템플릿 즉시", "instant-template"),
     Realtime("realtime", "Realtime", "Realtime 처리", "realtime"),
-    VerifiedFinal("verified-final", "검증됨", "검증 후 재생", "verified-final")
+    HighRiskReview("high-risk", "확인 필요", "고위험 확인", "high-risk")
 }
 
 private val highRiskTerms = listOf(

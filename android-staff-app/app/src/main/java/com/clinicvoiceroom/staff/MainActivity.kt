@@ -149,7 +149,6 @@ private val BlueTint = Color(0xFFEFF6FF)
 private val GreenTint = Color(0xFFEFFCF7)
 private val RoseTint = Color(0xFFFFF1F2)
 private val Experiment = Color(0xFFD97706)
-private val ExperimentTint = Color(0xFFFFF7ED)
 
 private data class StaffLayoutMetrics(
     val isTablet: Boolean,
@@ -246,7 +245,7 @@ private const val RealtimeInputTranscriptRepairWaitMs = 2400L
 private const val ExperimentalRealtimeTurnWaitMs = 5000L
 private const val ExperimentalRealtimeOutputQuietMs = 220L
 private const val ExperimentalRealtimeInstantTemplateProbeMs = 120L
-private const val ExperimentalRealtimeInputTranscriptFastWaitMs = 250L
+private const val ExperimentalRealtimeInputTranscriptFastWaitMs = 650L
 private const val ExperimentalRealtimeInputTranscriptRepairWaitMs = 1200L
 private const val RecordingStopJoinMs = 250L
 private const val StaffRecordingMaxMs = 60_000L
@@ -2859,7 +2858,7 @@ class MainActivity : ComponentActivity() {
                             translatedDraft = if (direction == LocalDirectionKoToPatient) retryPatient else retryKorean,
                             lastMessageSpeaker = speaker,
                             localTurnDirection = direction,
-                            localEngineStatus = if (experimentalMode) "검증 후 재생" else "",
+                            localEngineStatus = if (experimentalMode) "검증 보류" else "",
                             localResultBadge = if (experimentalMode) "보류됨" else "",
                             status = "번역 내용이 서로 맞지 않아 다시 말해주세요."
                         )
@@ -5617,7 +5616,10 @@ private fun RoomPanel(
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Trust, contentColor = Color.White)
             ) {
-                Text(if (state.selectedRoomMode == "procedure") "시술 통역방 생성" else "상담 통역방 생성", fontWeight = FontWeight.Bold)
+                Text(
+                    if (state.busy) "생성 중..." else createRoomButtonLabel(state.selectedRoomMode),
+                    fontWeight = FontWeight.Bold
+                )
             }
         } else {
             val language = patientLanguages.firstOrNull { it.code == room.patientLanguage }
