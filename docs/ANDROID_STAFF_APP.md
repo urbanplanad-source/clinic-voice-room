@@ -74,13 +74,13 @@ cd "C:\Users\user\Desktop\개발 작업\clinic-voice-room\android-staff-app"
 Installable field-test APK after build:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/medivoice-0.3.18-field.apk
+android-staff-app/app/build/outputs/apk/field/medivoice-0.3.19-field.apk
 ```
 
 Latest local field-test APK:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/medivoice-0.3.18-field.apk
+android-staff-app/app/build/outputs/apk/field/medivoice-0.3.19-field.apk
 SHA256: build locally to generate
 ```
 
@@ -115,8 +115,8 @@ Do not install or distribute the unsigned release APK. Use it only to verify rel
 
 Current app version:
 
-- versionName: `0.3.18`
-- versionCode: `30`
+- versionName: `0.3.19`
+- versionCode: `31`
 
 Pinned build stack:
 
@@ -126,8 +126,8 @@ Pinned build stack:
 - Compose BOM: 2024.12.01
 - minSdk: 26
 - compileSdk/targetSdk: 35
-- Google Play field APK: `android-staff-app/app/build/outputs/apk/field/medivoice-0.3.18-field.apk`
-- Google Play release AAB filename after bundle build: `android-staff-app/app/build/outputs/bundle/release/medivoice-0.3.18-release.aab`
+- Google Play field APK: `android-staff-app/app/build/outputs/apk/field/medivoice-0.3.19-field.apk`
+- Google Play release AAB filename after bundle build: `android-staff-app/app/build/outputs/bundle/release/medivoice-0.3.19-release.aab`
 - Store privacy policy page draft: `/privacy`
 
 `android.overridePathCheck=true` is set for Korean workspace paths.
@@ -219,6 +219,7 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
+- Android v0.3.19 adds dermatology and plastic-surgery price-list terminology to the web glossary, Realtime prompts, and Android local normalization, covering common lifting devices, filler brands, toxin brands, skin boosters, peel care, acne-scar care, and body-area Botox names while excluding fixed price values from app logic.
 - Android v0.3.18 adds Re2O / 리투오 Korean transcription hints, glossary normalization, Realtime prompt preservation, and Android local display/TTS text correction so Re2O skinbooster mentions are less likely to be misrecognized or mistranslated.
 - Android v0.3.17 removes the experimental face-to-face `안정 대면` switch, simplifies the center strip to match the regular face-to-face layout, and adds an experimental-only in-memory conversation summary flow that shows patient-language and Korean summaries without storing the transcript in the database.
 - Android v0.3.16 hardens instant-template Realtime turns by ignoring delayed transcripts from deleted input items, and raises the experimental template probe window to improve template-hit reliability without changing stable face-to-face timing.
@@ -247,6 +248,6 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 - Android v0.2.3 makes Android and web staff QR links both include `?mode=consultation|procedure` for clearer field-test handoff. The server still uses `TranslationRoom.roomMode` as the source of truth.
 - Android v0.2.2 puts the active translation panel before room metadata after the patient joins, so staff see chat/mic controls first.
 - Android v0.2.1 and later use the phone's normal media volume/output route for TTS and request no Bluetooth permission.
-- The v0.3.18 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
+- The v0.3.19 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
 - A real two-phone field test is required before marking the app production-ready.
 

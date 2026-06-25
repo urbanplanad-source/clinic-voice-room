@@ -63,10 +63,58 @@ export const realtimeKoreanTranscriptionHints = [
   "ECM",
   "울쎄라",
   "울쎄라 프라임",
+  "울쎄라피 프라임",
   "써마지",
   "써마지 FLX",
+  "세르프",
+  "XERF",
+  "티타늄 리프팅",
+  "레비나스",
+  "온다",
+  "브이로 어드밴스",
+  "브이로리프팅",
+  "슈링크 유니버스",
   "포텐자",
+  "듀얼 프락셀",
+  "미라클 잡티 클리닉",
   "피코레이저",
+  "C+B 토닝",
+  "프락셔널 레이저",
+  "스탬프",
+  "PDRN",
+  "PRP",
+  "LDM",
+  "HDA",
+  "주비덤",
+  "쥬비덤",
+  "레스틸렌",
+  "레스틸렌 비탈",
+  "벨로테로",
+  "엘라비에",
+  "스컬트라",
+  "스킨바이브",
+  "하이쥬",
+  "더마샤인",
+  "리즈톡스",
+  "디스포트",
+  "제오민",
+  "앨러간",
+  "브이라인 보톡스",
+  "풀페이스 보톡스",
+  "사각턱 보톡스",
+  "침샘 보톡스",
+  "승모근 보톡스",
+  "종아리 보톡스",
+  "다한증 보톡스",
+  "블랙필",
+  "아쿠아필",
+  "라라필",
+  "물톡필",
+  "핑크필",
+  "산소필",
+  "예스필",
+  "소노스타일러",
+  "테라클리어",
   "스킨부스터",
   "보툴리눔 톡신",
   "필러",
@@ -263,6 +311,47 @@ const rawClinicGlossary = `
 프로파일로|Profhilo,프로파일로,五点提升,プロファイロ,Profhilo,Profhilo,Profhilo,Profhilo,brand,스킨부스터 브랜드명
 레니스나|렌티스|Lenisna|Lensis,레니스나,兰提斯,レニスナ,Lenisna,Lenisna,Lenisna,Lenisna,brand,스킨부스터 브랜드명
 Re2O|리투오|리투오주사|리투오 주사|리투오스킨부스터|리투오 스킨부스터|리투어|리트오|알이투오|알이투오 주사,Re2O,Re2O,Re2O,Re2O,Re2O,Re2O,Re2O,brand,동종진피(hADM) 기반 스킨부스터 브랜드명
+엘라비에|Elravie|엘라비에Re2O|Elravie Re2O,엘라비에,Elravie,エラビエ,Elravie,Elravie,Elravie,Elravie,brand,필러와 스킨부스터 가격표 브랜드명
+레스틸렌|Restylane|瑞兰|瑞藍,레스틸렌,瑞蓝,レスチレン,Restylane,Restylane,Restylane,Restylane,brand,필러 브랜드명
+벨로테로|Belotero|保揉提,벨로테로,保揉提,ベロテロ,Belotero,Belotero,Belotero,Belotero,brand,필러 브랜드명
+레스틸렌비탈|레스틸렌 비탈|Restylane Vital|瑞蓝唯提|瑞藍唯提,레스틸렌 비탈,瑞蓝唯提,レスチレン ビタール,Restylane Vital,Restylane Vital,Restylane Vital,Restylane Vital,brand,스킨부스터 브랜드명
+스킨바이브|스킨 바이브|SKIN VIVE|Skinvive,스킨바이브,SKIN VIVE,スキンバイブ,Skinvive,Skinvive,Skinvive,Skinvive,brand,스킨부스터 브랜드명
+하이쥬|하이주|Hyaju|海珠,하이쥬,海珠,ハイジュ,Hyaju,Hyaju,Hyaju,Hyaju,brand,스킨부스터 브랜드명
+더마샤인|더마신|Dermashine|德玛莎,더마샤인,德玛莎,ダーマシャイン,Dermashine,Dermashine,Dermashine,Dermashine,device,주사 기기명
+스컬트라|Sculptra|塑颜翠|塑顏翠,스컬트라,塑颜翠,スカルプトラ,Sculptra,Sculptra,Sculptra,Sculptra,brand,콜라겐 부스터 브랜드명
+피알피|PRP|혈청PRP|血清PRP,PRP,血清PRP,PRP,PRP,PRP,PRP,PRP,procedure,자가혈 스킨부스터
+엘디엠|LDM,LDM,LDM,LDM,LDM,LDM,LDM,LDM,device,피부관리 장비명
+에이치디에이|HDA,HDA,HDA,HDA,HDA,HDA,HDA,HDA,procedure,부위별 스킨부스터 시술명
+슈링크유니버스|슈링크 유니버스|Shurink Universe|shurrink|舒丽科,슈링크 유니버스,Shurink Universe,シュリンクユニバース,Shurink Universe,Shurink Universe,Shurink Universe,Shurink Universe,device,HIFU 리프팅 장비명
+레비나스|Revinas|체외충격파,레비나스,Revinas 体外冲击波,レヴィナス,Revinas shockwave,Revinas shockwave,Revinas shockwave,Revinas shockwave,device,장비명
+온다|ONDA|온다리프팅|온다 리프팅|微波提升,온다,ONDA 微波提升,ONDA,ONDA microwave lifting,ONDA microwave lifting,ONDA microwave lifting,ONDA microwave lifting,device,장비명
+브이로어드밴스|브이로 어드밴스|브이로리프팅|VRO Advance|V-RO ADVANCE,브이로 어드밴스,V-RO ADVANCE,V-RO ADVANCE,V-RO ADVANCE,V-RO ADVANCE,V-RO ADVANCE,V-RO ADVANCE,device,HIFU와 RF 복합 리프팅 장비명
+미라클잡티클리닉|미라클 잡티 클리닉|Miracle Spot Clinic|奇迹淡斑诊所,미라클 잡티 클리닉,奇迹淡斑诊所,ミラクルスポットクリニック,Miracle Spot Clinic,Miracle Spot Clinic,Miracle Spot Clinic,Miracle Spot Clinic,procedure,색소 시술명
+듀얼프락셀|듀얼 프락셀|Fraxel Dual|双效飞梭,듀얼 프락셀,双效飞梭,フラクセルデュアル,Fraxel Dual,Fraxel Dual,Fraxel Dual,Fraxel Dual,device,프락셔널 레이저 장비명
+씨앤비토닝|C+B토닝|C+B 토닝|C+B Toning Laser|C+B 素颜光,씨앤비 토닝,C+B 素颜光,C+Bトーニング,C+B toning laser,C+B toning laser,C+B toning laser,C+B toning laser,procedure,색소 레이저 시술명
+프락셔널레이저스탬프PDRN|프락셔널 레이저 스탬프 PDRN|Fractional laser stamp PDRN|飞梭激光 stamp PDRN,프락셔널 레이저 스탬프 PDRN,飞梭激光+stamp+PDRN,フラクショナルレーザー stamp PDRN,Fractional laser stamp PDRN,Fractional laser stamp PDRN,Fractional laser stamp PDRN,Fractional laser stamp PDRN,procedure,스킨부스터 병합 시술명
+리즈톡스|Liztox,리즈톡스,Liztox,Liztox,Liztox,Liztox,Liztox,Liztox,brand,보툴리눔 톡신 브랜드명
+디스포트|Dysport,디스포트,Dysport,Dysport,Dysport,Dysport,Dysport,Dysport,brand,보툴리눔 톡신 브랜드명
+제오민|Xeomin,제오민,Xeomin,ゼオミン,Xeomin,Xeomin,Xeomin,Xeomin,brand,보툴리눔 톡신 브랜드명
+앨러간|알러간|Allergan,앨러간,Allergan,アラガン,Allergan,Allergan,Allergan,Allergan,brand,보툴리눔 톡신 브랜드명
+브이라인보톡스|브이라인 보톡스|V라인 보톡스|V-Line Botox|V脸肉毒素,브이라인 보톡스,V脸肉毒素,Vラインボトックス,V-line Botox,V-line Botox,V-line Botox,V-line Botox,procedure,윤곽 보톡스 시술명
+풀페이스보톡스|풀페이스 보톡스|Full Face Botox|스킨보톡스,풀페이스 보톡스,全脸肉毒素,フルフェイスボトックス,full face Botox,full face Botox,full face Botox,full face Botox,procedure,보톡스 시술명
+사각턱보톡스|사각턱 보톡스|Masseter Botox|咬肌肉毒素,사각턱 보톡스,咬肌肉毒素,エラボトックス,masseter Botox,masseter Botox,masseter Botox,masseter Botox,procedure,보톡스 부위명
+침샘보톡스|침샘 보톡스|Salivary Gland Botox|腮腺肉毒素,침샘 보톡스,腮腺肉毒素,唾液腺ボトックス,salivary gland Botox,salivary gland Botox,salivary gland Botox,salivary gland Botox,procedure,보톡스 부위명
+승모근보톡스|승모근 보톡스|Trapezius Botox,승모근 보톡스,斜方肌肉毒素,僧帽筋ボトックス,trapezius Botox,trapezius Botox,trapezius Botox,trapezius Botox,procedure,보톡스 부위명
+종아리보톡스|종아리 보톡스|Calf Botox|瘦腿针,종아리 보톡스,瘦腿针,ふくらはぎボトックス,calf Botox,calf Botox,calf Botox,calf Botox,procedure,보톡스 부위명
+다한증보톡스|다한증 보톡스|Hyperhidrosis Botox|多汗症肉毒素,다한증 보톡스,多汗症肉毒素,多汗症ボトックス,hyperhidrosis Botox,hyperhidrosis Botox,hyperhidrosis Botox,hyperhidrosis Botox,procedure,보톡스 부위명
+블랙필|Black Peel|黑醋护理,블랙필,黑醋护理,ブラックピール,Black Peel,Black Peel,Black Peel,Black Peel,procedure,피부관리 시술명
+아쿠아필|Aqua Peel|小气泡,아쿠아필,小气泡,アクアピール,Aqua Peel,Aqua Peel,Aqua Peel,Aqua Peel,procedure,피부관리 시술명
+라라필|LHALA Peel|라라 필|第五代刷酸,라라필,第五代刷酸,ララピール,LHALA Peel,LHALA Peel,LHALA Peel,LHALA Peel,procedure,피부관리 시술명
+물톡필|Mooltok Peel|물톡 필|第五代刷酸,물톡필,第五代刷酸,ムルトックピール,Mooltok Peel,Mooltok Peel,Mooltok Peel,Mooltok Peel,procedure,피부관리 시술명
+핑크필|Pink Peel|핑크 필|第五代刷酸,핑크필,第五代刷酸,ピンクピール,Pink Peel,Pink Peel,Pink Peel,Pink Peel,procedure,피부관리 시술명
+산소필|Oxygen Peel|산소 필|第五代刷酸,산소필,第五代刷酸,酸素ピール,Oxygen Peel,Oxygen Peel,Oxygen Peel,Oxygen Peel,procedure,피부관리 시술명
+예스필|Yes Peel|예스 필|第五代刷酸,예스필,第五代刷酸,イエスピール,Yes Peel,Yes Peel,Yes Peel,Yes Peel,procedure,피부관리 시술명
+소노스타일러|Sono Styler|초음파관리|超声波护理,소노스타일러,超声波护理,Sono Styler,Sono Styler,Sono Styler,Sono Styler,Sono Styler,device,피부관리 장비명
+테라클리어|Theraclear,테라클리어,Theraclear,Theraclear,Theraclear,Theraclear,Theraclear,Theraclear,device,여드름 관리 장비명
+여드름압출관리|여드름 압출 관리|痘痘针清管理,여드름 압출 관리,痘痘针清管理,ニキビ圧出管理,acne extraction care,acne extraction care,acne extraction care,acne extraction care,procedure,피부관리 시술명
+고탄력관리|고탄력 관리|BTS관리|BTS 관리|高弹力护理,고탄력 관리,高弹力护理,高弾力ケア,high-elasticity care,high-elasticity care,high-elasticity care,high-elasticity care,procedure,피부관리 시술명
 리쥬란|리주란|三文鱼针|三文魚針,리쥬란,丽珠兰,リジュラン,Rejuran,Rejuran,Rejuran,Rejuran,brand,브랜드명
 리쥬란힐러|리쥬란 힐러,리쥬란 힐러,丽珠兰 Healer,リジュランヒーラー,Rejuran Healer,Rejuran Healer,Rejuran Healer,Rejuran Healer,brand,브랜드명
 리쥬란블랙박스|리쥬란 블랙박스|리쥬란 블랙 박스|리쥬란 힐러|블랙박스|블랙 박스|黑盒|黑盒子|黑火|黑河|黑和|黑合|黑核|灰盒|灰火|헤이허|헤이훠|훼이훠|heihe|hei he|hei huo|black box|black fire,리쥬란 힐러,丽珠兰黑盒,リジュラン ブラックボックス,Rejuran Black Box,Rejuran Black Box,Rejuran Black Box,Rejuran Black Box,brand,리쥬란 제품 색상 별칭
@@ -1048,7 +1137,7 @@ export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage
     "- Critical short phrase mappings:",
     ...sourceCriticalPhrases.map((entry) => `  - ${entry.spoken.join(" / ")} => ${targetForCritical(entry, patientLanguage)} (${entry.note})`),
     "- For Traditional Chinese and Cantonese, use Traditional Chinese characters even when a glossary source term is shown in Simplified Chinese.",
-    "- For Thai, Vietnamese, Indonesian, Malay, Filipino/Tagalog, Mongolian, French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names such as Re2O.",
+    "- For Thai, Vietnamese, Indonesian, Malay, Filipino/Tagalog, Mongolian, French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names such as Re2O, XERF, Thermage FLX, Ultherapy Prime, Juvelook, Restylane, Belotero, Sculptra, Skinvive, PRP, LDM, and HDA.",
     "- Do not expand brand names into generic explanations unless the staff explains them."
   ];
   const termLines = rawGlossaryTargetLanguages.has(patientLanguage)
@@ -1067,6 +1156,7 @@ export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLang
       `Prefer these Korean phrases when acoustically plausible: ${koreanHints}.`,
       "When the sound is close, prefer Rejuran as 리쥬란 and swelling as 부종, not 니주란 or 그종.",
       "When the sound is close to 리투오, 리투어, 리트오, or 알이투오 in a skinbooster context, transcribe the product name as Re2O.",
+      "Price-list procedure names may include Ultherapy Prime, Thermage FLX, XERF, Titanium Lifting, Revinas, ONDA, V-RO ADVANCE, Shurink Universe, Fraxel Dual, Miracle Spot Clinic, C+B Toning, PRP, LDM, HDA, Restylane Vital, Skinvive, Sculptra, Hyaju, Dermashine, Liztox, Dysport, Xeomin, and Allergan.",
       "Rejuran color-box product names may be spoken as 리쥬란 블랙박스, 리쥬란 레드박스, 리쥬란 화이트박스, 리쥬란 블루박스, or 리쥬란 퍼플박스.",
       "Do not reinterpret pain-check phrases as sleepiness, setup, or casual conversation."
     ].join(" ");
@@ -1076,10 +1166,10 @@ export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLang
     return [
       "Dermatology and plastic surgery interpretation room.",
       inputLanguage === "yue" ? "The patient may speak Cantonese/Yue as used in Hong Kong." : "",
-      "Preserve clinic brand names such as Rejuran, Juvelook, Re2O, Ultherapy, Thermage, Potenza, and Pico laser.",
+      "Preserve clinic brand names such as Rejuran, Juvelook, Re2O, Ultherapy, Ultherapy Prime, Thermage FLX, XERF, Potenza, Pico laser, Restylane, Belotero, Sculptra, Skinvive, PRP, LDM, and HDA.",
       "Chinese patients may use Rejuran color-box nicknames: 黑盒 means Rejuran Black Box, 红盒/紅盒 means Rejuran Red Box, 白盒 means Rejuran I, 蓝盒/藍盒 means Rejuran S, and 紫盒 means Rejuran Elaskin.",
       "If the sound is close in this clinic context, prefer color + 盒 over color + 火/河/和/合, for example 黑盒 over 黑火, 红盒 over 红火, 白盒 over 白火, 蓝盒 over 蓝火, and 紫盒 over 紫火.",
-      "Common Chinese clinic aliases include 三文鱼针 for Rejuran, 热玛吉 for Thermage, 超声刀 for Ultherapy or HIFU lifting, 皮秒 for Pico laser, 泪沟填充 for under-eye filler, and 溶脂针 for lipolysis injection.",
+      "Common Chinese clinic aliases include 三文鱼针 for Rejuran, 热玛吉 for Thermage, 超声刀 for Ultherapy or HIFU lifting, 第二代超声刀 for Ultherapy Prime, 瑞蓝唯提 for Restylane Vital, 塑颜翠 for Sculptra, 小气泡 for Aqua Peel, 第五代刷酸 for peel care, 皮秒 for Pico laser, 泪沟填充 for under-eye filler, and 溶脂针 for lipolysis injection.",
       "The speaker may answer briefly about pain, discomfort, movement, or whether they are okay.",
       "Keep medical procedure context when transcribing short phrases."
     ].filter(Boolean).join(" ");
@@ -1087,7 +1177,7 @@ export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLang
 
   return [
     "Dermatology and plastic surgery interpretation room.",
-    "Preserve clinic brand names such as Rejuran, Juvelook, Re2O, Ultherapy, Thermage, Potenza, and Pico laser.",
+    "Preserve clinic brand names such as Rejuran, Juvelook, Re2O, Ultherapy, Ultherapy Prime, Thermage FLX, XERF, Potenza, Pico laser, Restylane, Belotero, Sculptra, Skinvive, PRP, LDM, and HDA.",
     "The speaker may answer briefly about pain, discomfort, movement, or whether they are okay.",
     "Keep medical procedure context when transcribing short phrases."
   ].join(" ");

@@ -36,4 +36,20 @@ describe("clinic glossary display normalization", () => {
     expect(buildClinicTranscriptionPrompt("ko")).toContain("Re2O");
     expect(buildClinicTranscriptionPrompt("ko")).toContain("리투오");
   });
+
+  it("normalizes price-list treatment and brand names from dermatology and plastic surgery sheets", () => {
+    expect(normalizeClinicTranslation("브이로어드밴스와 듀얼 프락셀", "en")).toContain("V-RO ADVANCE");
+    expect(normalizeClinicTranslation("브이로어드밴스와 듀얼 프락셀", "en")).toContain("Fraxel Dual");
+    expect(normalizeClinicTranslation("레스틸렌 비탈과 스컬트라", "zh")).toContain("瑞蓝唯提");
+    expect(normalizeClinicTranslation("레스틸렌 비탈과 스컬트라", "zh")).toContain("塑颜翠");
+    expect(normalizeClinicTranslation("브이라인 보톡스와 침샘 보톡스", "zh")).toContain("V脸肉毒素");
+    expect(normalizeClinicTranslation("브이라인 보톡스와 침샘 보톡스", "zh")).toContain("腮腺肉毒素");
+  });
+
+  it("includes price-list terms in Korean transcription guidance", () => {
+    const prompt = buildClinicTranscriptionPrompt("ko");
+    expect(prompt).toContain("V-RO ADVANCE");
+    expect(prompt).toContain("Restylane Vital");
+    expect(prompt).toContain("Dysport");
+  });
 });
