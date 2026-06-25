@@ -54,6 +54,13 @@ export const realtimeKoreanTranscriptionHints = [
   "퍼플박스",
   "쥬베룩",
   "쥬베룩 볼륨",
+  "Re2O",
+  "리투오",
+  "리투오 주사",
+  "리투오 스킨부스터",
+  "동종진피",
+  "hADM",
+  "ECM",
   "울쎄라",
   "울쎄라 프라임",
   "써마지",
@@ -140,7 +147,8 @@ type ClinicBrandKey =
   | "rejuranS"
   | "rejuranElaskin"
   | "juvelook"
-  | "juvelookVolume";
+  | "juvelookVolume"
+  | "re2o";
 
 const brandDisplayByLanguage: Partial<Record<GlossaryTargetLanguage, Record<ClinicBrandKey, string>>> = {
   ko: {
@@ -151,7 +159,8 @@ const brandDisplayByLanguage: Partial<Record<GlossaryTargetLanguage, Record<Clin
     rejuranS: "리쥬란 S",
     rejuranElaskin: "리쥬란 엘라스킨",
     juvelook: "쥬베룩",
-    juvelookVolume: "쥬베룩 볼륨"
+    juvelookVolume: "쥬베룩 볼륨",
+    re2o: "Re2O"
   },
   zh: {
     rejuran: "丽珠兰",
@@ -161,7 +170,8 @@ const brandDisplayByLanguage: Partial<Record<GlossaryTargetLanguage, Record<Clin
     rejuranS: "丽珠兰蓝盒",
     rejuranElaskin: "丽珠兰紫盒",
     juvelook: "Juvelook",
-    juvelookVolume: "Juvelook Volume"
+    juvelookVolume: "Juvelook Volume",
+    re2o: "Re2O"
   },
   zh_tw: {
     rejuran: "麗珠蘭",
@@ -171,7 +181,8 @@ const brandDisplayByLanguage: Partial<Record<GlossaryTargetLanguage, Record<Clin
     rejuranS: "麗珠蘭藍盒",
     rejuranElaskin: "麗珠蘭紫盒",
     juvelook: "Juvelook",
-    juvelookVolume: "Juvelook Volume"
+    juvelookVolume: "Juvelook Volume",
+    re2o: "Re2O"
   },
   yue: {
     rejuran: "麗珠蘭",
@@ -181,7 +192,8 @@ const brandDisplayByLanguage: Partial<Record<GlossaryTargetLanguage, Record<Clin
     rejuranS: "麗珠蘭藍盒",
     rejuranElaskin: "麗珠蘭紫盒",
     juvelook: "Juvelook",
-    juvelookVolume: "Juvelook Volume"
+    juvelookVolume: "Juvelook Volume",
+    re2o: "Re2O"
   },
   ja: {
     rejuran: "リジュラン",
@@ -191,7 +203,8 @@ const brandDisplayByLanguage: Partial<Record<GlossaryTargetLanguage, Record<Clin
     rejuranS: "リジュランS",
     rejuranElaskin: "リジュラン エラスキン",
     juvelook: "ジュベルック",
-    juvelookVolume: "ジュベルック ボリューム"
+    juvelookVolume: "ジュベルック ボリューム",
+    re2o: "Re2O"
   }
 };
 
@@ -249,6 +262,7 @@ const rawClinicGlossary = `
 주비덤|쥬비덤|Juvederm,주비덤,乔雅登,ジュビダーム,Juvederm,Juvederm,Juvederm,Juvederm,brand,필러 브랜드명
 프로파일로|Profhilo,프로파일로,五点提升,プロファイロ,Profhilo,Profhilo,Profhilo,Profhilo,brand,스킨부스터 브랜드명
 레니스나|렌티스|Lenisna|Lensis,레니스나,兰提斯,レニスナ,Lenisna,Lenisna,Lenisna,Lenisna,brand,스킨부스터 브랜드명
+Re2O|리투오|리투오주사|리투오 주사|리투오스킨부스터|리투오 스킨부스터|리투어|리트오|알이투오|알이투오 주사,Re2O,Re2O,Re2O,Re2O,Re2O,Re2O,Re2O,brand,동종진피(hADM) 기반 스킨부스터 브랜드명
 리쥬란|리주란|三文鱼针|三文魚針,리쥬란,丽珠兰,リジュラン,Rejuran,Rejuran,Rejuran,Rejuran,brand,브랜드명
 리쥬란힐러|리쥬란 힐러,리쥬란 힐러,丽珠兰 Healer,リジュランヒーラー,Rejuran Healer,Rejuran Healer,Rejuran Healer,Rejuran Healer,brand,브랜드명
 리쥬란블랙박스|리쥬란 블랙박스|리쥬란 블랙 박스|리쥬란 힐러|블랙박스|블랙 박스|黑盒|黑盒子|黑火|黑河|黑和|黑合|黑核|灰盒|灰火|헤이허|헤이훠|훼이훠|heihe|hei he|hei huo|black box|black fire,리쥬란 힐러,丽珠兰黑盒,リジュラン ブラックボックス,Rejuran Black Box,Rejuran Black Box,Rejuran Black Box,Rejuran Black Box,brand,리쥬란 제품 색상 별칭
@@ -565,7 +579,8 @@ function brandDisplay(targetLanguage: GlossaryTargetLanguage, key: ClinicBrandKe
     rejuranS: "Rejuran S",
     rejuranElaskin: "Rejuran Elaskin",
     juvelook: "Juvelook",
-    juvelookVolume: "Juvelook Volume"
+    juvelookVolume: "Juvelook Volume",
+    re2o: "Re2O"
   }[key];
 }
 
@@ -579,6 +594,7 @@ function applyHighPriorityClinicCorrections(text: string, targetLanguage: Glossa
   const rejuranElaskinReplacement = brandDisplay(targetLanguage, "rejuranElaskin");
   const juvelookReplacement = brandDisplay(targetLanguage, "juvelook");
   const juvelookVolumeReplacement = brandDisplay(targetLanguage, "juvelookVolume");
+  const re2oReplacement = brandDisplay(targetLanguage, "re2o");
   const swellingTerm = swellingTermByLanguage[targetLanguage] ?? "swelling";
   const swellingPhrase = swellingPhraseByLanguage[targetLanguage] ?? "Swelling may occur.";
 
@@ -589,7 +605,8 @@ function applyHighPriorityClinicCorrections(text: string, targetLanguage: Glossa
     .replace(/(?:리\s*[쥬주]\s*란|니\s*[쥬주]\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)\s*(?:S\b|에스|블루\s*박스|블루박스|蓝盒子?|藍盒子?|蓝火|藍火|blue\s*box)|(?:블루\s*박스|블루박스|蓝盒子?|藍盒子?|蓝火|藍火|蓝和|藍和|蓝合|藍合|blue\s*(?:box|fire))|\b(?:re|ni|nizhu|niju)[\s-]?juran\s*(?:s\b|blue\s*box)\b/gi, rejuranSReplacement)
     .replace(/(?:리\s*[쥬주]\s*란|니\s*[쥬주]\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)\s*(?:엘라스킨|퍼플\s*박스|퍼플박스|紫盒子?|紫火|purple\s*box)|(?:엘라스킨|퍼플\s*박스|퍼플박스|紫盒子?|紫火|紫和|紫合|purple\s*(?:box|fire))|\b(?:re|ni|nizhu|niju)[\s-]?juran\s*(?:elaskin|purple\s*box)\b/gi, rejuranElaskinReplacement)
     .replace(/(?:쥬|주)\s*베\s*룩\s*볼륨|\bjuve[\s-]?look\s*volume\b/gi, juvelookVolumeReplacement)
-    .replace(/(?:쥬|주)\s*베\s*룩|\bjuve[\s-]?look\b/gi, juvelookReplacement);
+    .replace(/(?:쥬|주)\s*베\s*룩|\bjuve[\s-]?look\b/gi, juvelookReplacement)
+    .replace(/(?:리\s*투\s*(?:오|어)|리\s*트\s*오|알\s*이\s*투\s*오|\bRe\s*2\s*O\b)(?:\s*(?:주사|스킨\s*부스터|시술))?/gi, re2oReplacement);
 
   for (const pattern of commonBrandCorrectionPatterns) {
     corrected = corrected.replace(pattern, rejuranReplacement);
@@ -1031,7 +1048,7 @@ export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage
     "- Critical short phrase mappings:",
     ...sourceCriticalPhrases.map((entry) => `  - ${entry.spoken.join(" / ")} => ${targetForCritical(entry, patientLanguage)} (${entry.note})`),
     "- For Traditional Chinese and Cantonese, use Traditional Chinese characters even when a glossary source term is shown in Simplified Chinese.",
-    "- For Thai, Vietnamese, Indonesian, Malay, Filipino/Tagalog, Mongolian, French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names.",
+    "- For Thai, Vietnamese, Indonesian, Malay, Filipino/Tagalog, Mongolian, French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names such as Re2O.",
     "- Do not expand brand names into generic explanations unless the staff explains them."
   ];
   const termLines = rawGlossaryTargetLanguages.has(patientLanguage)
@@ -1049,6 +1066,7 @@ export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLang
       "Common short phrases may be spoken quickly or through a mask.",
       `Prefer these Korean phrases when acoustically plausible: ${koreanHints}.`,
       "When the sound is close, prefer Rejuran as 리쥬란 and swelling as 부종, not 니주란 or 그종.",
+      "When the sound is close to 리투오, 리투어, 리트오, or 알이투오 in a skinbooster context, transcribe the product name as Re2O.",
       "Rejuran color-box product names may be spoken as 리쥬란 블랙박스, 리쥬란 레드박스, 리쥬란 화이트박스, 리쥬란 블루박스, or 리쥬란 퍼플박스.",
       "Do not reinterpret pain-check phrases as sleepiness, setup, or casual conversation."
     ].join(" ");
@@ -1058,7 +1076,7 @@ export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLang
     return [
       "Dermatology and plastic surgery interpretation room.",
       inputLanguage === "yue" ? "The patient may speak Cantonese/Yue as used in Hong Kong." : "",
-      "Preserve clinic brand names such as Rejuran, Juvelook, Ultherapy, Thermage, Potenza, and Pico laser.",
+      "Preserve clinic brand names such as Rejuran, Juvelook, Re2O, Ultherapy, Thermage, Potenza, and Pico laser.",
       "Chinese patients may use Rejuran color-box nicknames: 黑盒 means Rejuran Black Box, 红盒/紅盒 means Rejuran Red Box, 白盒 means Rejuran I, 蓝盒/藍盒 means Rejuran S, and 紫盒 means Rejuran Elaskin.",
       "If the sound is close in this clinic context, prefer color + 盒 over color + 火/河/和/合, for example 黑盒 over 黑火, 红盒 over 红火, 白盒 over 白火, 蓝盒 over 蓝火, and 紫盒 over 紫火.",
       "Common Chinese clinic aliases include 三文鱼针 for Rejuran, 热玛吉 for Thermage, 超声刀 for Ultherapy or HIFU lifting, 皮秒 for Pico laser, 泪沟填充 for under-eye filler, and 溶脂针 for lipolysis injection.",
@@ -1069,7 +1087,7 @@ export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLang
 
   return [
     "Dermatology and plastic surgery interpretation room.",
-    "Preserve clinic brand names such as Rejuran, Juvelook, Ultherapy, Thermage, Potenza, and Pico laser.",
+    "Preserve clinic brand names such as Rejuran, Juvelook, Re2O, Ultherapy, Thermage, Potenza, and Pico laser.",
     "The speaker may answer briefly about pain, discomfort, movement, or whether they are okay.",
     "Keep medical procedure context when transcribing short phrases."
   ].join(" ");

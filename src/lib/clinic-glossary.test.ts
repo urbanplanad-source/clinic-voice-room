@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeClinicTranslation } from "./clinic-glossary";
+import { buildClinicTranscriptionPrompt, normalizeClinicTranslation } from "./clinic-glossary";
 
 describe("clinic glossary display normalization", () => {
   it("naturalizes Chinese shot and price phrasing for text translation", () => {
@@ -24,5 +24,16 @@ describe("clinic glossary display normalization", () => {
     expect(normalizeClinicTranslation("Thermage three hundred shots costs KRW 1.96 million.", "en")).toBe(
       "Thermage 300 shots costs KRW 1.96 million."
     );
+  });
+
+  it("normalizes Re2O Korean pronunciation variants to the approved brand display", () => {
+    expect(normalizeClinicTranslation("리투오 주사", "en")).toBe("Re2O");
+    expect(normalizeClinicTranslation("리투어 스킨부스터", "zh")).toContain("Re2O");
+    expect(normalizeClinicTranslation("리트오 시술", "ja")).toContain("Re2O");
+  });
+
+  it("includes Re2O in Korean transcription guidance", () => {
+    expect(buildClinicTranscriptionPrompt("ko")).toContain("Re2O");
+    expect(buildClinicTranscriptionPrompt("ko")).toContain("리투오");
   });
 });

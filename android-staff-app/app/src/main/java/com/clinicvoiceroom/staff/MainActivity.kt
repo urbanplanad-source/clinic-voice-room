@@ -227,7 +227,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.17"
+private const val AppDisplayVersion = "0.3.18"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -3896,6 +3896,7 @@ private fun brandDisplay(patientLanguage: String, key: String): String {
             "ja" -> "ジュベルック"
             else -> "Juvelook"
         }
+        "re2o" -> "Re2O"
         else -> ""
     }
 }
@@ -3935,6 +3936,7 @@ private fun normalizeKoreanClinicTerms(text: String): String {
         .replace(Regex("써\\s*마\\s*지\\s*(?:F\\s*L\\s*X|에프\\s*엘\\s*엑스)|서\\s*마\\s*지\\s*(?:F\\s*L\\s*X|에프\\s*엘\\s*엑스)|\\bThermage\\s*FLX\\b", RegexOption.IGNORE_CASE), "써마지 FLX")
         .replace(Regex("써\\s*마\\s*지|서\\s*마\\s*지|\\bThermage\\b", RegexOption.IGNORE_CASE), "써마지")
         .replace(Regex("세\\s*르\\s*프|제\\s*르\\s*프|\\bXERF\\b", RegexOption.IGNORE_CASE), "XERF")
+        .replace(Regex("리\\s*투\\s*(?:오|어)|리\\s*트\\s*오|알\\s*이\\s*투\\s*오|\\bRe\\s*2\\s*O\\b", RegexOption.IGNORE_CASE), "Re2O")
         .replace(Regex("黑\\s*(?:盒|火)|灰\\s*(?:盒|火)|(?:헤이|후이|훼이|회)\\s*(?:훠|후어|후오)|\\b(?:black|gray|grey)\\s*(?:box|fire)\\b", RegexOption.IGNORE_CASE), "리쥬란 힐러")
         .replace(Regex("红\\s*(?:盒|火)|紅\\s*(?:盒|火)|(?:홍|훙)\\s*(?:훠|후어|후오)|\\bred\\s*(?:box|fire)\\b", RegexOption.IGNORE_CASE), "리쥬란 HB")
         .replace(Regex("白\\s*(?:盒|火)|(?:바이|빠이)\\s*(?:훠|후어|후오)|\\bwhite\\s*(?:box|fire)\\b", RegexOption.IGNORE_CASE), "리쥬란 아이")
@@ -3957,6 +3959,7 @@ private fun normalizeKoreanSourceText(text: String): String {
         .replace(Regex("(?:리\\s*[쥬주]\\s*란|니\\s*[쥬주]\\s*란|리.{0,3}란)\\s*힐러|\\b(?:re|ni|nizhu|niju)[\\s-]?juran\\s*healer\\b", RegexOption.IGNORE_CASE), "리쥬란 힐러")
         .replace(Regex("(?:쥬|주)\\s*베\\s*룩\\s*볼륨|\\bjuve[\\s-]?look\\s*volume\\b", RegexOption.IGNORE_CASE), "쥬베룩 볼륨")
         .replace(Regex("(?:쥬|주)\\s*베\\s*룩|\\bjuve[\\s-]?look\\b", RegexOption.IGNORE_CASE), "쥬베룩")
+        .replace(Regex("리\\s*투\\s*(?:오|어)|리\\s*트\\s*오|알\\s*이\\s*투\\s*오|\\bRe\\s*2\\s*O\\b", RegexOption.IGNORE_CASE), "Re2O")
         .replace(Regex("니[주쥬]란|리주란|\\bni[\\s-]?juran\\b|\\bni[\\s-]?zuran\\b|\\bniju[\\s-]?ran\\b", RegexOption.IGNORE_CASE), "리쥬란")
         .replace(Regex("그종|구종|붓종"), "부종")
         .replace(Regex("\\b(?:geu|gu|geo)[\\s-]?jong\\b", RegexOption.IGNORE_CASE), "부종")
@@ -3967,6 +3970,7 @@ private fun normalizeClinicText(text: String, patientLanguage: String): String {
     val rejuranHealer = brandDisplay(patientLanguage, "rejuranHealer")
     val juvelook = brandDisplay(patientLanguage, "juvelook")
     val juvelookVolume = brandDisplay(patientLanguage, "juvelookVolume")
+    val re2o = brandDisplay(patientLanguage, "re2o")
     val swelling = when (patientLanguage) {
         "zh" -> "肿胀"
         "yue" -> "腫脹"
@@ -4003,6 +4007,7 @@ private fun normalizeClinicText(text: String, patientLanguage: String): String {
         .replace(Regex("(?:리\\s*[쥬주]\\s*란|니\\s*[쥬주]\\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)\\s*힐러|\\b(?:re|ni|nizhu|niju)[\\s-]?juran\\s*healer\\b", RegexOption.IGNORE_CASE), rejuranHealer)
         .replace(Regex("(?:쥬|주)\\s*베\\s*룩\\s*볼륨|\\bjuve[\\s-]?look\\s*volume\\b", RegexOption.IGNORE_CASE), juvelookVolume)
         .replace(Regex("(?:쥬|주)\\s*베\\s*룩|\\bjuve[\\s-]?look\\b", RegexOption.IGNORE_CASE), juvelook)
+        .replace(Regex("리\\s*투\\s*(?:오|어)|리\\s*트\\s*오|알\\s*이\\s*투\\s*오|\\bRe\\s*2\\s*O\\b", RegexOption.IGNORE_CASE), re2o)
         .replace(Regex("니[주쥬]란|리주란"), rejuran)
         .replace(Regex("\\bni[\\s-]?juran\\b|\\bni[\\s-]?zuran\\b|\\bniju[\\s-]?ran\\b", RegexOption.IGNORE_CASE), rejuran)
         .replace(Regex("그종|구종|붓종"), swelling)
