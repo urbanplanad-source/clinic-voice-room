@@ -227,7 +227,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.16"
+private const val AppDisplayVersion = "0.3.17"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -258,6 +258,7 @@ private const val LocalValidationTimeoutMs = 900L
 private const val LocalValidationMaxSourceChars = 18
 private const val LocalValidationMaxTranslatedChars = 36
 private const val LocalValidationMaxSourceWords = 3
+private const val LocalSummaryMaxTurns = 80
 private const val TtsSpeechUtterancePrefix = "cvr-speak"
 private const val TtsWarmUtterancePrefix = "cvr-warm"
 
@@ -314,6 +315,13 @@ private data class StaffMessage(
     val createdAt: String
 )
 
+private data class LocalConversationTurn(
+    val speaker: String,
+    val koreanText: String,
+    val patientText: String,
+    val createdAt: String
+)
+
 private data class StaffUiState(
     val backendUrl: String = "https://voice.insightmedi.co.kr",
     val email: String = "",
@@ -341,6 +349,10 @@ private data class StaffUiState(
     val localTurnDirection: String = LocalDirectionKoToPatient,
     val localEngineStatus: String = "",
     val localResultBadge: String = "",
+    val localConversationTurns: List<LocalConversationTurn> = emptyList(),
+    val localSummaryKorean: String = "",
+    val localSummaryPatient: String = "",
+    val showLocalSummary: Boolean = false,
     val messages: List<StaffMessage> = emptyList(),
     val textInput: String = "",
     val lastKey: String = "없음",
@@ -1242,7 +1254,15 @@ class MainActivity : ComponentActivity() {
                         onLogin = ::login,
                         onLogout = ::logout,
                         onLanguage = { code ->
-                            updateState { it.copy(selectedLanguage = code) }
+                            updateState {
+                                it.copy(
+                                    selectedLanguage = code,
+                                    localConversationTurns = emptyList(),
+                                    localSummaryKorean = "",
+                                    localSummaryPatient = "",
+                                    showLocalSummary = false
+                                )
+                            }
                             if (isLocalInterpreterMode(uiState.value.selectedRoomMode)) {
                                 closeLocalRealtimeTurnClients()
                             }
@@ -1255,7 +1275,11 @@ class MainActivity : ComponentActivity() {
                                     setupStep = SetupStepLanguage,
                                     status = languageSelectionStatus(mode),
                                     localEngineStatus = "",
-                                    localResultBadge = ""
+                                    localResultBadge = "",
+                                    localConversationTurns = emptyList(),
+                                    localSummaryKorean = "",
+                                    localSummaryPatient = "",
+                                    showLocalSummary = false
                                 )
                             }
                         },
@@ -1263,7 +1287,9 @@ class MainActivity : ComponentActivity() {
                         onToggleSpeak = ::toggleSpeaking,
                         onStartLocalTurn = ::toggleLocalSpeaking,
                         onExitLocalInterpreter = ::exitLocalInterpreter,
-                        onSwitchToStableLocalInterpreter = ::switchToStableLocalInterpreter,
+                        onShowLocalSummary = ::requestLocalConversationSummary,
+                        onDismissLocalSummary = ::dismissLocalConversationSummary,
+                        onStartNewLocalConversation = ::startNewLocalConversation,
                         onRequestEndRoom = { updateState { it.copy(showEndRoomConfirm = true) } },
                         onConfirmEndRoom = ::endRoom,
                         onDismissEndRoom = { updateState { it.copy(showEndRoomConfirm = false) } },
@@ -1353,6 +1379,7 @@ class MainActivity : ComponentActivity() {
         when {
             state.showExitAppConfirm -> updateState { it.copy(showExitAppConfirm = false) }
             state.showEndRoomConfirm -> updateState { it.copy(showEndRoomConfirm = false) }
+            state.showLocalSummary -> updateState { it.copy(showLocalSummary = false) }
             state.speaking -> stopActiveRecordingAndTranslate()
             state.busy -> updateState { it.copy(status = "처리 중입니다. 잠시만 기다려주세요.") }
             state.loggedIn && state.setupStep == SetupStepLocalInterpreter -> exitLocalInterpreter()
@@ -1854,6 +1881,10 @@ class MainActivity : ComponentActivity() {
                 localTurnDirection = LocalDirectionKoToPatient,
                 localEngineStatus = if (experimental) "실험 대기" else "",
                 localResultBadge = if (experimental) "실험" else "",
+                localConversationTurns = emptyList(),
+                localSummaryKorean = "",
+                localSummaryPatient = "",
+                showLocalSummary = false,
                 messages = emptyList(),
                 textInput = "",
                 status = "연결 준비중입니다. 잠시만 기다려주세요."
@@ -1888,12 +1919,16 @@ class MainActivity : ComponentActivity() {
                 lastMessageSpeaker = "",
                 localTurnDirection = LocalDirectionKoToPatient,
                 ttsPlaybackActive = false,
+                localConversationTurns = emptyList(),
+                localSummaryKorean = "",
+                localSummaryPatient = "",
+                showLocalSummary = false,
                 status = languageSelectionStatus(it.selectedRoomMode)
             )
         }
     }
 
-    private fun switchToStableLocalInterpreter() {
+    private fun requestLocalConversationSummary() {
         val state = uiState.value
         if (
             state.setupStep != SetupStepLocalInterpreter ||
@@ -1903,23 +1938,60 @@ class MainActivity : ComponentActivity() {
             !isExperimentalLocalInterpreterMode(state.selectedRoomMode)
         ) return
 
+        val turns = state.localConversationTurns
+        if (turns.isEmpty()) {
+            updateState { it.copy(status = "요약할 대화가 아직 없습니다.") }
+            return
+        }
+
         stopTtsPlayback()
-        closeLocalRealtimeTurnClients()
+        updateState { it.copy(busy = true, status = "대화 요약을 생성 중입니다...") }
+        executor.execute {
+            runCatching {
+                val summary = fetchLocalConversationSummary(state.selectedLanguage, turns)
+                updateState {
+                    it.copy(
+                        busy = false,
+                        localSummaryKorean = summary.getString("koreanSummary"),
+                        localSummaryPatient = summary.getString("patientSummary"),
+                        showLocalSummary = true,
+                        status = "대화 요약을 생성했습니다."
+                    )
+                }
+                appendLog("Local conversation summary generated")
+            }.onFailure { caught ->
+                val message = userFacingError(caught)
+                updateState { it.copy(busy = false, status = "요약 생성 실패: $message") }
+                appendLog("Local conversation summary failed: $message")
+            }
+        }
+    }
+
+    private fun dismissLocalConversationSummary() {
+        updateState { it.copy(showLocalSummary = false) }
+    }
+
+    private fun startNewLocalConversation() {
+        val state = uiState.value
+        if (state.setupStep != SetupStepLocalInterpreter || state.room != null || state.busy || state.speaking) return
+
+        stopTtsPlayback()
         updateState {
             it.copy(
-                selectedRoomMode = RoomModeLocalInterpreter,
-                localRealtimeReady = false,
                 sourceDraft = "",
                 translatedDraft = "",
                 lastMessageSpeaker = "",
                 localTurnDirection = LocalDirectionKoToPatient,
-                localEngineStatus = "",
-                localResultBadge = "",
-                status = localConnectingStatus(RoomModeLocalInterpreter)
+                localEngineStatus = if (isExperimentalLocalInterpreterMode(it.selectedRoomMode)) "실험 대기" else "",
+                localResultBadge = if (isExperimentalLocalInterpreterMode(it.selectedRoomMode)) "실험" else "",
+                localConversationTurns = emptyList(),
+                localSummaryKorean = "",
+                localSummaryPatient = "",
+                showLocalSummary = false,
+                status = "새 대화를 시작합니다."
             )
         }
-        prepareLocalRealtimeTurnClientsAsync(state.selectedLanguage, force = true)
-        appendLog("대면 실험에서 안정 대면으로 전환")
+        appendLog("Local conversation cleared")
     }
 
     private fun roomInfoFromJson(room: JSONObject, backend: String, fallback: RoomInfo? = null): RoomInfo {
@@ -2854,6 +2926,11 @@ class MainActivity : ComponentActivity() {
                 val translated = normalizeClinicText(result.optString("translatedText"), targetLanguage)
                 val realtimeAudioPlayed = result.optBoolean("audioPlayed", false)
                 val speaker = if (direction == LocalDirectionKoToPatient) "staff" else "patient"
+                val summaryTurn = if (experimentalMode) {
+                    localConversationTurnForSummary(direction, source, translated)
+                } else {
+                    null
+                }
                 prepareLocalRealtimeTurnClientsAsync(patientLanguage)
 
                 if (!isInstantTemplate && sourceTranscriptComplete && localTranslationNeedsRetry(direction, patientLanguage, source, translated)) {
@@ -2877,6 +2954,11 @@ class MainActivity : ComponentActivity() {
                 }
 
                 updateState {
+                    val nextLocalTurns = if (summaryTurn == null) {
+                        it.localConversationTurns
+                    } else {
+                        (it.localConversationTurns + summaryTurn).takeLast(LocalSummaryMaxTurns)
+                    }
                     it.copy(
                         busy = false,
                         speaking = false,
@@ -2886,6 +2968,7 @@ class MainActivity : ComponentActivity() {
                         translatedDraft = translated,
                         lastMessageSpeaker = speaker,
                         localTurnDirection = direction,
+                        localConversationTurns = nextLocalTurns,
                         status = "대면 통역 완료. 다음 발화 쪽 마이크를 누르세요."
                     )
                 }
@@ -3363,6 +3446,47 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun localConversationTurnForSummary(direction: String, sourceText: String, translatedText: String): LocalConversationTurn? {
+        val source = sourceText.trim()
+        val translated = translatedText.trim()
+        if (source.isBlank() || translated.isBlank()) return null
+
+        return if (direction == LocalDirectionKoToPatient) {
+            LocalConversationTurn(
+                speaker = "staff",
+                koreanText = source,
+                patientText = translated,
+                createdAt = isoTimestampNow()
+            )
+        } else {
+            LocalConversationTurn(
+                speaker = "patient",
+                koreanText = translated,
+                patientText = source,
+                createdAt = isoTimestampNow()
+            )
+        }
+    }
+
+    private fun fetchLocalConversationSummary(patientLanguage: String, turns: List<LocalConversationTurn>): JSONObject {
+        val backend = normalizedBackendUrl(uiState.value.backendUrl)
+        val turnArray = JSONArray()
+        turns.takeLast(LocalSummaryMaxTurns).forEach { turn ->
+            turnArray.put(
+                JSONObject()
+                    .put("speaker", turn.speaker)
+                    .put("koreanText", turn.koreanText)
+                    .put("patientText", turn.patientText)
+                    .put("createdAt", turn.createdAt)
+            )
+        }
+        val payload = JSONObject()
+            .put("patientLanguage", patientLanguage)
+            .put("turns", turnArray)
+            .toString()
+        return postJson("$backend/api/local-voice-turns/summary", payload)
+    }
+
     private fun submitTextMessage() {
         val state = uiState.value
         val room = state.room ?: return
@@ -3647,6 +3771,7 @@ private fun apiErrorMessage(body: String, code: Int): String {
         raw == "Audio transcription failed" -> "음성 인식에 실패했습니다. 더 짧고 또렷하게 다시 말해주세요."
         raw == "No speech was transcribed" -> "말소리가 인식되지 않았습니다. 마이크 위치를 확인하고 다시 말해주세요."
         raw == "Procedure turn translation failed" || raw == "Consultation voice translation failed" || raw == "Local voice translation failed" || raw == "Text translation failed" -> "번역에 실패했습니다. 네트워크를 확인하고 다시 시도하세요."
+        raw == "Local conversation summary failed" -> "요약 생성에 실패했습니다. 네트워크를 확인하고 다시 시도하세요."
         raw == "No translated text was returned" -> "번역 결과가 비어 있습니다. 다시 시도하세요."
         raw == "OPENAI_API_KEY is not configured" -> "서버 OpenAI 설정이 필요합니다."
         else -> raw ?: "서버 응답 오류입니다. 잠시 후 다시 시도하세요. (HTTP $code)"
@@ -3966,7 +4091,9 @@ private fun StaffAppScreen(
     onToggleSpeak: () -> Unit,
     onStartLocalTurn: (String) -> Unit,
     onExitLocalInterpreter: () -> Unit,
-    onSwitchToStableLocalInterpreter: () -> Unit,
+    onShowLocalSummary: () -> Unit,
+    onDismissLocalSummary: () -> Unit,
+    onStartNewLocalConversation: () -> Unit,
     onRequestEndRoom: () -> Unit,
     onConfirmEndRoom: () -> Unit,
     onDismissEndRoom: () -> Unit,
@@ -4008,7 +4135,9 @@ private fun StaffAppScreen(
                     .padding(horizontal = metrics.outerHorizontalPadding, vertical = metrics.outerVerticalPadding),
                 onStartLocalTurn = onStartLocalTurn,
                 onExit = onExitLocalInterpreter,
-                onSwitchToStable = onSwitchToStableLocalInterpreter,
+                onShowSummary = onShowLocalSummary,
+                onDismissSummary = onDismissLocalSummary,
+                onStartNewConversation = onStartNewLocalConversation,
                 onReplayTranslation = onReplayTranslation,
                 onTtsEnabled = onTtsEnabled,
                 onRequestMicPermission = onRequestMicPermission,
@@ -4699,7 +4828,9 @@ private fun LocalInterpreterScreen(
     modifier: Modifier = Modifier,
     onStartLocalTurn: (String) -> Unit,
     onExit: () -> Unit,
-    onSwitchToStable: () -> Unit,
+    onShowSummary: () -> Unit,
+    onDismissSummary: () -> Unit,
+    onStartNewConversation: () -> Unit,
     onReplayTranslation: () -> Unit,
     onTtsEnabled: (Boolean) -> Unit,
     onRequestMicPermission: () -> Unit,
@@ -4729,6 +4860,14 @@ private fun LocalInterpreterScreen(
     val staffDisabledReason = localInterpreterDisabledReason(state, staffActive)
 
     BoxWithConstraints(modifier = modifier) {
+        if (experimentalMode && state.showLocalSummary) {
+            LocalConversationSummaryDialog(
+                state = state,
+                patientLanguageLabel = patientLanguageLabel,
+                onDismiss = onDismissSummary,
+                onStartNewConversation = onStartNewConversation
+            )
+        }
         val landscape = maxWidth > maxHeight && maxWidth >= 720.dp
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -4760,9 +4899,9 @@ private fun LocalInterpreterScreen(
                 metrics = metrics,
                 compact = landscape,
                 onReplayTranslation = onReplayTranslation,
+                onShowSummary = onShowSummary,
                 onTtsEnabled = onTtsEnabled,
                 onExit = onExit,
-                onSwitchToStable = onSwitchToStable,
                 onStatusTap = onStatusTap
             )
 
@@ -4997,14 +5136,86 @@ private fun LocalInterpreterMicButton(
 }
 
 @Composable
+private fun LocalConversationSummaryDialog(
+    state: StaffUiState,
+    patientLanguageLabel: String,
+    onDismiss: () -> Unit,
+    onStartNewConversation: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = onStartNewConversation,
+                enabled = !state.busy && !state.speaking
+            ) {
+                Text("새 대화", fontWeight = FontWeight.Bold, color = Coral)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("닫기", fontWeight = FontWeight.Bold, color = Trust)
+            }
+        },
+        title = {
+            Text("대화 요약", color = Ink, fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                SummaryBlock(
+                    label = patientLanguageLabel,
+                    text = state.localSummaryPatient.ifBlank { "요약이 없습니다." }
+                )
+                SummaryBlock(
+                    label = "한국어",
+                    text = state.localSummaryKorean.ifBlank { "요약이 없습니다." }
+                )
+            }
+        }
+    )
+}
+
+@Composable
+private fun SummaryBlock(label: String, text: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Panel, RoundedCornerShape(10.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            label,
+            color = Trust,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text,
+            color = Ink,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
 private fun LocalInterpreterControlStrip(
     state: StaffUiState,
     metrics: StaffLayoutMetrics,
     compact: Boolean,
     onReplayTranslation: () -> Unit,
+    onShowSummary: () -> Unit,
     onTtsEnabled: (Boolean) -> Unit,
     onExit: () -> Unit,
-    onSwitchToStable: () -> Unit,
     onStatusTap: () -> Unit
 ) {
     val experimentalMode = isExperimentalLocalInterpreterMode(state.selectedRoomMode)
@@ -5018,22 +5229,19 @@ private fun LocalInterpreterControlStrip(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                if (state.busy) "번역 중" else if (state.speaking) "녹음 중" else "대면 통역",
+                if (state.busy && state.status.contains("요약")) {
+                    "요약 중"
+                } else if (state.busy) {
+                    "번역 중"
+                } else if (state.speaking) {
+                    "녹음 중"
+                } else {
+                    "대면 통역"
+                },
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.titleMedium
             )
-            if (experimentalMode) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
-                ) {
-                    StatusPill("실험", Experiment)
-                    if (state.localEngineStatus.isNotBlank()) StatusPill(state.localEngineStatus, Experiment)
-                    if (state.localResultBadge.isNotBlank()) StatusPill(state.localResultBadge, Trust)
-                }
-            }
             Text(
                 state.status,
                 color = Color(0xFFCBD5E1),
@@ -5045,11 +5253,16 @@ private fun LocalInterpreterControlStrip(
             )
         }
         if (experimentalMode) {
-            TextButton(
-                onClick = onSwitchToStable,
-                enabled = !state.busy && !state.speaking
+            OutlinedButton(
+                onClick = onShowSummary,
+                enabled = state.localConversationTurns.isNotEmpty() && !state.busy && !state.speaking && !state.ttsPlaybackActive,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
             ) {
-                Text("안정 대면", color = Color.White, fontWeight = FontWeight.Bold)
+                Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.widthIn(min = 4.dp))
+                Text("요약", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1)
             }
         }
         OutlinedButton(
