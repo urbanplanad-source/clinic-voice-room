@@ -227,7 +227,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.15"
+private const val AppDisplayVersion = "0.3.16"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -244,7 +244,7 @@ private const val RealtimeInputTranscriptFastWaitMs = 650L
 private const val RealtimeInputTranscriptRepairWaitMs = 2400L
 private const val ExperimentalRealtimeTurnWaitMs = 5000L
 private const val ExperimentalRealtimeOutputQuietMs = 220L
-private const val ExperimentalRealtimeInstantTemplateProbeMs = 120L
+private const val ExperimentalRealtimeInstantTemplateProbeMs = 220L
 private const val ExperimentalRealtimeInputTranscriptFastWaitMs = 650L
 private const val ExperimentalRealtimeInputTranscriptRepairWaitMs = 1200L
 private const val RecordingStopJoinMs = 250L
@@ -514,6 +514,7 @@ private class AndroidRealtimeTurnClient(
     private var inputTranscriptItemId: String? = null
     @Volatile
     private var committedInputItemId: String? = null
+    private val retiredInputItemIds = linkedSetOf<String>()
     @Volatile
     private var responseRequestedAt = 0L
     @Volatile
@@ -820,6 +821,7 @@ private class AndroidRealtimeTurnClient(
             .ifBlank { event.optJSONObject("item")?.optString("id").orEmpty() }
         if (itemId.isBlank()) return true
         synchronized(this) {
+            if (retiredInputItemIds.contains(itemId)) return false
             val currentItemId = inputTranscriptItemId
             if (currentItemId == null) {
                 inputTranscriptItemId = itemId
@@ -952,6 +954,13 @@ private class AndroidRealtimeTurnClient(
         if (itemId.isBlank()) {
             log("Local instant template input item delete skipped: missing item id")
             return
+        }
+        synchronized(this) {
+            retiredInputItemIds.add(itemId)
+            while (retiredInputItemIds.size > 8) {
+                val oldest = retiredInputItemIds.firstOrNull() ?: break
+                retiredInputItemIds.remove(oldest)
+            }
         }
         send(
             JSONObject()
