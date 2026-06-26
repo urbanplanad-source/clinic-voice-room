@@ -227,7 +227,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.19"
+private const val AppDisplayVersion = "0.3.20"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -3935,7 +3935,7 @@ private fun normalizeKoreanClinicTerms(text: String): String {
         .replace(Regex("울\\s*[쎄세]\\s*라|\\bUltherapy\\b", RegexOption.IGNORE_CASE), "울쎄라")
         .replace(Regex("써\\s*마\\s*지\\s*(?:F\\s*L\\s*X|에프\\s*엘\\s*엑스)|서\\s*마\\s*지\\s*(?:F\\s*L\\s*X|에프\\s*엘\\s*엑스)|\\bThermage\\s*FLX\\b", RegexOption.IGNORE_CASE), "써마지 FLX")
         .replace(Regex("써\\s*마\\s*지|서\\s*마\\s*지|\\bThermage\\b", RegexOption.IGNORE_CASE), "써마지")
-        .replace(Regex("세\\s*르\\s*프|제\\s*르\\s*프|\\bXERF\\b", RegexOption.IGNORE_CASE), "XERF")
+        .replace(Regex("(?:세\\s*르\\s*프|제\\s*르\\s*프|\\bXERF\\b)(?:\\s*(?:리프팅|시술))?|셀\\s*프\\s*(?:리프팅|시술)|\\bself\\s*(?:lifting|procedure|treatment)\\b", RegexOption.IGNORE_CASE), "XERF")
         .replace(Regex("슈\\s*링크\\s*유니버스|\\bshur+ink\\s*universe\\b", RegexOption.IGNORE_CASE), "슈링크 유니버스")
         .replace(Regex("티\\s*타늄\\s*리프팅|\\btitanium\\s*lifting\\b", RegexOption.IGNORE_CASE), "티타늄 리프팅")
         .replace(Regex("레\\s*비\\s*나\\s*스|\\bRevinas\\b", RegexOption.IGNORE_CASE), "레비나스")
@@ -4049,7 +4049,7 @@ private fun normalizeClinicText(text: String, patientLanguage: String): String {
         .replace(Regex("(?:쥬|주)\\s*베\\s*룩\\s*볼륨|\\bjuve[\\s-]?look\\s*volume\\b", RegexOption.IGNORE_CASE), juvelookVolume)
         .replace(Regex("(?:쥬|주)\\s*베\\s*룩|\\bjuve[\\s-]?look\\b", RegexOption.IGNORE_CASE), juvelook)
         .replace(Regex("리\\s*투\\s*(?:오|어)|리\\s*트\\s*오|알\\s*이\\s*투\\s*오|\\bRe\\s*2\\s*O\\b", RegexOption.IGNORE_CASE), re2o)
-        .replace(Regex("세\\s*르\\s*프|제\\s*르\\s*프|\\bXERF\\b", RegexOption.IGNORE_CASE), "XERF")
+        .replace(Regex("(?:세\\s*르\\s*프|제\\s*르\\s*프|\\bXERF\\b)(?:\\s*(?:리프팅|시술))?|셀\\s*프\\s*(?:리프팅|시술)|\\bself\\s*(?:lifting|procedure|treatment)\\b", RegexOption.IGNORE_CASE), "XERF")
         .replace(Regex("브이\\s*로\\s*어드\\s*밴스|브이\\s*로\\s*리프팅|\\bV[-\\s]*RO\\s*ADVANCE\\b", RegexOption.IGNORE_CASE), "V-RO ADVANCE")
         .replace(Regex("온\\s*다\\s*리프팅|\\bONDA\\b", RegexOption.IGNORE_CASE), "ONDA")
         .replace(Regex("레\\s*비\\s*나\\s*스|\\bRevinas\\b", RegexOption.IGNORE_CASE), "Revinas")

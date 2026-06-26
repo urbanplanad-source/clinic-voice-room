@@ -67,6 +67,7 @@ export const realtimeKoreanTranscriptionHints = [
   "써마지",
   "써마지 FLX",
   "세르프",
+  "셀프 리프팅",
   "XERF",
   "티타늄 리프팅",
   "레비나스",
@@ -297,7 +298,7 @@ const rawClinicGlossary = `
 울쎄라피프라임|울쎄라 프라임|울세라피 프라임,울쎄라피 프라임,Ultherapy Prime,ウルセラピー プライム,Ultherapy Prime,Ultherapy Prime,Ultherapy Prime,Ultherapy Prime,device,장비명 의역 금지
 써마지|서마지|热玛吉|熱瑪吉|热马吉|熱馬吉|热麻吉|熱麻吉|热妈吉|惹玛吉,써마지,Thermage,サーマクール,Thermage,Thermage,Thermage,Thermage,device,장비명
 써마지에프엘엑스|써마지 FLX|서마지 FLX,써마지 FLX,Thermage FLX,サーマクールFLX,Thermage FLX,Thermage FLX,Thermage FLX,Thermage FLX,device,장비명
-세르프|제르프|XERF,XERF,XERF,ザーフ,XERF,XERF,XERF,XERF,device,장비명 의역 금지
+세르프|세르프리프팅|세르프 리프팅|제르프|제르프리프팅|제르프 리프팅|셀프리프팅|셀프 리프팅|셀프 시술|Self lifting|Self Lifting|Self procedure|XERF lifting|XERF lifting treatment|XERF,XERF,XERF,ザーフ,XERF,XERF,XERF,XERF,device,장비명 의역 금지
 포텐자|포텐자레이저|黄金微针|黃金微針,포텐자,Potenza 微针射频,ポテンツァ,Potenza,Potenza,Potenza,Potenza,device,장비명
 실펌|실펌엑스|Sylfirm X,실펌 X,Sylfirm X,シルファームX,Sylfirm X,Sylfirm X,Sylfirm X,Sylfirm X,device,장비명
 피코|피코레이저|皮秒|皮秒激光|皮秒镭射|皮秒雷射|皮妙,피코 레이저,皮秒激光,ピコレーザー,pico laser,пикосекундный лазер,laser pico,laser pico,device,레이저명
@@ -688,6 +689,7 @@ function applyHighPriorityClinicCorrections(text: string, targetLanguage: Glossa
   const swellingPhrase = swellingPhraseByLanguage[targetLanguage] ?? "Swelling may occur.";
 
   corrected = corrected
+    .replace(/(?:세\s*르\s*프|제\s*르\s*프|\bXERF\b)(?:\s*(?:리프팅|시술))?|셀\s*프\s*(?:리프팅|시술)|\bself\s*(?:lifting|procedure|treatment)\b/gi, "XERF")
     .replace(/(?:리\s*[쥬주]\s*란|니\s*[쥬주]\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)?\s*(?:힐러|블랙\s*박스|블랙박스|黑盒子?|黑火|黑河|黑和|黑合|黑核|灰盒|灰火|black\s*(?:box|fire))|\b(?:re|ni|nizhu|niju)[\s-]?juran\s*(?:healer|black\s*box)\b/gi, rejuranHealerReplacement)
     .replace(/(?:리\s*[쥬주]\s*란|니\s*[쥬주]\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)\s*(?:HB|에이치비|레드\s*박스|레드박스|红盒子?|紅盒子?|红火|紅火|red\s*box)|(?:레드\s*박스|레드박스|红盒子?|紅盒子?|红火|紅火|红河|紅河|红和|紅和|红合|紅合|红货|紅貨|洪盒|宏盒|red\s*(?:box|fire))|\b(?:re|ni|nizhu|niju)[\s-]?juran\s*(?:hb|red\s*box)\b/gi, rejuranHbReplacement)
     .replace(/(?:리\s*[쥬주]\s*란|니\s*[쥬주]\s*란|리.{0,3}란|Rejuran|丽珠兰|麗珠蘭|リジュラン)\s*(?:I\b|아이|화이트\s*박스|화이트박스|白盒子?|白火|white\s*box)|(?:아이리쥬란|화이트\s*박스|화이트박스|白盒子?|白火|白和|白合|百河|white\s*(?:box|fire))|\b(?:re|ni|nizhu|niju)[\s-]?juran\s*(?:i\b|eye|white\s*box)\b/gi, rejuranIReplacement)
@@ -1156,6 +1158,7 @@ export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLang
       `Prefer these Korean phrases when acoustically plausible: ${koreanHints}.`,
       "When the sound is close, prefer Rejuran as 리쥬란 and swelling as 부종, not 니주란 or 그종.",
       "When the sound is close to 리투오, 리투어, 리트오, or 알이투오 in a skinbooster context, transcribe the product name as Re2O.",
+      "When the sound is close to 세르프 or 셀프 리프팅 in a lifting-device context, transcribe it as XERF, not Self.",
       "Price-list procedure names may include Ultherapy Prime, Thermage FLX, XERF, Titanium Lifting, Revinas, ONDA, V-RO ADVANCE, Shurink Universe, Fraxel Dual, Miracle Spot Clinic, C+B Toning, PRP, LDM, HDA, Restylane Vital, Skinvive, Sculptra, Hyaju, Dermashine, Liztox, Dysport, Xeomin, and Allergan.",
       "Rejuran color-box product names may be spoken as 리쥬란 블랙박스, 리쥬란 레드박스, 리쥬란 화이트박스, 리쥬란 블루박스, or 리쥬란 퍼플박스.",
       "Do not reinterpret pain-check phrases as sleepiness, setup, or casual conversation."

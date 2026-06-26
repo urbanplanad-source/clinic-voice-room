@@ -46,10 +46,17 @@ describe("clinic glossary display normalization", () => {
     expect(normalizeClinicTranslation("브이라인 보톡스와 침샘 보톡스", "zh")).toContain("腮腺肉毒素");
   });
 
+  it("normalizes XERF when Korean speech is misheard as self lifting", () => {
+    expect(normalizeClinicTranslation("세르프 리프팅", "en")).toBe("XERF");
+    expect(normalizeClinicTranslation("셀프 리프팅", "en")).toBe("XERF");
+    expect(normalizeClinicTranslation("Self lifting", "zh")).toBe("XERF");
+  });
+
   it("includes price-list terms in Korean transcription guidance", () => {
     const prompt = buildClinicTranscriptionPrompt("ko");
     expect(prompt).toContain("V-RO ADVANCE");
     expect(prompt).toContain("Restylane Vital");
     expect(prompt).toContain("Dysport");
+    expect(prompt).toContain("셀프 리프팅");
   });
 });
