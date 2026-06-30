@@ -12,7 +12,7 @@ import { createPatientJoinCode } from "@/lib/patient-join-code";
 
 const schema = z.object({
   patientLanguage: z.string().refine(isPatientLanguage),
-  roomMode: z.enum(roomModes).default("consultation")
+  roomMode: z.enum(roomModes).default("procedure")
 });
 
 class ActiveRoomLimitError extends Error {

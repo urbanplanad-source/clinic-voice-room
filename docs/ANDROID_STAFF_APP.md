@@ -6,21 +6,20 @@
 
 It is not a WebView wrapper. It is a Kotlin + Jetpack Compose app that signs in to the existing Next.js backend, creates a QR room for the patient web app, streams short staff turns through OpenAI Realtime with manual push-to-talk turn boundaries, falls back to server STT/translation upload when Realtime fails, then plays the translated result with Android/Google TTS.
 
-The app now supports both staff workflows:
+The visible field UI now supports two staff workflows:
 
-- Consultation mode: chat-like two-way voice translation, with text fallback.
 - Procedure mode: large push-to-talk translation for a patient lying down, with translated TTS played through the hospital phone output route.
+- Face-to-face mode: one-device, two-way local interpretation using the promoted fast face-to-face engine, instant templates, Android TTS playback, and on-device temporary conversation summary.
 
 ## Current App Scope
 
 - Staff login through `/api/auth/login`.
-- Consultation/procedure room creation through `/api/rooms`.
+- Procedure room creation through `/api/rooms`.
+- Face-to-face mode is local Android-only and does not create a backend room.
 - Patient QR/link display using the existing patient web join URL.
 - Room state polling through `/api/rooms/{roomId}`.
 - Message polling through `/api/rooms/{roomId}/messages`.
-- Consultation staff voice Realtime delivery through `/api/realtime/session-token`, with `/api/consultation-voice-turns` used to persist the completed message or as upload fallback.
 - Procedure staff voice Realtime delivery through `/api/realtime/session-token`, with `/api/procedure-turns` used to persist the completed message or as upload fallback.
-- Consultation text fallback through `/api/translate-text`.
 - Patient-to-staff translated message receiving in Android.
 - Staff-to-patient translated message delivery to patient web.
 - Android TTS playback:
@@ -74,13 +73,13 @@ cd "C:\Users\user\Desktop\개발 작업\clinic-voice-room\android-staff-app"
 Installable field-test APK after build:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/medivoice-0.3.20-field.apk
+android-staff-app/app/build/outputs/apk/field/medivoice-0.3.21-field.apk
 ```
 
 Latest local field-test APK:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/medivoice-0.3.20-field.apk
+android-staff-app/app/build/outputs/apk/field/medivoice-0.3.21-field.apk
 SHA256: build locally to generate
 ```
 
@@ -115,8 +114,8 @@ Do not install or distribute the unsigned release APK. Use it only to verify rel
 
 Current app version:
 
-- versionName: `0.3.20`
-- versionCode: `32`
+- versionName: `0.3.21`
+- versionCode: `33`
 
 Pinned build stack:
 
@@ -126,8 +125,8 @@ Pinned build stack:
 - Compose BOM: 2024.12.01
 - minSdk: 26
 - compileSdk/targetSdk: 35
-- Google Play field APK: `android-staff-app/app/build/outputs/apk/field/medivoice-0.3.20-field.apk`
-- Google Play release AAB filename after bundle build: `android-staff-app/app/build/outputs/bundle/release/medivoice-0.3.20-release.aab`
+- Google Play field APK: `android-staff-app/app/build/outputs/apk/field/medivoice-0.3.21-field.apk`
+- Google Play release AAB filename after bundle build: `android-staff-app/app/build/outputs/bundle/release/medivoice-0.3.21-release.aab`
 - Store privacy policy page draft: `/privacy`
 
 `android.overridePathCheck=true` is set for Korean workspace paths.
@@ -172,29 +171,25 @@ OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 
 The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but honors an explicit value such as `gpt-5.5`. It normalizes legacy `OPENAI_REALTIME_MODEL=gpt-realtime-translate` to `gpt-realtime` for the current general Realtime path, and legacy `OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper` to `gpt-4o-transcribe`.
 
-## Consultation Mode Field Test
+## Face-To-Face Mode Field Test
 
 1. Log in as staff.
-2. Select `?곷떞`.
-3. Select patient language.
-4. Create the consultation room.
-5. Scan the QR on the patient phone and enter the room.
-6. Confirm Android changes from QR wait to patient-ready state.
-7. Staff presses the large mic button, speaks a short Korean sentence, then presses again.
-8. Pass: Android shows the staff message in the chat list, plays translated TTS, and the patient web shows the translated message.
-9. Patient presses the web mic, speaks a short message, then stops.
-10. Pass: patient web shows the patient message, Android receives the Korean translation, and Android Korean TTS plays.
-11. Type a Korean text fallback message in Android and send.
-12. Pass: Android clears the text input, shows the message in chat, and patient web receives the translated text.
-13. While the patient is speaking, press the Android mic or footpad.
-14. Pass: Android does not start recording and shows a wait message.
-15. Tap `諛?醫낅즺`.
-16. Pass: Android shows a confirmation dialog. `怨꾩냽 ?ъ슜` keeps the room open; `諛?醫낅즺` ends it and returns to room creation.
+2. Confirm the visible mode order is `시술방 만들기` first and `대면모드` second.
+3. Select `대면모드`.
+4. Select patient language.
+5. Start face-to-face mode.
+6. Confirm the screen shows patient-language area on top, Korean area on bottom, and no `실험` text.
+7. Staff presses the Korean mic, speaks a short Korean sentence, then stops.
+8. Pass: Android shows Korean source text, translated patient-language text, and plays translated TTS.
+9. Patient presses the patient-language mic, speaks, then stops.
+10. Pass: Android shows patient-language source text, Korean translation, and plays Korean TTS.
+11. Tap summary after a few turns.
+12. Pass: Android shows patient-language and Korean summaries without storing the transcript in the database.
 
 ## Procedure Mode Field Test
 
 1. Log in as staff.
-2. Select `?쒖닠`.
+2. Select `시술방 만들기`.
 3. Select patient language.
 4. Create the procedure room.
 5. Scan the QR on the patient phone and enter the room.
@@ -202,7 +197,7 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 7. Set the phone media volume and place the phone or optional external media speaker where the lying patient can hear it.
 8. Staff presses the large mic button, speaks one short Korean procedure phrase, then presses again.
 9. Pass: Android displays recognized Korean/translated text and plays patient-language TTS through the intended output route.
-10. Tap `?ㅼ떆 ?ｊ린`.
+10. Tap `직원폰 다시 듣기`.
 11. Pass: the latest translated phrase replays through the same output route.
 12. Patient uses the patient web mic to speak.
 13. Pass: Android receives the Korean translation and Korean TTS plays for staff.
@@ -219,6 +214,7 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
+- Android v0.3.21 retires consultation and the legacy stable face-to-face mode from the visible Android UI, promotes the fast face-to-face engine as `대면모드`, keeps procedure mode, and stores restoration notes for the retired modes in `docs/android-retired-modes-2026-06-27.md`.
 - Android v0.3.20 tightens XERF handling so Korean staff speech misheard as `셀프 리프팅` or translated as `Self lifting` is normalized to XERF in glossary, Realtime prompt guidance, and Android local face-to-face text correction.
 - Android v0.3.19 adds dermatology and plastic-surgery price-list terminology to the web glossary, Realtime prompts, and Android local normalization, covering common lifting devices, filler brands, toxin brands, skin boosters, peel care, acne-scar care, and body-area Botox names while excluding fixed price values from app logic.
 - Android v0.3.18 adds Re2O / 리투오 Korean transcription hints, glossary normalization, Realtime prompt preservation, and Android local display/TTS text correction so Re2O skinbooster mentions are less likely to be misrecognized or mistranslated.
@@ -249,6 +245,6 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but
 - Android v0.2.3 makes Android and web staff QR links both include `?mode=consultation|procedure` for clearer field-test handoff. The server still uses `TranslationRoom.roomMode` as the source of truth.
 - Android v0.2.2 puts the active translation panel before room metadata after the patient joins, so staff see chat/mic controls first.
 - Android v0.2.1 and later use the phone's normal media volume/output route for TTS and request no Bluetooth permission.
-- The v0.3.20 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
+- The v0.3.21 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
 - A real two-phone field test is required before marking the app production-ready.
 

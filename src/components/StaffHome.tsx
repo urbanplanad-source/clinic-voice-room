@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, FileText, Languages, Loader2, LogOut, MessageSquareText, Stethoscope } from "lucide-react";
+import { ArrowLeft, FileText, Keyboard, Languages, Loader2, LogOut, MessageSquareText, QrCode, Stethoscope } from "lucide-react";
 import { languageLabels, patientLanguages, type PatientLanguage } from "@/lib/languages";
 import type { RoomMode } from "@/lib/room-mode";
 import type { RoomStatus } from "@/lib/room-state";
@@ -89,7 +89,7 @@ export function StaffHome({
 
   if (createdRoom) {
     const baseUrl = window.location.origin;
-    const roomMode = createdRoom.roomMode ?? selectedMode ?? "consultation";
+    const roomMode = createdRoom.roomMode ?? selectedMode ?? "procedure";
     const joinUrl = `${baseUrl}/room/join/${createdRoom.patientJoinCode}?mode=${roomMode}`;
     const androidJoinUrl = `clinicvoiceroom://room/join?joinCode=${encodeURIComponent(createdRoom.patientJoinCode ?? "")}&mode=${roomMode}&backend=${encodeURIComponent(baseUrl)}`;
 
@@ -115,10 +115,10 @@ export function StaffHome({
         <div className="min-w-0">
           <p className="truncate text-sm font-bold text-blue-200">{staff.hospital.name}</p>
           <h1 className={selectedMode ? "mt-0.5 text-xl font-bold leading-tight md:text-2xl" : "mt-1 text-[30px] font-bold leading-tight md:text-[36px]"}>
-            {selectedMode ? "환자 언어 선택" : "통역 모드 선택"}
+            {selectedMode ? "환자 언어 선택" : "통역 기능 선택"}
           </h1>
           <p className={selectedMode ? "hidden md:mt-1 md:block md:text-sm md:font-semibold md:leading-5 md:text-slate-300" : "mt-2 text-sm font-semibold leading-6 text-slate-300 md:text-base"}>
-            {selectedMode ? modeCopy[selectedMode].body : "방 유형을 먼저 고른 뒤 환자 언어를 선택하세요."}
+            {selectedMode ? modeCopy[selectedMode].body : "시술 QR 통역, 설치형 대면 통역, 텍스트 번역만 운영합니다."}
           </p>
         </div>
       </header>
@@ -129,36 +129,32 @@ export function StaffHome({
             <button
               type="button"
               onClick={() => {
-                setSelectedMode("consultation");
+                setSelectedMode("procedure");
                 setError("");
               }}
               className="flex min-h-[220px] flex-col justify-between rounded-lg bg-white p-6 text-left shadow-soft transition hover:bg-blue-50 md:min-h-[280px] md:p-8"
             >
               <span className="grid h-14 w-14 place-items-center rounded-lg bg-blue-50 text-trust">
-                <MessageSquareText size={28} />
+                <QrCode size={28} />
               </span>
               <span>
-                <span className="block text-[28px] font-bold leading-tight text-ink md:text-[34px]">상담방 만들기</span>
-                <span className="mt-3 block text-base font-semibold leading-7 text-slate-500">음성 중심 AI 번역 상담</span>
+                <span className="block text-[28px] font-bold leading-tight text-ink md:text-[34px]">시술 QR 통역</span>
+                <span className="mt-3 block text-base font-semibold leading-7 text-slate-500">고객 휴대폰 QR 연결</span>
               </span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedMode("procedure");
-                setError("");
-              }}
+            <Link
+              href="/staff/kiosk"
               className="flex min-h-[220px] flex-col justify-between rounded-lg bg-white p-6 text-left shadow-soft transition hover:bg-slate-50 md:min-h-[280px] md:p-8"
             >
               <span className="grid h-14 w-14 place-items-center rounded-lg bg-slate-100 text-ink">
-                <Stethoscope size={28} />
+                <Keyboard size={28} />
               </span>
               <span>
-                <span className="block text-[28px] font-bold leading-tight text-ink md:text-[34px]">시술방 만들기</span>
-                <span className="mt-3 block text-base font-semibold leading-7 text-slate-500">시술 중 안내 번역</span>
+                <span className="block text-[28px] font-bold leading-tight text-ink md:text-[34px]">설치형 대면 통역</span>
+                <span className="mt-3 block text-base font-semibold leading-7 text-slate-500">양쪽 모니터와 하드웨어 버튼</span>
               </span>
-            </button>
+            </Link>
           </section>
 
           <Link
@@ -178,7 +174,7 @@ export function StaffHome({
         <section className="rounded-lg bg-white p-2.5 shadow-soft sm:p-3 md:p-4">
           <div className="flex justify-end">
             <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-trust md:text-sm">
-              {selectedMode === "consultation" ? "Consultation" : "Procedure"}
+              Procedure
             </span>
           </div>
 

@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Loader2, Mic, PhoneOff } from "lucide-react";
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
@@ -72,6 +72,10 @@ type VoiceRoomProps = {
   role: ParticipantRole;
   roomToken?: string;
   roomMode?: RoomMode;
+  kioskMode?: boolean;
+  hardwareKeys?: readonly string[];
+  hardwareMouseButtons?: readonly number[];
+  hardwareLabel?: string;
 };
 
 type TranslationMessage = {
@@ -85,6 +89,29 @@ type TranslationMessage = {
 };
 
 type RecordingMode = "upload" | "safety";
+
+const defaultStaffHardwareKeys = [
+  "Space",
+  " ",
+  "Spacebar",
+  "Enter",
+  "NumpadEnter",
+  "MediaPlayPause",
+  "PageUp",
+  "F8",
+  "Up",
+  "ArrowDown",
+  "ArrowUp",
+  "13",
+  "32",
+  "38",
+  "40",
+  "119"
+] as const;
+
+function normalizedHardwareKey(value: string | number | undefined) {
+  return typeof value === "undefined" ? "" : String(value).toLowerCase();
+}
 
 type VoiceRoomCopy = {
   statusLabels: Record<RoomStatus, string>;
@@ -679,7 +706,11 @@ function ProcedureVoiceRoom({
   initialRoom,
   role,
   roomToken,
-  roomMode = "consultation"
+  roomMode = "consultation",
+  kioskMode = false,
+  hardwareKeys,
+  hardwareMouseButtons,
+  hardwareLabel
 }: VoiceRoomProps) {
   const router = useRouter();
   const [room, setRoom] = useState(initialRoom);
@@ -725,6 +756,14 @@ function ProcedureVoiceRoom({
   const latestMessage = messages[0];
   const isStaffAudioHub = role === "staff";
   const isConnectingRealtime = busy && !isSpeaking && /preparing|준비/i.test(realtimeStatus);
+  const activeHardwareKeys = useMemo(
+    () => hardwareKeys ?? (role === "staff" ? defaultStaffHardwareKeys : []),
+    [hardwareKeys, role]
+  );
+  const hardwareKeySet = useMemo(() => new Set(activeHardwareKeys.map(normalizedHardwareKey)), [activeHardwareKeys]);
+  const activeHardwareMouseButtons = useMemo(() => hardwareMouseButtons ?? [], [hardwareMouseButtons]);
+  const hardwareMouseButtonSet = useMemo(() => new Set(activeHardwareMouseButtons), [activeHardwareMouseButtons]);
+  const hardwareInputEnabled = hardwareKeySet.size > 0 || hardwareMouseButtonSet.size > 0;
   const procedureGuideText =
     role === "staff"
       ? "버튼 또는 풋패드를 눌러 말하고, 끝나면 다시 눌러 종료하세요."
@@ -751,6 +790,47 @@ function ProcedureVoiceRoom({
       : copy.transcript.title;
   const latestGuardFlags = role === "staff" ? latestMessage?.guardFlags : undefined;
   const latestBackTranslationStatus = latestGuardFlags?.backTranslation?.status;
+
+  const triggerHardwareToggle = useCallback(() => {
+    const now = Date.now();
+    if (now - lastHardwareToggleAtRef.current < 350) return;
+    lastHardwareToggleAtRef.current = now;
+
+    if (busy && !isSpeaking) return;
+    if (!isSpeaking && !micEnabled) return;
+    if (isSpeaking) void stopSpeakingRef.current();
+    else void startSpeakingRef.current();
+  }, [busy, isSpeaking, micEnabled]);
+
+  function isConfiguredMouseButton(button: number) {
+    return hardwareMouseButtonSet.has(button);
+  }
+
+  function handleHardwareMouseDown(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!isProcedureMode || !isConfiguredMouseButton(event.button) || room.status === "ended") return;
+
+    const id = `mouse:${event.button}`;
+    const pressedHardwareKeys = pressedHardwareKeysRef.current;
+    event.preventDefault();
+    event.stopPropagation();
+    if (pressedHardwareKeys.has(id)) return;
+
+    pressedHardwareKeys.add(id);
+    triggerHardwareToggle();
+  }
+
+  function handleHardwareMouseUp(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!isConfiguredMouseButton(event.button)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    pressedHardwareKeysRef.current.delete(`mouse:${event.button}`);
+  }
+
+  function handleHardwareContextMenu(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!isConfiguredMouseButton(2)) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }
 
   useEffect(() => {
     roomRef.current = room;
@@ -1091,7 +1171,7 @@ function ProcedureVoiceRoom({
   }, [isProcedureMode]);
 
   useEffect(() => {
-    if (role !== "patient" || room.status === "ended") return;
+    if (kioskMode || role !== "patient" || room.status === "ended") return;
 
     window.history.pushState({ clinicVoiceRoom: true }, "", window.location.href);
     const handleBack = () => {
@@ -1101,55 +1181,42 @@ function ProcedureVoiceRoom({
 
     window.addEventListener("popstate", handleBack);
     return () => window.removeEventListener("popstate", handleBack);
-  }, [role, room.status]);
+  }, [kioskMode, role, room.status]);
 
   useEffect(() => {
-    if (!isProcedureMode || role !== "staff" || room.status === "ended") return;
+    if (!isProcedureMode || !hardwareInputEnabled || room.status === "ended") return;
 
     roomRootRef.current?.focus();
     hardwareCaptureRef.current?.focus({ preventScroll: true });
 
     const isPttKey = (event: KeyboardEvent) =>
-      event.code === "Space" ||
-      event.key === " " ||
-      event.key === "Spacebar" ||
-      event.code === "Enter" ||
-      event.key === "Enter" ||
-      event.code === "NumpadEnter" ||
-      event.code === "MediaPlayPause" ||
-      event.key === "MediaPlayPause" ||
-      event.code === "PageUp" ||
-      event.key === "PageUp" ||
-      event.key === "Up" ||
-      event.code === "ArrowDown" ||
-      event.code === "ArrowUp" ||
-      event.key === "ArrowDown" ||
-      event.key === "ArrowUp" ||
-      event.keyCode === 13 ||
-      event.keyCode === 32 ||
-      event.keyCode === 38 ||
-      event.keyCode === 40;
+      hardwareKeySet.has(normalizedHardwareKey(event.code)) ||
+      hardwareKeySet.has(normalizedHardwareKey(event.key)) ||
+      hardwareKeySet.has(normalizedHardwareKey(event.keyCode)) ||
+      hardwareKeySet.has(normalizedHardwareKey(event.which));
 
     const keyId = (event: KeyboardEvent) => `${event.code || event.key || event.keyCode}`;
     const pressedHardwareKeys = pressedHardwareKeysRef.current;
 
+    const captureHardwareKey = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
     const toggleFromHardwareInput = (event: KeyboardEvent, source: "keydown" | "keypress" | "keyup") => {
       if (!isPttKey(event)) return;
 
-      const id = keyId(event);
-      if (source === "keydown" && (event.repeat || pressedHardwareKeys.has(id))) return;
+      captureHardwareKey(event);
+      const id = `key:${keyId(event)}`;
+      if (source === "keyup") {
+        pressedHardwareKeys.delete(id);
+        return;
+      }
+      if (source === "keypress") return;
+      if (event.repeat || pressedHardwareKeys.has(id)) return;
+
       pressedHardwareKeys.add(id);
-
-      event.preventDefault();
-      event.stopPropagation();
-      const now = Date.now();
-      if (now - lastHardwareToggleAtRef.current < 350) return;
-      lastHardwareToggleAtRef.current = now;
-
-      if (busy && !isSpeaking) return;
-      if (!isSpeaking && !micEnabled) return;
-      if (isSpeaking) void stopSpeakingRef.current();
-      else void startSpeakingRef.current();
+      triggerHardwareToggle();
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1180,7 +1247,7 @@ function ProcedureVoiceRoom({
       document.removeEventListener("keyup", handleKeyUp, true);
       pressedHardwareKeys.clear();
     };
-  }, [busy, isProcedureMode, isSpeaking, micEnabled, role, room.status]);
+  }, [hardwareInputEnabled, hardwareKeySet, isProcedureMode, room.status, triggerHardwareToggle]);
 
   useEffect(() => {
     if (room.status !== "ready" || realtimePreconnectStartedRef.current || realtimeClientRef.current) return;
@@ -1640,22 +1707,28 @@ function ProcedureVoiceRoom({
   return (
     <div
       ref={roomRootRef}
-      className="space-y-4 outline-none"
+      className={kioskMode ? "space-y-3 outline-none" : "space-y-4 outline-none"}
       tabIndex={-1}
       onPointerDown={() => {
         roomRootRef.current?.focus();
-        hardwareCaptureRef.current?.focus({ preventScroll: true });
+        if (hardwareInputEnabled) hardwareCaptureRef.current?.focus({ preventScroll: true });
       }}
+      onMouseDown={handleHardwareMouseDown}
+      onMouseUp={handleHardwareMouseUp}
+      onAuxClick={handleHardwareMouseUp}
+      onContextMenu={handleHardwareContextMenu}
     >
-      <input
-        ref={hardwareCaptureRef}
-        aria-hidden="true"
-        autoComplete="off"
-        inputMode="none"
-        readOnly
-        tabIndex={-1}
-        className="fixed left-0 top-0 h-px w-px opacity-0"
-      />
+      {hardwareInputEnabled ? (
+        <input
+          ref={hardwareCaptureRef}
+          aria-hidden="true"
+          autoComplete="off"
+          inputMode="none"
+          readOnly
+          tabIndex={-1}
+          className="fixed left-0 top-0 h-px w-px opacity-0"
+        />
+      ) : null}
 
       {backWarning ? (
         <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
@@ -1671,7 +1744,7 @@ function ProcedureVoiceRoom({
         </section>
       ) : null}
 
-      {role === "staff" ? (
+      {role === "staff" && !kioskMode ? (
         <header className="rounded-lg bg-white p-5 shadow-sm">
           <div className="min-w-0">
             <p className="truncate text-sm font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
@@ -1733,6 +1806,7 @@ function ProcedureVoiceRoom({
       <section className="rounded-lg bg-white p-5 text-center shadow-soft">
         <div className="mx-auto mb-5 max-w-md rounded-lg bg-slate-50 px-4 py-3">
           <p className="text-base font-semibold leading-7 text-slate-700 md:text-lg md:leading-8">{procedureGuideText}</p>
+          {hardwareLabel ? <p className="mt-2 text-sm font-bold text-trust">{hardwareLabel}</p> : null}
         </div>
         <button
           type="button"

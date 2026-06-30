@@ -148,7 +148,6 @@ private val Panel = Color(0xFFF8FAFC)
 private val BlueTint = Color(0xFFEFF6FF)
 private val GreenTint = Color(0xFFEFFCF7)
 private val RoseTint = Color(0xFFFFF1F2)
-private val Experiment = Color(0xFFD97706)
 
 private data class StaffLayoutMetrics(
     val isTablet: Boolean,
@@ -227,7 +226,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.20"
+private const val AppDisplayVersion = "0.3.21"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -331,7 +330,7 @@ private data class StaffUiState(
     val staffName: String = "",
     val hospitalName: String = "",
     val selectedLanguage: String = "zh",
-    val selectedRoomMode: String = "consultation",
+    val selectedRoomMode: String = "procedure",
     val setupStep: String = SetupStepMode,
     val room: RoomInfo? = null,
     val status: String = "로그인 후 통역 모드를 선택하세요.",
@@ -1825,12 +1824,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun localModeDisplayName(mode: String): String {
-        return if (isExperimentalLocalInterpreterMode(mode)) "대면 실험" else "대면 통역"
+        return if (isExperimentalLocalInterpreterMode(mode)) "대면모드" else "대면 통역"
     }
 
     private fun localConnectingStatus(mode: String): String {
         return if (isExperimentalLocalInterpreterMode(mode)) {
-            "대면 실험 연결 준비중입니다. 잠시만 기다려주세요."
+            "대면모드 연결 준비중입니다. 잠시만 기다려주세요."
         } else {
             "연결 준비중입니다. 잠시만 기다려주세요."
         }
@@ -1838,7 +1837,7 @@ class MainActivity : ComponentActivity() {
 
     private fun localReadyStatus(mode: String): String {
         return if (isExperimentalLocalInterpreterMode(mode)) {
-            "대면 실험 준비됨. 말할 쪽의 마이크를 누르세요."
+            "대면모드 준비됨. 말할 쪽의 마이크를 누르세요."
         } else {
             "대면 통역 준비됨. 말할 쪽의 마이크를 누르세요."
         }
@@ -1846,7 +1845,7 @@ class MainActivity : ComponentActivity() {
 
     private fun localTranslatingStatus(mode: String): String {
         return if (isExperimentalLocalInterpreterMode(mode)) {
-            "대면 실험 번역 중입니다..."
+            "대면모드 번역 중입니다..."
         } else {
             "대면 통역 번역 중입니다..."
         }
@@ -1854,7 +1853,7 @@ class MainActivity : ComponentActivity() {
 
     private fun localCompleteStatus(mode: String): String {
         return if (isExperimentalLocalInterpreterMode(mode)) {
-            "대면 실험 완료. 다음 발화 쪽 마이크를 누르세요."
+            "대면모드 완료. 다음 발화 쪽 마이크를 누르세요."
         } else {
             "대면 통역 완료. 다음 발화 쪽 마이크를 누르세요."
         }
@@ -1879,15 +1878,15 @@ class MainActivity : ComponentActivity() {
                 translatedDraft = "",
                 lastMessageSpeaker = "",
                 localTurnDirection = LocalDirectionKoToPatient,
-                localEngineStatus = if (experimental) "실험 대기" else "",
-                localResultBadge = if (experimental) "실험" else "",
+                localEngineStatus = if (experimental) "대기" else "",
+                localResultBadge = "",
                 localConversationTurns = emptyList(),
                 localSummaryKorean = "",
                 localSummaryPatient = "",
                 showLocalSummary = false,
                 messages = emptyList(),
                 textInput = "",
-                status = "연결 준비중입니다. 잠시만 기다려주세요."
+                status = localConnectingStatus(state.selectedRoomMode)
             )
         }
         warmTtsLanguage(Locale.KOREA, "한국어")
@@ -1897,7 +1896,7 @@ class MainActivity : ComponentActivity() {
         closeLocalRealtimeTurnClients()
         prepareLocalRealtimeTurnClientsAsync(state.selectedLanguage, force = true)
         warmLocalVoiceTurnsAsync(state.selectedLanguage)
-        appendLog("대면 통역 시작: ${state.selectedLanguage}")
+        appendLog("${localModeDisplayName(state.selectedRoomMode)} 시작: ${state.selectedLanguage}")
     }
 
     private fun exitLocalInterpreter() {
@@ -1982,8 +1981,8 @@ class MainActivity : ComponentActivity() {
                 translatedDraft = "",
                 lastMessageSpeaker = "",
                 localTurnDirection = LocalDirectionKoToPatient,
-                localEngineStatus = if (isExperimentalLocalInterpreterMode(it.selectedRoomMode)) "실험 대기" else "",
-                localResultBadge = if (isExperimentalLocalInterpreterMode(it.selectedRoomMode)) "실험" else "",
+                localEngineStatus = if (isExperimentalLocalInterpreterMode(it.selectedRoomMode)) "대기" else "",
+                localResultBadge = "",
                 localConversationTurns = emptyList(),
                 localSummaryKorean = "",
                 localSummaryPatient = "",
@@ -2094,13 +2093,13 @@ class MainActivity : ComponentActivity() {
                         current.room == null &&
                         !current.busy &&
                         !current.speaking &&
-                        current.status.startsWith("연결 준비중") -> "대면 통역 준비됨. 말할 쪽의 마이크를 누르세요."
+                        (current.status.startsWith("연결 준비중") || current.status.startsWith("대면모드 연결 준비중")) -> localReadyStatus(current.selectedRoomMode)
 
                     !ready &&
                         current.setupStep == SetupStepLocalInterpreter &&
                         current.room == null &&
                         !current.busy &&
-                        !current.speaking -> "연결 준비중입니다. 잠시만 기다려주세요."
+                        !current.speaking -> localConnectingStatus(current.selectedRoomMode)
 
                     else -> current.status
                 }
@@ -2447,7 +2446,7 @@ class MainActivity : ComponentActivity() {
                 sourceDraft = "",
                 translatedDraft = "",
                 localEngineStatus = if (isExperimentalLocalInterpreterMode(it.selectedRoomMode)) "Realtime 처리" else "",
-                localResultBadge = if (isExperimentalLocalInterpreterMode(it.selectedRoomMode)) "실험" else "",
+                localResultBadge = "",
                 status = if (normalizedDirection == LocalDirectionKoToPatient) {
                     "한국어를 듣고 있습니다. 말이 끝나면 자동 번역합니다."
                 } else {
@@ -2462,7 +2461,7 @@ class MainActivity : ComponentActivity() {
             "Realtime 준비 중입니다. 녹음은 시작됐고 말이 끝나면 자동 번역합니다."
         }
         startStaffRecording(recordingStatus)
-        appendLog("대면 통역 녹음 시작: $normalizedDirection")
+        appendLog("${localModeDisplayName(state.selectedRoomMode)} 녹음 시작: $normalizedDirection")
     }
 
     private fun beginStaffTurn() {
@@ -2885,8 +2884,8 @@ class MainActivity : ComponentActivity() {
         val direction = if (snapshot.localTurnDirection == LocalDirectionPatientToKo) LocalDirectionPatientToKo else LocalDirectionKoToPatient
         val patientLanguage = snapshot.selectedLanguage
         recordingActive = false
-        updateState { it.copy(speaking = false, busy = true, status = "대면 통역 번역 중입니다...") }
-        appendLog("대면 통역 녹음 종료: $direction")
+        updateState { it.copy(speaking = false, busy = true, status = localTranslatingStatus(snapshot.selectedRoomMode)) }
+        appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 녹음 종료: $direction")
 
         executor.execute {
             runCatching {
@@ -2949,7 +2948,7 @@ class MainActivity : ComponentActivity() {
                             status = "번역 내용이 서로 맞지 않아 다시 말해주세요."
                         )
                     }
-                    appendLog("대면 통역 의미 불일치: 다시 말하기 요청")
+                    appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 의미 불일치: 다시 말하기 요청")
                     return@runCatching
                 }
 
@@ -2969,7 +2968,7 @@ class MainActivity : ComponentActivity() {
                         lastMessageSpeaker = speaker,
                         localTurnDirection = direction,
                         localConversationTurns = nextLocalTurns,
-                        status = "대면 통역 완료. 다음 발화 쪽 마이크를 누르세요."
+                        status = localCompleteStatus(snapshot.selectedRoomMode)
                     )
                 }
 
@@ -2980,12 +2979,12 @@ class MainActivity : ComponentActivity() {
                         speakKoreanText(translated)
                     }
                 }
-                appendLog("대면 통역 완료")
+                appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 완료")
             }.onFailure { caught ->
                 val message = userFacingError(caught)
-                updateState { it.copy(busy = false, speaking = false, status = "대면 통역 실패: $message") }
+                updateState { it.copy(busy = false, speaking = false, status = "${localModeDisplayName(snapshot.selectedRoomMode)} 실패: $message") }
                 prepareLocalRealtimeTurnClientsAsync(patientLanguage)
-                appendLog("대면 통역 실패: $message")
+                appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 실패: $message")
             }
         }
     }
@@ -3596,7 +3595,7 @@ class MainActivity : ComponentActivity() {
             }
             if (state.lastMessageSpeaker == "patient") speakKoreanText(text)
             else speakTranslatedText(text, state.selectedLanguage)
-            appendLog("대면 통역 다시 듣기")
+            appendLog("${localModeDisplayName(state.selectedRoomMode)} 다시 듣기")
             return
         }
 
@@ -3826,7 +3825,7 @@ private fun statusHelperText(status: String): String {
 private fun roomModeLabel(mode: String): String {
     return when (mode) {
         "procedure" -> "시술"
-        RoomModeLocalInterpreterExperimental -> "대면 실험"
+        RoomModeLocalInterpreterExperimental -> "대면모드"
         RoomModeLocalInterpreter -> "대면"
         else -> "상담"
     }
@@ -3835,7 +3834,7 @@ private fun roomModeLabel(mode: String): String {
 private fun roomModeDescription(mode: String): String {
     return when (mode) {
         "procedure" -> "누워 있는 환자에게 짧은 안내를 바로 번역해 들려줍니다."
-        RoomModeLocalInterpreterExperimental -> "템플릿 우선 + Realtime 실험으로 더 빠른 대면 통역을 테스트합니다."
+        RoomModeLocalInterpreterExperimental -> "병원폰 하나로 마주 보고 빠르게 양방향 통역합니다."
         RoomModeLocalInterpreter -> "병원 기기 하나를 마주 보고 놓고 양방향 음성 통역을 합니다."
         else -> "직원과 환자가 채팅하듯이 짧게 말하고 번역을 주고받습니다."
     }
@@ -3843,7 +3842,7 @@ private fun roomModeDescription(mode: String): String {
 
 private fun languageSelectionStatus(mode: String): String {
     return if (isLocalInterpreterMode(mode)) {
-        "대면 통역에 사용할 환자 언어를 선택하세요."
+        "${roomModeLabel(mode)}에 사용할 환자 언어를 선택하세요."
     } else {
         "${roomModeLabel(mode)} 통역방에 사용할 환자 언어를 선택하세요."
     }
@@ -4337,21 +4336,6 @@ private fun ModeSelectionScreen(
     Column(verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)) {
         ModeLargeCard(
             metrics = metrics,
-            title = "상담방 만들기",
-            body = "음성 중심 AI 번역 상담",
-            icon = {
-                Icon(
-                    Icons.Outlined.ChatBubbleOutline,
-                    contentDescription = null,
-                    tint = Trust,
-                    modifier = Modifier.size(metrics.modeIconSize)
-                )
-            },
-            onClick = { onRoomMode("consultation") }
-        )
-
-        ModeLargeCard(
-            metrics = metrics,
             title = "시술방 만들기",
             body = "시술 중 안내 번역",
             icon = {
@@ -4367,30 +4351,13 @@ private fun ModeSelectionScreen(
 
         ModeLargeCard(
             metrics = metrics,
-            title = "대면 통역",
-            body = "병원폰 하나로 양방향 음성 통역",
+            title = "대면모드",
+            body = "병원폰 하나로 빠른 양방향 통역",
             icon = {
                 Icon(
                     Icons.Outlined.Translate,
                     contentDescription = null,
                     tint = Mint,
-                    modifier = Modifier.size(metrics.modeIconSize)
-                )
-            },
-            onClick = { onRoomMode(RoomModeLocalInterpreter) }
-        )
-
-        ModeLargeCard(
-            metrics = metrics,
-            title = "대면 실험",
-            body = "템플릿 우선 + Realtime 실험",
-            badge = "실험",
-            badgeColor = Experiment,
-            icon = {
-                Icon(
-                    Icons.Outlined.Translate,
-                    contentDescription = null,
-                    tint = Experiment,
                     modifier = Modifier.size(metrics.modeIconSize)
                 )
             },
@@ -4555,7 +4522,7 @@ private fun languageEnglishLabel(code: String): String {
 private fun modeEnglishLabel(mode: String): String {
     return when (mode) {
         "procedure" -> "Procedure"
-        RoomModeLocalInterpreterExperimental -> "Face to face lab"
+        RoomModeLocalInterpreterExperimental -> "Face to face"
         RoomModeLocalInterpreter -> "Face to face"
         else -> "Consultation"
     }
@@ -4564,20 +4531,20 @@ private fun modeEnglishLabel(mode: String): String {
 private fun modeKoreanLabel(mode: String): String {
     return when (mode) {
         "procedure" -> "시술"
-        RoomModeLocalInterpreterExperimental -> "대면 실험"
+        RoomModeLocalInterpreterExperimental -> "대면모드"
         RoomModeLocalInterpreter -> "대면"
         else -> "상담"
     }
 }
 
 private fun languageRoomTitle(mode: String): String {
-    if (mode == RoomModeLocalInterpreterExperimental) return "대면 실험"
+    if (mode == RoomModeLocalInterpreterExperimental) return "대면모드"
     if (mode == RoomModeLocalInterpreter) return "대면 통역"
     return "${modeKoreanLabel(mode)} 통역방"
 }
 
 private fun createRoomButtonLabel(mode: String): String {
-    if (mode == RoomModeLocalInterpreterExperimental) return "대면 실험 시작"
+    if (mode == RoomModeLocalInterpreterExperimental) return "대면모드 시작"
     if (mode == RoomModeLocalInterpreter) return "대면 통역 시작"
     return "${modeKoreanLabel(mode)} 통역방 생성"
 }
@@ -5296,7 +5263,7 @@ private fun LocalInterpreterControlStrip(
                 } else if (state.speaking) {
                     "녹음 중"
                 } else {
-                    "대면 통역"
+                    "대면모드"
                 },
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
@@ -5836,26 +5803,14 @@ private fun RoomPanel(
             Text("통역 모드", color = Ink, fontWeight = FontWeight.Bold)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 ModeChoiceButton(
-                    title = "상담방 만들기",
-                    body = "상대방과 채팅하듯이 음성 번역을 주고받습니다.",
-                    selected = state.selectedRoomMode == "consultation",
-                    onClick = { onRoomMode("consultation") }
-                )
-                ModeChoiceButton(
                     title = "시술방 만들기",
                     body = "시술 중 누워 있는 환자에게 짧은 안내를 들려줍니다.",
                     selected = state.selectedRoomMode == "procedure",
                     onClick = { onRoomMode("procedure") }
                 )
                 ModeChoiceButton(
-                    title = "대면 통역",
-                    body = "한 기기로 마주 보고 쓰는 안정 대면 모드입니다.",
-                    selected = state.selectedRoomMode == RoomModeLocalInterpreter,
-                    onClick = { onRoomMode(RoomModeLocalInterpreter) }
-                )
-                ModeChoiceButton(
-                    title = "대면 실험",
-                    body = "템플릿 우선 + Realtime 실험 모드입니다.",
+                    title = "대면모드",
+                    body = "한 기기로 마주 보고 빠르게 통역합니다.",
                     selected = state.selectedRoomMode == RoomModeLocalInterpreterExperimental,
                     onClick = { onRoomMode(RoomModeLocalInterpreterExperimental) }
                 )
