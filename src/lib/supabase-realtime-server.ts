@@ -18,30 +18,54 @@ function getServerRealtimeClient() {
 }
 
 export async function broadcastServerTranslationMessage(roomId: string, message: RealtimeTranslationMessage) {
+  const startedAt = Date.now();
   const supabase = getServerRealtimeClient();
-  if (!supabase) return false;
+  if (!supabase) {
+    console.log("[supabase-realtime-server] translation broadcast skipped", JSON.stringify({ roomId, reason: "disabled" }));
+    return false;
+  }
 
   const channel = supabase.channel(`clinic-room:${roomId}:translations`);
+  let subscribed = false;
   await new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, 1000);
     channel.subscribe((status) => {
       if (status === "SUBSCRIBED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        subscribed = status === "SUBSCRIBED";
         clearTimeout(timer);
         resolve();
       }
     });
   });
+  const joinMs = Date.now() - startedAt;
 
   try {
+    const sendStartedAt = Date.now();
     const status = await channel.send({
       type: "broadcast",
       event: "translation:new",
       payload: { message }
     });
+    const sendMs = Date.now() - sendStartedAt;
     await supabase.removeChannel(channel);
+    console.log(
+      "[supabase-realtime-server] translation broadcast",
+      JSON.stringify({ roomId, messageId: message.id, subscribed, status, joinMs, sendMs, totalMs: Date.now() - startedAt })
+    );
     return status === "ok";
-  } catch {
+  } catch (caught) {
     await supabase.removeChannel(channel);
+    console.error(
+      "[supabase-realtime-server] translation broadcast failed",
+      JSON.stringify({
+        roomId,
+        messageId: message.id,
+        subscribed,
+        joinMs,
+        totalMs: Date.now() - startedAt,
+        error: caught instanceof Error ? caught.message : "unknown"
+      })
+    );
     return false;
   }
 }

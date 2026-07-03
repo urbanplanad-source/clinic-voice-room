@@ -41,7 +41,8 @@ const realtimeMessageSchema = z.object({
   role: z.enum(["staff", "patient"]),
   patientLanguage: z.custom<PatientLanguage>((value) => isPatientLanguage(value)),
   sourceText: z.string().trim().max(4000).optional().default(""),
-  translatedText: z.string().trim().min(1).max(4000)
+  translatedText: z.string().trim().min(1).max(4000),
+  sourceTranscriptComplete: z.boolean().optional().default(true)
 });
 
 function textField(formData: FormData, key: string) {
@@ -167,7 +168,7 @@ async function handleRealtimeStaffMessage(request: Request) {
   let translationSource: "realtime" | "llm" | "verified" = "realtime";
   let guardFlags: GuardFlags | undefined;
 
-  if (numberGuardEnabled() && parsed.data.sourceText) {
+  if (numberGuardEnabled() && parsed.data.sourceText && parsed.data.sourceTranscriptComplete) {
     try {
       const comparison = compareNumericSignatures(parsed.data.sourceText, parsed.data.translatedText);
       if (!comparison.ok) {
@@ -188,6 +189,11 @@ async function handleRealtimeStaffMessage(request: Request) {
     } catch (caught) {
       console.error("[procedure-turns realtime number-guard] fail-open", caught);
     }
+  } else if (numberGuardEnabled() && parsed.data.sourceText && !parsed.data.sourceTranscriptComplete) {
+    console.log(
+      "[procedure-turns realtime number-guard] skipped incomplete source transcript",
+      JSON.stringify({ roomId: room.id, messageId: parsed.data.messageId })
+    );
   }
 
   guardFlags = mergeGuardFlags(
@@ -282,6 +288,10 @@ async function handleRealtimeStaffMessage(request: Request) {
 }
 
 async function handleAudioTurn(request: Request) {
+  const startedAt = Date.now();
+  let transcriptionMs = 0;
+  let translationMs = 0;
+  let persistMs = 0;
   const formData = await request.formData().catch(() => null);
   if (!formData) {
     return NextResponse.json({ error: "Invalid procedure turn payload" }, { status: 400 });
@@ -367,6 +377,7 @@ async function handleAudioTurn(request: Request) {
   transcriptionForm.set("response_format", "json");
   transcriptionForm.set("prompt", buildClinicTranscriptionPrompt(role === "staff" ? "ko" : patientLanguage, glossaryData.transcriptionHints));
 
+  const transcriptionStartedAt = Date.now();
   let transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
     headers: {
@@ -416,15 +427,19 @@ async function handleAudioTurn(request: Request) {
   }
 
   const transcriptionData = (await transcriptionResponse.json()) as TranscriptionResponse;
+  transcriptionMs = Date.now() - transcriptionStartedAt;
   const sourceText = transcriptionData.text?.trim();
   if (!sourceText) {
     return NextResponse.json({ error: "No speech was transcribed" }, { status: 422 });
   }
 
+  const translationStartedAt = Date.now();
   const translation = await translateProcedureSourceText({ roomId: room.id, role, patientLanguage, sourceText, glossaryData });
+  translationMs = Date.now() - translationStartedAt;
   if (translation.response) return translation.response;
 
   let savedMessage;
+  const persistStartedAt = Date.now();
   try {
     savedMessage = await prisma.$transaction(async (tx) => {
       await tx.translationRoom.updateMany({
@@ -454,6 +469,7 @@ async function handleAudioTurn(request: Request) {
       throw caught;
     }
   }
+  persistMs = Date.now() - persistStartedAt;
 
   if (translation.guardFlags?.backTranslation?.status === "pending") {
     after(() =>
@@ -477,6 +493,37 @@ async function handleAudioTurn(request: Request) {
     readAt: savedMessage.readAt?.toISOString() ?? null,
     guardFlags: parseGuardFlags(savedMessage.guardFlags) ?? null
   };
+
+  const messageGuardFlags = parseGuardFlags(savedMessage.guardFlags) ?? undefined;
+  const messageTargetLanguage = (savedMessage.targetLanguage ?? undefined) as TargetLanguage | undefined;
+  after(() =>
+    broadcastServerTranslationMessage(room.id, {
+      id: savedMessage.id,
+      speaker: savedMessage.speaker,
+      sourceText: savedMessage.sourceText ?? undefined,
+      text: savedMessage.text,
+      targetLanguage: messageTargetLanguage,
+      createdAt: savedMessage.createdAt.toISOString(),
+      readAt: savedMessage.readAt?.toISOString() ?? null,
+      guardFlags: messageGuardFlags
+    }).catch((caught) => {
+      console.error("[procedure-turns upload broadcast]", caught);
+    })
+  );
+
+  console.log(
+    "[procedure-turns upload timing]",
+    JSON.stringify({
+      roomMode: room.roomMode,
+      messageId: savedMessage.id,
+      role,
+      model: translation.model,
+      transcriptionMs,
+      translationMs,
+      persistMs,
+      totalMs: Date.now() - startedAt
+    })
+  );
 
   return NextResponse.json({ message, sourceText, translatedText: savedMessage.text, model: translation.model });
 }

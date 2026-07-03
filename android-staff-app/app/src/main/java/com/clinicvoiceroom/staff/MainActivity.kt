@@ -22,6 +22,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Base64
 import android.util.Log
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -226,7 +227,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.21"
+private const val AppDisplayVersion = "0.3.22"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -239,12 +240,14 @@ private const val RealtimePcmSampleRate = 24000
 private const val RealtimeTurnWaitMs = 5500L
 private const val RealtimeOutputQuietMs = 300L
 private const val RealtimeInstantTemplateProbeMs = 240L
-private const val RealtimeInputTranscriptFastWaitMs = 650L
+private const val RealtimeInputTranscriptFastWaitMs = 250L
+private const val RealtimeInputTranscriptNumericWaitMs = 650L
 private const val RealtimeInputTranscriptRepairWaitMs = 2400L
 private const val ExperimentalRealtimeTurnWaitMs = 5000L
 private const val ExperimentalRealtimeOutputQuietMs = 220L
 private const val ExperimentalRealtimeInstantTemplateProbeMs = 220L
-private const val ExperimentalRealtimeInputTranscriptFastWaitMs = 650L
+private const val ExperimentalRealtimeInputTranscriptFastWaitMs = 250L
+private const val ExperimentalRealtimeInputTranscriptNumericWaitMs = 650L
 private const val ExperimentalRealtimeInputTranscriptRepairWaitMs = 1200L
 private const val RecordingStopJoinMs = 250L
 private const val StaffRecordingMaxMs = 60_000L
@@ -253,6 +256,7 @@ private const val StaffAutoStopMinVoiceMs = 260L
 private const val StaffAutoStopSilenceMs = 1600L
 private const val StaffAutoStopSpeechRms = 900.0
 private const val StaffAutoStopSpeechPeak = 2600
+private const val FootpadDuplicateWindowMs = 450L
 private const val LocalValidationTimeoutMs = 900L
 private const val LocalValidationMaxSourceChars = 18
 private const val LocalValidationMaxTranslatedChars = 36
@@ -260,6 +264,26 @@ private const val LocalValidationMaxSourceWords = 3
 private const val LocalSummaryMaxTurns = 80
 private const val TtsSpeechUtterancePrefix = "cvr-speak"
 private const val TtsWarmUtterancePrefix = "cvr-warm"
+private val DirectFootpadKeyCodes = setOf(
+    KeyEvent.KEYCODE_SPACE,
+    KeyEvent.KEYCODE_ENTER,
+    KeyEvent.KEYCODE_NUMPAD_ENTER,
+    KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+    KeyEvent.KEYCODE_MEDIA_PLAY,
+    KeyEvent.KEYCODE_MEDIA_PAUSE,
+    KeyEvent.KEYCODE_MEDIA_STOP,
+    KeyEvent.KEYCODE_HEADSETHOOK
+)
+private val ExternalOnlyFootpadKeyCodes = setOf(
+    KeyEvent.KEYCODE_VOLUME_UP,
+    KeyEvent.KEYCODE_VOLUME_DOWN,
+    KeyEvent.KEYCODE_PAGE_UP,
+    KeyEvent.KEYCODE_PAGE_DOWN,
+    KeyEvent.KEYCODE_DPAD_CENTER,
+    KeyEvent.KEYCODE_BUTTON_A,
+    KeyEvent.KEYCODE_BUTTON_1,
+    KeyEvent.KEYCODE_BUTTON_START
+)
 
 private fun isLocalInterpreterMode(mode: String): Boolean {
     return mode == RoomModeLocalInterpreter || mode == RoomModeLocalInterpreterExperimental
@@ -482,6 +506,7 @@ private data class RealtimeTurnTiming(
     val outputQuietMs: Long,
     val instantTemplateProbeMs: Long,
     val inputTranscriptFastWaitMs: Long,
+    val inputTranscriptNumericWaitMs: Long,
     val inputTranscriptRepairWaitMs: Long
 )
 
@@ -490,6 +515,7 @@ private val DefaultRealtimeTurnTiming = RealtimeTurnTiming(
     outputQuietMs = RealtimeOutputQuietMs,
     instantTemplateProbeMs = RealtimeInstantTemplateProbeMs,
     inputTranscriptFastWaitMs = RealtimeInputTranscriptFastWaitMs,
+    inputTranscriptNumericWaitMs = RealtimeInputTranscriptNumericWaitMs,
     inputTranscriptRepairWaitMs = RealtimeInputTranscriptRepairWaitMs
 )
 
@@ -498,8 +524,16 @@ private val ExperimentalRealtimeTurnTiming = RealtimeTurnTiming(
     outputQuietMs = ExperimentalRealtimeOutputQuietMs,
     instantTemplateProbeMs = ExperimentalRealtimeInstantTemplateProbeMs,
     inputTranscriptFastWaitMs = ExperimentalRealtimeInputTranscriptFastWaitMs,
+    inputTranscriptNumericWaitMs = ExperimentalRealtimeInputTranscriptNumericWaitMs,
     inputTranscriptRepairWaitMs = ExperimentalRealtimeInputTranscriptRepairWaitMs
 )
+
+private val RealtimeNumericCuePattern = Regex(
+    """(?:\p{Nd}|[๐-๙]|[零〇一二两兩三四五六七八九]\s*(?:周|週|天|日|次|回|个月|個月|月|小时|小時|分|元|岁|歲|号|號|室|房|%|％)|[零〇一二两兩三四五六七八九十百千万萬]*[十百千万萬][零〇一二两兩三四五六七八九十百千万萬]*(?:\s*(?:周|週|天|日|次|回|个月|個月|月|小时|小時|分|元|岁|歲|号|號|室|房|%|％))?|하루|이틀|사흘|(?:하나|한|둘|두|셋|세|넷|네|다섯|여섯|일곱|여덟|아홉|열|영|공|일|이|삼|사|오|육|륙|칠|팔|구|십)\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알|퍼센트|프로|원|만원|호|호실|방)|[영공일이삼사오육륙칠팔구]*[십백천만][영공일이삼사오육륙칠팔구십백천만]*|\b(?:one|once|two|twice|three|four|five|six|seven|eight|nine|ten)\b)""",
+    setOf(RegexOption.IGNORE_CASE)
+)
+
+private fun translatedTextContainsNumericCue(text: String): Boolean = RealtimeNumericCuePattern.containsMatchIn(text)
 
 private class AndroidRealtimeTurnClient(
     private val http: OkHttpClient,
@@ -677,7 +711,9 @@ private class AndroidRealtimeTurnClient(
         if (translated.isBlank()) error("Realtime returned no translated text")
         val sourceTranscriptComplete = waitForInputTranscriptIfNeeded(
             timing.inputTranscriptFastWaitMs,
-            timing.inputTranscriptRepairWaitMs
+            timing.inputTranscriptNumericWaitMs,
+            timing.inputTranscriptRepairWaitMs,
+            translated
         )
         val rawSourceText = synchronized(this) { inputText.toString().trim() }
         val cleanedSourceText = hideUnsafeReplacementCharacters(repairKoreanClinicTextArtifacts(rawSourceText))
@@ -921,9 +957,15 @@ private class AndroidRealtimeTurnClient(
         }
     }
 
-    private fun waitForInputTranscriptIfNeeded(fastWaitMs: Long, repairWaitMs: Long): Boolean {
+    private fun waitForInputTranscriptIfNeeded(
+        fastWaitMs: Long,
+        numericWaitMs: Long,
+        repairWaitMs: Long,
+        translatedText: String
+    ): Boolean {
         val startedAt = SystemClock.elapsedRealtime()
-        var deadlineAt = startedAt + fastWaitMs
+        val numericWaitEnabled = translatedTextContainsNumericCue(translatedText)
+        var deadlineAt = startedAt + if (numericWaitEnabled) maxOf(fastWaitMs, numericWaitMs) else fastWaitMs
         var repairWindowEnabled = false
 
         while (SystemClock.elapsedRealtime() < deadlineAt) {
@@ -932,11 +974,12 @@ private class AndroidRealtimeTurnClient(
             if (inputTranscriptDone) return true
             if (!repairWindowEnabled && currentText.contains('\uFFFD')) {
                 repairWindowEnabled = true
-                deadlineAt = startedAt + repairWaitMs
+                deadlineAt = maxOf(deadlineAt, startedAt + repairWaitMs)
             }
             Thread.sleep(40)
         }
-        log("Realtime input transcript incomplete after ${SystemClock.elapsedRealtime() - startedAt}ms")
+        val reason = if (numericWaitEnabled) "numeric" else "fast"
+        log("Realtime input transcript incomplete after ${SystemClock.elapsedRealtime() - startedAt}ms ($reason)")
         return inputTranscriptDone
     }
 
@@ -1167,6 +1210,7 @@ class MainActivity : ComponentActivity() {
     private var mediaSession: MediaSession? = null
     private var lastHardwareKeySignature = ""
     private var lastHardwareKeyEventTime = 0L
+    private var lastHardwareKeyHandledAt = 0L
     @Volatile
     private var recordingActive = false
     private var recordingThread: Thread? = null
@@ -1571,31 +1615,41 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleHardwareKey(event: KeyEvent, source: String): Boolean {
-        if (!isSupportedHardwareKey(event.keyCode)) return false
+        if (!isSupportedHardwareKey(event)) return false
         if (event.action != KeyEvent.ACTION_DOWN) return true
 
         val keyName = KeyEvent.keyCodeToString(event.keyCode)
         if (event.repeatCount > 0) {
-            updateState { it.copy(lastKey = "$keyName 반복 입력") }
+            updateState { it.copy(lastKey = "$keyName repeat ignored") }
             return true
         }
 
-        val eventTime = if (event.eventTime > 0L) event.eventTime else System.currentTimeMillis()
+        val eventTime = if (event.eventTime > 0L) event.eventTime else SystemClock.uptimeMillis()
         val signature = "${event.keyCode}:${event.deviceId}:${event.scanCode}"
-        if (signature == lastHardwareKeySignature && eventTime - lastHardwareKeyEventTime in 0L..250L) {
-            updateState { it.copy(lastKey = "$keyName 중복 입력 무시") }
+        val repeatedRoute = signature == lastHardwareKeySignature &&
+            eventTime - lastHardwareKeyEventTime in 0L..FootpadDuplicateWindowMs
+        val bouncedPress = lastHardwareKeyHandledAt > 0L &&
+            eventTime - lastHardwareKeyHandledAt in 0L..FootpadDuplicateWindowMs
+        if (repeatedRoute || bouncedPress) {
+            updateState { it.copy(lastKey = "$keyName duplicate ignored") }
             return true
         }
 
         lastHardwareKeySignature = signature
         lastHardwareKeyEventTime = eventTime
+        lastHardwareKeyHandledAt = eventTime
         updateState { it.copy(lastKey = "$keyName · $source") }
+        appendLog("Footpad key accepted: $keyName from $source")
+        triggerFootpadRecordingToggle()
+        return true
+    }
+
+    private fun triggerFootpadRecordingToggle() {
         if (uiState.value.setupStep == SetupStepLocalInterpreter && uiState.value.room == null) {
             toggleLocalSpeaking(LocalDirectionKoToPatient)
         } else {
             toggleSpeaking()
         }
-        return true
     }
 
     private fun initializeTts() {
@@ -2848,6 +2902,7 @@ class MainActivity : ComponentActivity() {
 
                 val room = uiState.value.room ?: error("Room is missing")
                 val result = translateStaffVoiceTurn(room, pcm)
+                val translationCompleteAt = SystemClock.elapsedRealtime()
                 val message = result.getJSONObject("message")
                 rememberMessage(message, advanceCursor = result.optString("model") != "realtime-local")
                 val parsedMessage = messageFromJson(message, room.patientLanguage)
@@ -2865,6 +2920,7 @@ class MainActivity : ComponentActivity() {
                         status = "번역 완료. 다시 말하려면 마이크를 누르세요."
                     )
                 }
+                appendLog("TTS start ${SystemClock.elapsedRealtime() - translationCompleteAt}ms after staff translation")
                 speakTranslatedText(translated, room.patientLanguage)
                 transitionRoomStateAsync(room, "ready", "대기 상태 전환")
                 appendLog("번역 완료")
@@ -2902,6 +2958,7 @@ class MainActivity : ComponentActivity() {
 
                 val durationSeconds = localRecordingDurationSeconds(pcm)
                 val result = translateLocalVoiceTurn(direction, patientLanguage, pcm, durationSeconds)
+                val translationCompleteAt = SystemClock.elapsedRealtime()
                 val sourceLanguage = result.optString("sourceLanguage")
                 val targetLanguage = result.optString("targetLanguage")
                 val sourceTranscriptComplete = result.optBoolean("sourceTranscriptComplete", true)
@@ -2973,6 +3030,8 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (!realtimeAudioPlayed) {
+                    val ttsDelayMs = SystemClock.elapsedRealtime() - translationCompleteAt
+                    appendLog("TTS start ${ttsDelayMs}ms after ${localModeDisplayName(snapshot.selectedRoomMode)} translation")
                     if (direction == LocalDirectionKoToPatient) {
                         speakTranslatedText(translated, patientLanguage)
                     } else {
@@ -3274,8 +3333,20 @@ class MainActivity : ComponentActivity() {
                         runCatching { realtime.close() }
                     }
                     val messageId = "staff-realtime-android-${System.currentTimeMillis()}"
-                    persistRealtimeStaffVoiceTurnAsync(room, messageId, sourceText, result.translatedText)
-                    return localRealtimeStaffVoiceTurn(room, messageId, sourceText, result.translatedText)
+                    persistRealtimeStaffVoiceTurnAsync(
+                        room,
+                        messageId,
+                        sourceText,
+                        result.translatedText,
+                        result.sourceTranscriptComplete
+                    )
+                    return localRealtimeStaffVoiceTurn(
+                        room,
+                        messageId,
+                        sourceText,
+                        result.translatedText,
+                        result.sourceTranscriptComplete
+                    )
                 }.onFailure {
                     appendLog("Realtime failed, falling back to upload: ${it.message}")
                     closeRealtimeTurnClient()
@@ -3288,7 +3359,13 @@ class MainActivity : ComponentActivity() {
         return uploadStaffVoiceTurn(room, wav)
     }
 
-    private fun localRealtimeStaffVoiceTurn(room: RoomInfo, messageId: String, sourceText: String, translatedText: String): JSONObject {
+    private fun localRealtimeStaffVoiceTurn(
+        room: RoomInfo,
+        messageId: String,
+        sourceText: String,
+        translatedText: String,
+        sourceTranscriptComplete: Boolean = true
+    ): JSONObject {
         val message = JSONObject()
             .put("id", messageId)
             .put("speaker", "staff")
@@ -3301,17 +3378,24 @@ class MainActivity : ComponentActivity() {
             .put("message", message)
             .put("sourceText", sourceText)
             .put("translatedText", translatedText)
+            .put("sourceTranscriptComplete", sourceTranscriptComplete)
             .put("model", "realtime-local")
     }
 
-    private fun persistRealtimeStaffVoiceTurnAsync(room: RoomInfo, messageId: String, sourceText: String, translatedText: String) {
+    private fun persistRealtimeStaffVoiceTurnAsync(
+        room: RoomInfo,
+        messageId: String,
+        sourceText: String,
+        translatedText: String,
+        sourceTranscriptComplete: Boolean
+    ) {
         sessionExecutor.execute {
             var lastError: Throwable? = null
             var persisted = false
             repeat(2) { attempt ->
                 if (persisted) return@repeat
                 runCatching {
-                    persistRealtimeStaffVoiceTurn(room, messageId, sourceText, translatedText)
+                    persistRealtimeStaffVoiceTurn(room, messageId, sourceText, translatedText, sourceTranscriptComplete)
                 }.onSuccess {
                     persisted = true
                 }.onFailure {
@@ -3326,7 +3410,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun persistRealtimeStaffVoiceTurn(room: RoomInfo, messageId: String, sourceText: String, translatedText: String): JSONObject {
+    private fun persistRealtimeStaffVoiceTurn(
+        room: RoomInfo,
+        messageId: String,
+        sourceText: String,
+        translatedText: String,
+        sourceTranscriptComplete: Boolean
+    ): JSONObject {
         val backend = normalizedBackendUrl(uiState.value.backendUrl)
         val endpoint = if (room.roomMode == "procedure") "procedure-turns" else "consultation-voice-turns"
         val payload = JSONObject()
@@ -3336,6 +3426,7 @@ class MainActivity : ComponentActivity() {
             .put("patientLanguage", room.patientLanguage)
             .put("sourceText", sourceText)
             .put("translatedText", translatedText)
+            .put("sourceTranscriptComplete", sourceTranscriptComplete)
             .toString()
         val startedAt = SystemClock.elapsedRealtime()
         return postJson("$backend/api/$endpoint", payload).also {
@@ -3788,12 +3879,13 @@ private fun userFacingError(caught: Throwable): String {
     }
 }
 
-private fun isSupportedHardwareKey(keyCode: Int): Boolean {
-    return keyCode == KeyEvent.KEYCODE_SPACE ||
-        keyCode == KeyEvent.KEYCODE_ENTER ||
-        keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER ||
-        keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ||
-        keyCode == KeyEvent.KEYCODE_HEADSETHOOK
+private fun isSupportedHardwareKey(event: KeyEvent): Boolean {
+    if (DirectFootpadKeyCodes.contains(event.keyCode)) return true
+    return ExternalOnlyFootpadKeyCodes.contains(event.keyCode) && isExternalHardwareInput(event)
+}
+
+private fun isExternalHardwareInput(event: KeyEvent): Boolean {
+    return InputDevice.getDevice(event.deviceId)?.isExternal == true
 }
 
 private fun canStaffStartTurn(status: String): Boolean {

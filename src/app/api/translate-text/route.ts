@@ -12,6 +12,7 @@ import { pendingBackTranslationGuard, runBackTranslationCheck } from "@/lib/back
 import { mergeGuardFlags, parseGuardFlags } from "@/lib/guard-flags";
 import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
+import { broadcastServerTranslationMessage } from "@/lib/supabase-realtime-server";
 
 const schema = z.object({
   roomId: z.string(),
@@ -133,6 +134,23 @@ export async function POST(request: Request) {
         }
       }
 
+      const messageGuardFlags = parseGuardFlags(message.guardFlags) ?? undefined;
+      const messageTargetLanguage = (message.targetLanguage ?? undefined) as PatientLanguage | "ko" | undefined;
+      after(() =>
+        broadcastServerTranslationMessage(room.id, {
+          id: message.id,
+          speaker: message.speaker,
+          sourceText: message.sourceText ?? undefined,
+          text: message.text,
+          targetLanguage: messageTargetLanguage,
+          createdAt: message.createdAt.toISOString(),
+          readAt: message.readAt?.toISOString() ?? null,
+          guardFlags: messageGuardFlags
+        }).catch((caught) => {
+          console.error("[translate-text quick-phrase broadcast]", caught);
+        })
+      );
+
       return NextResponse.json({
         translatedText: normalizedText,
         message: {
@@ -143,7 +161,7 @@ export async function POST(request: Request) {
           targetLanguage: message.targetLanguage,
           createdAt: message.createdAt.toISOString(),
           readAt: message.readAt?.toISOString() ?? null,
-          guardFlags: parseGuardFlags(message.guardFlags) ?? null
+          guardFlags: messageGuardFlags ?? null
         },
         model: "quick_phrase"
       });
@@ -192,6 +210,23 @@ export async function POST(request: Request) {
       }
     }
 
+    const messageGuardFlags = parseGuardFlags(message.guardFlags) ?? undefined;
+    const messageTargetLanguage = (message.targetLanguage ?? undefined) as PatientLanguage | "ko" | undefined;
+    after(() =>
+      broadcastServerTranslationMessage(room.id, {
+        id: message.id,
+        speaker: message.speaker,
+        sourceText: message.sourceText ?? undefined,
+        text: message.text,
+        targetLanguage: messageTargetLanguage,
+        createdAt: message.createdAt.toISOString(),
+        readAt: message.readAt?.toISOString() ?? null,
+        guardFlags: messageGuardFlags
+      }).catch((caught) => {
+        console.error("[translate-text verified broadcast]", caught);
+      })
+    );
+
     return NextResponse.json({
       translatedText: normalizedText,
       message: {
@@ -202,7 +237,7 @@ export async function POST(request: Request) {
         targetLanguage: message.targetLanguage,
         createdAt: message.createdAt.toISOString(),
         readAt: message.readAt?.toISOString() ?? null,
-        guardFlags: parseGuardFlags(message.guardFlags) ?? null
+        guardFlags: messageGuardFlags ?? null
       },
       model: "verified"
     });
@@ -303,6 +338,23 @@ export async function POST(request: Request) {
     );
   }
 
+  const messageGuardFlags = parseGuardFlags(message.guardFlags) ?? undefined;
+  const messageTargetLanguage = (message.targetLanguage ?? undefined) as PatientLanguage | "ko" | undefined;
+  after(() =>
+    broadcastServerTranslationMessage(room.id, {
+      id: message.id,
+      speaker: message.speaker,
+      sourceText: message.sourceText ?? undefined,
+      text: message.text,
+      targetLanguage: messageTargetLanguage,
+      createdAt: message.createdAt.toISOString(),
+      readAt: message.readAt?.toISOString() ?? null,
+      guardFlags: messageGuardFlags
+    }).catch((caught) => {
+      console.error("[translate-text broadcast]", caught);
+    })
+  );
+
   return NextResponse.json({
     translatedText: normalizedText,
     message: {
@@ -313,7 +365,7 @@ export async function POST(request: Request) {
       targetLanguage: message.targetLanguage,
       createdAt: message.createdAt.toISOString(),
       readAt: message.readAt?.toISOString() ?? null,
-      guardFlags: parseGuardFlags(message.guardFlags) ?? null
+      guardFlags: messageGuardFlags ?? null
     },
     model: translation.model
   });
