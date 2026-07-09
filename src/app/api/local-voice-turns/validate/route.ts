@@ -4,6 +4,7 @@ import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { isPatientLanguage, languageLabels, type PatientLanguage } from "@/lib/languages";
 import { normalizedTextTranslationModel } from "@/lib/openai-models";
+import { recordTranslationSample, stableTranslationSampleMessageId } from "@/lib/translation-samples";
 
 type ResponsesApiContent = {
   type?: string;
@@ -69,6 +70,52 @@ function parseVerifierResult(value: string) {
   } catch {
     return null;
   }
+}
+
+async function recordValidatedLocalSample({
+  staff,
+  patientLanguage,
+  direction,
+  sourceText,
+  translatedText,
+  validation
+}: {
+  staff: NonNullable<Awaited<ReturnType<typeof getCurrentStaff>>>;
+  patientLanguage: PatientLanguage;
+  direction: "ko_to_patient" | "patient_to_ko";
+  sourceText: string;
+  translatedText: string;
+  validation: { checked: boolean; ok: boolean; reason?: string };
+}) {
+  const sourceLanguage = direction === "ko_to_patient" ? "ko" : patientLanguage;
+  const targetLanguage = direction === "ko_to_patient" ? patientLanguage : "ko";
+
+  await recordTranslationSample({
+    hospitalId: staff.hospitalId,
+    staffId: staff.id,
+    messageId: stableTranslationSampleMessageId({
+      source: "local_voice",
+      mode: "local",
+      direction,
+      patientLanguage,
+      sourceText,
+      translatedText,
+      sourceLanguage,
+      targetLanguage
+    }),
+    source: "local_voice",
+    mode: "local",
+    direction,
+    patientLanguage,
+    sourceText,
+    translatedText,
+    sourceLanguage,
+    targetLanguage,
+    model: "realtime-local",
+    guardFlags: { localValidation: validation }
+  }).catch((caught) => {
+    console.error("[local-voice-turns validate sample]", caught);
+  });
 }
 
 export async function POST(request: Request) {
@@ -152,8 +199,25 @@ export async function POST(request: Request) {
   const data = (await response.json()) as ResponsesApiResponse;
   const result = parseVerifierResult(extractOutputText(data));
   if (!result) {
+    await recordValidatedLocalSample({
+      staff,
+      patientLanguage,
+      direction,
+      sourceText,
+      translatedText,
+      validation: { checked: false, ok: true, reason: "validation parse skipped" }
+    });
     return NextResponse.json({ checked: false, ok: true, reason: "validation parse skipped" });
   }
+
+  await recordValidatedLocalSample({
+    staff,
+    patientLanguage,
+    direction,
+    sourceText,
+    translatedText,
+    validation: { checked: true, ok: result.ok, reason: result.reason }
+  });
 
   return NextResponse.json({ checked: true, ok: result.ok, reason: result.reason });
 }

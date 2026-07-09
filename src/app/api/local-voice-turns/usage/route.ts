@@ -8,6 +8,7 @@ import {
   type LocalInterpreterDirection,
   type LocalInterpreterTransport
 } from "@/lib/local-interpreter-usage";
+import { recordTranslationSample, stableTranslationSampleMessageId } from "@/lib/translation-samples";
 
 const schema = z.object({
   patientLanguage: z.custom<PatientLanguage>((value) => isPatientLanguage(value)),
@@ -15,7 +16,11 @@ const schema = z.object({
   transport: z.enum(["realtime", "upload"]).default("realtime"),
   durationSeconds: z.number().min(0).max(60 * 30).default(0),
   sourceTextCharacters: z.number().min(0).max(100_000).optional(),
-  translatedTextCharacters: z.number().min(0).max(100_000).optional()
+  translatedTextCharacters: z.number().min(0).max(100_000).optional(),
+  sourceText: z.string().trim().min(1).max(10_000).optional(),
+  translatedText: z.string().trim().min(1).max(10_000).optional(),
+  sourceTranscriptComplete: z.boolean().optional().default(true),
+  model: z.string().trim().min(1).max(120).optional()
 });
 
 export async function POST(request: Request) {
@@ -47,6 +52,38 @@ export async function POST(request: Request) {
     sourceTextCharacters: parsed.data.sourceTextCharacters,
     translatedTextCharacters: parsed.data.translatedTextCharacters
   });
+
+  if (parsed.data.sourceText && parsed.data.translatedText) {
+    const sourceLanguage = parsed.data.direction === "ko_to_patient" ? "ko" : parsed.data.patientLanguage;
+    const targetLanguage = parsed.data.direction === "ko_to_patient" ? parsed.data.patientLanguage : "ko";
+
+    await recordTranslationSample({
+      hospitalId: staff.hospitalId,
+      staffId: staff.id,
+      messageId: stableTranslationSampleMessageId({
+        source: "local_voice",
+        mode: "local",
+        direction: parsed.data.direction,
+        patientLanguage: parsed.data.patientLanguage,
+        sourceText: parsed.data.sourceText,
+        translatedText: parsed.data.translatedText,
+        sourceLanguage,
+        targetLanguage
+      }),
+      source: "local_voice",
+      mode: "local",
+      direction: parsed.data.direction,
+      patientLanguage: parsed.data.patientLanguage,
+      sourceText: parsed.data.sourceText,
+      translatedText: parsed.data.translatedText,
+      sourceLanguage,
+      targetLanguage,
+      model: parsed.data.model ?? `${parsed.data.transport}-local`,
+      sourceTranscriptComplete: parsed.data.sourceTranscriptComplete
+    }).catch((caught) => {
+      console.error("[local-voice-turns usage sample]", caught);
+    });
+  }
 
   return NextResponse.json({ ok: true });
 }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { PatientLanguage } from "@/lib/languages";
@@ -27,6 +28,17 @@ type RecordTranslationSampleParams = {
   sourceTranscriptComplete?: boolean;
 };
 
+type StableTranslationSampleMessageIdParams = {
+  source: TranslationSampleSource;
+  mode: TranslationSampleMode;
+  direction: string;
+  patientLanguage?: PatientLanguage | null;
+  sourceText: string;
+  translatedText: string;
+  sourceLanguage: string;
+  targetLanguage: string;
+};
+
 function normalizeRetentionDays(value: unknown) {
   const numericValue = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(numericValue) || numericValue <= 0) return DEFAULT_TRANSLATION_SAMPLE_RETENTION_DAYS;
@@ -40,6 +52,27 @@ export function getTranslationSampleRetentionDays() {
 export function getTranslationSampleRetentionCutoff(now = new Date(), retentionDays = getTranslationSampleRetentionDays()) {
   return new Date(now.getTime() - normalizeRetentionDays(retentionDays) * MS_PER_DAY);
 }
+
+export function stableTranslationSampleMessageId(params: StableTranslationSampleMessageIdParams) {
+  const digest = createHash("sha256")
+    .update(
+      [
+        params.source,
+        params.mode,
+        params.direction,
+        params.patientLanguage ?? "",
+        params.sourceLanguage,
+        params.targetLanguage,
+        params.sourceText.trim().replace(/\s+/g, " "),
+        params.translatedText.trim().replace(/\s+/g, " ")
+      ].join("\u001f")
+    )
+    .digest("hex")
+    .slice(0, 48);
+
+  return `sample-${digest}`;
+}
+
 function jsonValueOrUndefined(value: unknown) {
   if (value == null) return undefined;
   const serialized = JSON.stringify(value);

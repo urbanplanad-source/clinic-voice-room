@@ -3187,7 +3187,9 @@ class MainActivity : ComponentActivity() {
                         transport = "realtime",
                         durationSeconds = durationSeconds,
                         sourceText = result.sourceText,
-                        translatedText = result.translatedText
+                        translatedText = result.translatedText,
+                        sourceTranscriptComplete = result.sourceTranscriptComplete,
+                        model = if (result.instantTemplateId == null) "realtime-local" else "instant-template"
                     )
                     return localRealtimeVoiceTurn(
                         direction,
@@ -3242,7 +3244,9 @@ class MainActivity : ComponentActivity() {
                 transport = "realtime",
                 durationSeconds = durationSeconds,
                 sourceText = result.sourceText,
-                translatedText = result.translatedText
+                translatedText = result.translatedText,
+                sourceTranscriptComplete = result.sourceTranscriptComplete,
+                model = if (result.instantTemplateId == null) "realtime-local" else "instant-template"
             )
             localRealtimeVoiceTurn(
                 direction,
@@ -3465,7 +3469,9 @@ class MainActivity : ComponentActivity() {
         transport: String,
         durationSeconds: Int,
         sourceText: String,
-        translatedText: String
+        translatedText: String,
+        sourceTranscriptComplete: Boolean = true,
+        model: String = ""
     ) {
         val backend = normalizedBackendUrl(uiState.value.backendUrl)
         val payload = JSONObject()
@@ -3475,10 +3481,16 @@ class MainActivity : ComponentActivity() {
             .put("durationSeconds", durationSeconds)
             .put("sourceTextCharacters", sourceText.length)
             .put("translatedTextCharacters", translatedText.length)
-            .toString()
+            .put("sourceText", sourceText)
+            .put("translatedText", translatedText)
+            .put("sourceTranscriptComplete", sourceTranscriptComplete)
+        if (model.isNotBlank()) {
+            payload.put("model", model)
+        }
+        val payloadText = payload.toString()
         sessionExecutor.execute {
             runCatching {
-                postJson("$backend/api/local-voice-turns/usage", payload)
+                postJson("$backend/api/local-voice-turns/usage", payloadText)
             }.onSuccess {
                 appendLog("Local usage logged: $transport ${durationSeconds}s")
             }.onFailure {
