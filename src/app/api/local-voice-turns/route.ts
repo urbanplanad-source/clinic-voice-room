@@ -1,4 +1,4 @@
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { buildClinicGlossaryInstructions, buildClinicTranscriptionPrompt, normalizeClinicTranslation } from "@/lib/clinic-glossary";
@@ -231,25 +231,23 @@ export async function POST(request: Request) {
     console.error("[local-voice-turns usage]", caught);
   });
 
-  after(() =>
-    recordTranslationSample({
-      hospitalId: staff.hospitalId,
-      staffId: staff.id,
-      messageId: clientTurnId,
-      source: "local_voice",
-      mode: "local",
-      direction,
-      patientLanguage,
-      sourceText,
-      translatedText: normalizedTranslatedText,
-      sourceLanguage,
-      targetLanguage,
-      model,
-      guardFlags
-    }).catch((caught) => {
-      console.error("[local-voice-turns sample]", caught);
-    })
-  );
+  await recordTranslationSample({
+    hospitalId: staff.hospitalId,
+    staffId: staff.id,
+    messageId: clientTurnId,
+    source: "local_voice",
+    mode: "local",
+    direction,
+    patientLanguage,
+    sourceText,
+    translatedText: normalizedTranslatedText,
+    sourceLanguage,
+    targetLanguage,
+    model,
+    guardFlags
+  }).catch((caught) => {
+    console.error("[local-voice-turns sample]", caught);
+  });
 
   return NextResponse.json({
     sourceText,
