@@ -116,6 +116,7 @@ model Hospital {
   rooms                      TranslationRoom[]
   usageSessions              UsageSession[]
   localInterpreterUsageTurns LocalInterpreterUsageTurn[]
+  textTranslationUsage       TextTranslationUsage[]
   glossaryEntries            GlossaryEntry[]
   quickPhrases               HospitalQuickPhrase[]
   translationFeedback        TranslationFeedback[]
@@ -174,6 +175,7 @@ model StaffUser {
   rooms                      TranslationRoom[]           @relation("RoomHost")
   usageSessions              UsageSession[]
   localInterpreterUsageTurns LocalInterpreterUsageTurn[]
+  textTranslationUsage       TextTranslationUsage[]
   translationSamples         TranslationSample[]
 }
 
@@ -309,4 +311,19 @@ model LocalInterpreterUsageTurn {
   @@index([hospitalId, createdAt])
   @@index([staffId, createdAt])
   @@index([patientLanguage, createdAt])
+}
+
+model TextTranslationUsage {
+  id             String    @id @default(cuid())
+  hospitalId     String
+  hospital       Hospital  @relation(fields: [hospitalId], references: [id])
+  staffId        String
+  staff          StaffUser @relation(fields: [staffId], references: [id])
+  sourceLanguage String
+  targetLanguage String
+  createdAt      DateTime  @default(now())
+
+  @@index([hospitalId, createdAt])
+  @@index([staffId, createdAt])
+  @@index([sourceLanguage, targetLanguage, createdAt])
 }

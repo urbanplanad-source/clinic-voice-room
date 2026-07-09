@@ -1,18 +1,22 @@
-import type { PatientLanguage, PlanType } from "@prisma/client";
+import type { PlanType } from "@prisma/client";
 import { prisma } from "./prisma";
 
 const planTypes: PlanType[] = ["partner_free", "external_trial", "external_paid"];
 
 type LocalUsageAggregate = {
   turnCount: number | bigint | string | null;
-  totalSeconds: number | bigint | string | null;
-};
-
-type LocalUsageLanguageGroup = LocalUsageAggregate & {
-  patientLanguage: PatientLanguage;
 };
 
 type LocalUsageHospitalGroup = LocalUsageAggregate & {
+  hospitalId: string;
+  lastUsed: Date | null;
+};
+
+type TextUsageAggregate = {
+  translationCount: number | bigint | string | null;
+};
+
+type TextUsageHospitalGroup = TextUsageAggregate & {
   hospitalId: string;
   lastUsed: Date | null;
 };
@@ -23,13 +27,31 @@ function numeric(value: number | bigint | string | null | undefined) {
   return value ?? 0;
 }
 
+function latestDate(...values: Array<Date | null | undefined>) {
+  return values.reduce<Date | null>((latest, value) => {
+    if (!value) return latest;
+    if (!latest || value > latest) return value;
+    return latest;
+  }, null);
+}
+
 export async function getAdminUsageSummary() {
   const monthStart = new Date();
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
 
-  const [hospitals, monthlyTotals, languageGroups, usageByHospital, localMonthlyTotals, localLanguageGroups, localUsageByHospital] =
-    await Promise.all([
+  const [
+    hospitals,
+    monthlyRoomTotals,
+    monthlyRoomsByHospital,
+    roomLastUsedByHospital,
+    localMonthlyTotals,
+    localMonthlyByHospital,
+    localLastUsedByHospital,
+    textMonthlyTotals,
+    textMonthlyByHospital,
+    textLastUsedByHospital
+  ] = await Promise.all([
     prisma.hospital.findMany({
       select: {
         id: true,
@@ -37,117 +59,104 @@ export async function getAdminUsageSummary() {
         planType: true,
         staffUsers: {
           select: { id: true, isActive: true }
-        },
-        _count: {
-          select: {
-            rooms: true,
-            usageSessions: true
-          }
         }
       },
       orderBy: { name: "asc" }
     }),
     prisma.usageSession.aggregate({
       where: { roomStartedAt: { gte: monthStart } },
-      _count: { id: true },
-      _sum: { totalRoomSeconds: true }
-    }),
-    prisma.usageSession.groupBy({
-      by: ["patientLanguage"],
-      where: { roomStartedAt: { gte: monthStart } },
-      _count: { id: true },
-      _sum: { totalRoomSeconds: true }
+      _count: { id: true }
     }),
     prisma.usageSession.groupBy({
       by: ["hospitalId"],
-      _count: { id: true },
-      _sum: { totalRoomSeconds: true },
+      where: { roomStartedAt: { gte: monthStart } },
+      _count: { id: true }
+    }),
+    prisma.usageSession.groupBy({
+      by: ["hospitalId"],
       _max: { roomStartedAt: true }
     }),
     prisma.$queryRaw<LocalUsageAggregate[]>`
-      SELECT
-        COUNT(*)::int AS "turnCount",
-        COALESCE(SUM("durationSeconds"), 0)::int AS "totalSeconds"
+      SELECT COUNT(*)::int AS "turnCount"
       FROM "LocalInterpreterUsageTurn"
       WHERE "createdAt" >= ${monthStart}
-    `,
-    prisma.$queryRaw<LocalUsageLanguageGroup[]>`
-      SELECT
-        "patientLanguage",
-        COUNT(*)::int AS "turnCount",
-        COALESCE(SUM("durationSeconds"), 0)::int AS "totalSeconds"
-      FROM "LocalInterpreterUsageTurn"
-      WHERE "createdAt" >= ${monthStart}
-      GROUP BY "patientLanguage"
     `,
     prisma.$queryRaw<LocalUsageHospitalGroup[]>`
       SELECT
         "hospitalId",
         COUNT(*)::int AS "turnCount",
-        COALESCE(SUM("durationSeconds"), 0)::int AS "totalSeconds",
         MAX("createdAt") AS "lastUsed"
       FROM "LocalInterpreterUsageTurn"
+      WHERE "createdAt" >= ${monthStart}
+      GROUP BY "hospitalId"
+    `,
+    prisma.$queryRaw<LocalUsageHospitalGroup[]>`
+      SELECT
+        "hospitalId",
+        COUNT(*)::int AS "turnCount",
+        MAX("createdAt") AS "lastUsed"
+      FROM "LocalInterpreterUsageTurn"
+      GROUP BY "hospitalId"
+    `,
+    prisma.$queryRaw<TextUsageAggregate[]>`
+      SELECT COUNT(*)::int AS "translationCount"
+      FROM "TextTranslationUsage"
+      WHERE "createdAt" >= ${monthStart}
+    `,
+    prisma.$queryRaw<TextUsageHospitalGroup[]>`
+      SELECT
+        "hospitalId",
+        COUNT(*)::int AS "translationCount",
+        MAX("createdAt") AS "lastUsed"
+      FROM "TextTranslationUsage"
+      WHERE "createdAt" >= ${monthStart}
+      GROUP BY "hospitalId"
+    `,
+    prisma.$queryRaw<TextUsageHospitalGroup[]>`
+      SELECT
+        "hospitalId",
+        COUNT(*)::int AS "translationCount",
+        MAX("createdAt") AS "lastUsed"
+      FROM "TextTranslationUsage"
       GROUP BY "hospitalId"
     `
   ]);
 
-  const usageByHospitalId = new Map(usageByHospital.map((usage) => [usage.hospitalId, usage]));
-  const localUsageByHospitalId = new Map(localUsageByHospital.map((usage) => [usage.hospitalId, usage]));
-  const localLanguageByCode = new Map(localLanguageGroups.map((usage) => [usage.patientLanguage, usage]));
-  const visibleHospitals = hospitals.filter(
-    (hospital) => hospital.staffUsers.some((staffUser) => staffUser.isActive)
-  );
+  const monthlyRoomsByHospitalId = new Map(monthlyRoomsByHospital.map((usage) => [usage.hospitalId, usage]));
+  const roomLastUsedByHospitalId = new Map(roomLastUsedByHospital.map((usage) => [usage.hospitalId, usage]));
+  const localMonthlyByHospitalId = new Map(localMonthlyByHospital.map((usage) => [usage.hospitalId, usage]));
+  const localLastUsedByHospitalId = new Map(localLastUsedByHospital.map((usage) => [usage.hospitalId, usage]));
+  const textMonthlyByHospitalId = new Map(textMonthlyByHospital.map((usage) => [usage.hospitalId, usage]));
+  const textLastUsedByHospitalId = new Map(textLastUsedByHospital.map((usage) => [usage.hospitalId, usage]));
+
+  const visibleHospitals = hospitals.filter((hospital) => hospital.staffUsers.some((staffUser) => staffUser.isActive));
   const planCounts = Object.fromEntries(planTypes.map((planType) => [planType, 0])) as Record<PlanType, number>;
   for (const hospital of visibleHospitals) {
     planCounts[hospital.planType] += 1;
   }
 
-  const localMonth = localMonthlyTotals[0];
-  const monthlyLocalTurnCount = numeric(localMonth?.turnCount);
-  const monthlyLocalSeconds = numeric(localMonth?.totalSeconds);
-  const combinedLanguageCodes = Array.from(
-    new Set<PatientLanguage>([
-      ...languageGroups.map((group) => group.patientLanguage as PatientLanguage),
-      ...localLanguageGroups.map((group) => group.patientLanguage)
-    ])
-  );
-
   return {
     totalHospitals: visibleHospitals.length,
     planCounts,
-    monthlyRoomCount: monthlyTotals._count.id,
-    monthlyLocalTurnCount,
-    monthlyActiveMinutes: Math.round(((monthlyTotals._sum.totalRoomSeconds ?? 0) + monthlyLocalSeconds) / 60),
-    languageDistribution: combinedLanguageCodes.map((patientLanguage) => {
-      const roomGroup = languageGroups.find((group) => group.patientLanguage === patientLanguage);
-      const localGroup = localLanguageByCode.get(patientLanguage);
-      return {
-        patientLanguage,
-        roomCount: roomGroup?._count.id ?? 0,
-        localTurnCount: numeric(localGroup?.turnCount),
-        minutes: Math.round(((roomGroup?._sum.totalRoomSeconds ?? 0) + numeric(localGroup?.totalSeconds)) / 60)
-      };
-    }),
+    monthlyRoomCount: monthlyRoomTotals._count.id,
+    monthlyLocalTurnCount: numeric(localMonthlyTotals[0]?.turnCount),
+    monthlyTextTranslationCount: numeric(textMonthlyTotals[0]?.translationCount),
     hospitals: visibleHospitals.map((hospital) => {
-      const usage = usageByHospitalId.get(hospital.id);
-      const localUsage = localUsageByHospitalId.get(hospital.id);
-      const localTurnCount = numeric(localUsage?.turnCount);
-      const localSeconds = numeric(localUsage?.totalSeconds);
-      const roomLastUsed = usage?._max.roomStartedAt ?? null;
-      const localLastUsed = localUsage?.lastUsed ?? null;
+      const monthlyRoomUsage = monthlyRoomsByHospitalId.get(hospital.id);
+      const roomLastUsed = roomLastUsedByHospitalId.get(hospital.id)?._max.roomStartedAt ?? null;
+      const localMonthlyUsage = localMonthlyByHospitalId.get(hospital.id);
+      const localLastUsed = localLastUsedByHospitalId.get(hospital.id)?.lastUsed ?? null;
+      const textMonthlyUsage = textMonthlyByHospitalId.get(hospital.id);
+      const textLastUsed = textLastUsedByHospitalId.get(hospital.id)?.lastUsed ?? null;
+
       return {
         id: hospital.id,
         name: hospital.name,
         planType: hospital.planType,
-        sessions: usage?._count.id ?? 0,
-        localTurns: localTurnCount,
-        minutes: Math.round(((usage?._sum.totalRoomSeconds ?? 0) + localSeconds) / 60),
-        lastUsed:
-          roomLastUsed && localLastUsed
-            ? roomLastUsed > localLastUsed
-              ? roomLastUsed
-              : localLastUsed
-            : roomLastUsed ?? localLastUsed
+        thisMonthRooms: monthlyRoomUsage?._count.id ?? 0,
+        localTurns: numeric(localMonthlyUsage?.turnCount),
+        textTranslations: numeric(textMonthlyUsage?.translationCount),
+        lastUsed: latestDate(roomLastUsed, localLastUsed, textLastUsed)
       };
     })
   };

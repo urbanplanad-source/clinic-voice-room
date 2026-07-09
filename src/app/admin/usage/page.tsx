@@ -23,7 +23,7 @@ export default async function AdminUsagePage() {
           <Metric label="파트너 무료" value={usage.planCounts.partner_free} />
           <Metric label="이번 달 방" value={usage.monthlyRoomCount} />
           <Metric label="대면 턴" value={usage.monthlyLocalTurnCount} />
-          <Metric label="이번 달 분" value={usage.monthlyActiveMinutes} />
+          <Metric label="Text translations" value={usage.monthlyTextTranslationCount} />
         </section>
 
         <section className="overflow-x-auto rounded-lg bg-white shadow-soft">
@@ -32,9 +32,9 @@ export default async function AdminUsagePage() {
               <tr>
                 <th className="px-5 py-4">Hospital</th>
                 <th className="px-5 py-4">Plan</th>
-                <th className="px-5 py-4">Sessions</th>
+                <th className="px-5 py-4">This month rooms</th>
                 <th className="px-5 py-4">Face-to-face turns</th>
-                <th className="px-5 py-4">Minutes</th>
+                <th className="px-5 py-4">Text translations</th>
                 <th className="px-5 py-4">Last used</th>
               </tr>
             </thead>
@@ -43,9 +43,9 @@ export default async function AdminUsagePage() {
                 <tr key={hospital.id} className="border-t border-line">
                   <td className="px-5 py-4 font-bold text-ink">{hospital.name}</td>
                   <td className="px-5 py-4 font-semibold text-slate-600">{hospital.planType}</td>
-                  <td className="px-5 py-4 font-semibold text-slate-600">{hospital.sessions}</td>
+                  <td className="px-5 py-4 font-semibold text-slate-600">{hospital.thisMonthRooms}</td>
                   <td className="px-5 py-4 font-semibold text-slate-600">{hospital.localTurns}</td>
-                  <td className="px-5 py-4 font-semibold text-slate-600">{hospital.minutes}</td>
+                  <td className="px-5 py-4 font-semibold text-slate-600">{hospital.textTranslations}</td>
                   <td className="px-5 py-4 font-semibold text-slate-600">
                     {hospital.lastUsed ? hospital.lastUsed.toLocaleDateString("ko-KR") : "-"}
                   </td>

@@ -12,6 +12,7 @@ import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { getCurrentStaff } from "@/lib/session";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
+import { recordTextTranslationUsage } from "@/lib/text-translation-usage";
 
 const schema = z.object({
   sourceLanguage: z.custom<TranslationLanguage>((value) => isTranslationLanguage(value)),
@@ -158,6 +159,14 @@ export async function POST(request: Request) {
 
   if (verifiedMatch) {
     const translatedText = normalizeClinicTranslation(verifiedMatch.translatedText, parsed.data.targetLanguage, glossaryData);
+    await recordTextTranslationUsage({
+      staff,
+      sourceLanguage: parsed.data.sourceLanguage,
+      targetLanguage: parsed.data.targetLanguage
+    }).catch((caught) => {
+      console.error("[staff-text-translate usage]", caught);
+    });
+
     return NextResponse.json({
       translatedText,
       polishedSourceText: polishedSourceText ?? (parsed.data.sourceLanguage === "ko" ? verifiedMatch.entry.standardKo : undefined),
@@ -194,6 +203,14 @@ export async function POST(request: Request) {
   }
 
   const translatedText = normalizeClinicTranslation(translation.translatedText, parsed.data.targetLanguage, glossaryData);
+  await recordTextTranslationUsage({
+    staff,
+    sourceLanguage: parsed.data.sourceLanguage,
+    targetLanguage: parsed.data.targetLanguage
+  }).catch((caught) => {
+    console.error("[staff-text-translate usage]", caught);
+  });
+
   return NextResponse.json({
     translatedText,
     polishedSourceText: polishedSourceText ?? null,
