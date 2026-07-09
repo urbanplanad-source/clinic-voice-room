@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -899,7 +899,10 @@ function ProcedureVoiceRoom({
 
   const appendMessage = useCallback((message: TranslationMessage) => {
     setMessages((current) => {
-      if (current.some((item) => item.id === message.id)) return current;
+      const existing = current.find((item) => item.id === message.id);
+      if (existing) {
+        return current.map((item) => (item.id === message.id ? { ...item, ...message } : item));
+      }
       return [message, ...current].slice(0, 50);
     });
   }, []);
@@ -1511,6 +1514,7 @@ function ProcedureVoiceRoom({
     speakerRole: ParticipantRole;
     sourceText: string;
     translatedText: string;
+    sourceTranscriptComplete: boolean;
   }) {
     const response = await fetch("/api/procedure-turns", {
       method: "POST",
@@ -1522,7 +1526,8 @@ function ProcedureVoiceRoom({
         roomToken,
         patientLanguage: room.patientLanguage,
         sourceText: params.sourceText,
-        translatedText: params.translatedText
+        translatedText: params.translatedText,
+        sourceTranscriptComplete: params.sourceTranscriptComplete
       })
     });
     const data = await response.json().catch(() => null);
@@ -1619,12 +1624,15 @@ function ProcedureVoiceRoom({
             });
             if (!translatedText) throw new Error("No translated text was returned.");
             const normalizedText = normalizeClinicTranslation(translatedText, "ko");
-            const sourceText = (await realtimeClientRef.current?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || inputTranscriptDraft || copy.helper.idle;
+            const realtimeClient = realtimeClientRef.current;
+            const sourceText = (await realtimeClient?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || inputTranscriptDraft || copy.helper.idle;
+            const sourceTranscriptComplete = realtimeClient?.isInputTranscriptComplete() ?? false;
             message = await persistRealtimeProcedureTurn({
               messageId: `${role}-procedure-${Date.now()}`,
               speakerRole: role,
               sourceText,
-              translatedText: normalizedText
+              translatedText: normalizedText,
+              sourceTranscriptComplete
             });
             discardRecorderSoon();
           } catch (realtimeError) {
@@ -1666,14 +1674,16 @@ function ProcedureVoiceRoom({
           });
           if (!translatedText) throw new Error("No translated text was returned.");
           const normalizedText = normalizeClinicTranslation(translatedText, role === "staff" ? room.patientLanguage : "ko");
-          const sourceText = (await realtimeClientRef.current?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || inputTranscriptDraft || "한국어 원문을 표시하지 못했습니다.";
-
+          const realtimeClient = realtimeClientRef.current;
+          const sourceText = (await realtimeClient?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || inputTranscriptDraft || "한국어 원문을 표시하지 못했습니다.";
+          const sourceTranscriptComplete = realtimeClient?.isInputTranscriptComplete() ?? false;
           const messageId = `${role}-procedure-${Date.now()}`;
           message = await persistRealtimeProcedureTurn({
             messageId,
             speakerRole: role,
             sourceText,
-            translatedText: normalizedText
+            translatedText: normalizedText,
+            sourceTranscriptComplete
           });
           discardRecorderSoon();
         } catch (realtimeError) {

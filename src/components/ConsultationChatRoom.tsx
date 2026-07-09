@@ -562,6 +562,7 @@ export function ConsultationChatRoom({
     speakerRole: ParticipantRole;
     sourceText: string;
     translatedText: string;
+    sourceTranscriptComplete: boolean;
   }) {
     const response = await fetch("/api/consultation-voice-turns", {
       method: "POST",
@@ -573,7 +574,8 @@ export function ConsultationChatRoom({
         roomToken,
         patientLanguage: room.patientLanguage,
         sourceText: params.sourceText,
-        translatedText: params.translatedText
+        translatedText: params.translatedText,
+        sourceTranscriptComplete: params.sourceTranscriptComplete
       })
     });
     const data = await response.json().catch(() => null);
@@ -667,12 +669,15 @@ export function ConsultationChatRoom({
             });
             if (!translatedText) throw new Error("No translated text was returned.");
             const normalizedText = normalizeClinicTranslation(translatedText, "ko");
-            const sourceText = (await realtimeClientRef.current?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || voiceText.fallback;
+            const realtimeClient = realtimeClientRef.current;
+            const sourceText = (await realtimeClient?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || voiceText.fallback;
+            const sourceTranscriptComplete = realtimeClient?.isInputTranscriptComplete() ?? false;
             message = await persistRealtimeConsultationVoiceTurn({
               messageId: `${role}-voice-${Date.now()}`,
               speakerRole: role,
               sourceText,
-              translatedText: normalizedText
+              translatedText: normalizedText,
+              sourceTranscriptComplete
             });
             discardRecorderSoon();
           } catch (realtimeError) {
@@ -711,13 +716,16 @@ export function ConsultationChatRoom({
           });
           if (!translatedText) throw new Error("No translated text was returned.");
           const normalizedText = normalizeClinicTranslation(translatedText, room.patientLanguage);
-          const sourceText = (await realtimeClientRef.current?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || "한국어 원문을 표시하지 못했습니다.";
+          const realtimeClient = realtimeClientRef.current;
+          const sourceText = (await realtimeClient?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || "한국어 원문을 표시하지 못했습니다.";
+          const sourceTranscriptComplete = realtimeClient?.isInputTranscriptComplete() ?? false;
           const messageId = `${role}-voice-${Date.now()}`;
           message = await persistRealtimeConsultationVoiceTurn({
             messageId,
             speakerRole: role,
             sourceText,
-            translatedText: normalizedText
+            translatedText: normalizedText,
+            sourceTranscriptComplete
           });
           discardRecorderSoon();
         } catch (realtimeError) {

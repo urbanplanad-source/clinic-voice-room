@@ -126,6 +126,10 @@ export class OpenAIRealtimeClient {
     return sanitizeRealtimeInputTranscript(this.currentInputText);
   }
 
+  isInputTranscriptComplete() {
+    return this.inputTranscriptComplete;
+  }
+
   async waitForInputTranscript(options: InputTranscriptWaitOptions = {}) {
     const startedAt = Date.now();
     const fastMs = options.fastMs ?? 650;

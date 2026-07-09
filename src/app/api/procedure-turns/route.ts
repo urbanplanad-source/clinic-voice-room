@@ -271,7 +271,8 @@ async function handleRealtimeStaffMessage(request: Request) {
       sourceLanguage: parsed.data.role === "staff" ? "ko" : parsed.data.patientLanguage,
       targetLanguage,
       model,
-      guardFlags: messageGuardFlags
+      guardFlags: messageGuardFlags,
+      sourceTranscriptComplete: parsed.data.sourceTranscriptComplete
     }).catch((caught) => {
       console.error("[procedure-turns realtime sample]", caught);
     })
