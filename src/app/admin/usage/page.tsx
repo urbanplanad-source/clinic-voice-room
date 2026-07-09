@@ -33,7 +33,7 @@ export default async function AdminUsagePage() {
                 <th className="px-5 py-4">Hospital</th>
                 <th className="px-5 py-4">Plan</th>
                 <th className="px-5 py-4">Sessions</th>
-                <th className="px-5 py-4">Local turns</th>
+                <th className="px-5 py-4">Face-to-face turns</th>
                 <th className="px-5 py-4">Minutes</th>
                 <th className="px-5 py-4">Last used</th>
               </tr>

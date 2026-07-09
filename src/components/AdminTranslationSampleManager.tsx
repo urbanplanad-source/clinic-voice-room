@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Loader2, RefreshCw, Save, Search } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
 
-type FeedbackStatus = "new" | "reviewed" | "fixed" | "dismissed";
 type SampleSource = "local_voice" | "consultation_voice" | "procedure_voice";
 
 type HospitalOption = {
@@ -29,20 +28,10 @@ type TranslationSample = {
   sourceLanguage: string;
   targetLanguage: string;
   model: string | null;
-  status: FeedbackStatus;
   createdAt: string;
-  reviewedAt: string | null;
 };
 
-const statuses = ["new", "reviewed", "fixed", "dismissed"] as const;
 const sources = ["local_voice", "consultation_voice", "procedure_voice"] as const;
-
-const statusLabels: Record<FeedbackStatus, string> = {
-  new: "New",
-  reviewed: "Reviewed",
-  fixed: "Fixed",
-  dismissed: "Dismissed"
-};
 
 const sourceLabels: Record<SampleSource, string> = {
   local_voice: "Face-to-face",
@@ -53,19 +42,16 @@ const sourceLabels: Record<SampleSource, string> = {
 export function AdminTranslationSampleManager() {
   const [samples, setSamples] = useState<TranslationSample[]>([]);
   const [hospitals, setHospitals] = useState<HospitalOption[]>([]);
-  const [filters, setFilters] = useState({ q: "", status: "new", hospitalId: "", source: "" });
+  const [filters, setFilters] = useState({ q: "", hospitalId: "", source: "" });
   const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState("");
-  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
-    if (filters.status) params.set("status", filters.status);
     if (filters.hospitalId) params.set("hospitalId", filters.hospitalId);
     if (filters.source) params.set("source", filters.source);
     return params.toString();
-  }, [filters.hospitalId, filters.source, filters.status]);
+  }, [filters.hospitalId, filters.source]);
 
   const filteredSamples = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
@@ -110,29 +96,7 @@ export function AdminTranslationSampleManager() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryString]);
 
-  async function updateStatus(item: TranslationSample, status: FeedbackStatus) {
-    setBusyId(item.id);
-    setError("");
-    setNotice("");
-    const response = await fetch("/api/admin/samples", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: item.id, status })
-    });
-    setBusyId("");
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => null);
-      setError(data?.error ?? "Sample status could not be saved.");
-      return;
-    }
-
-    setNotice("Sample status saved.");
-    await loadSamples();
-  }
-
   const total = filteredSamples.length;
-  const newCount = samples.filter((item) => item.status === "new").length;
 
   return (
     <div className="space-y-6">
@@ -147,14 +111,13 @@ export function AdminTranslationSampleManager() {
         </button>
       </header>
 
-      <section className="grid gap-3 md:grid-cols-3">
+      <section className="grid gap-3 md:grid-cols-2">
         <SummaryStat label="Visible" value={total.toLocaleString()} />
-        <SummaryStat label="New" value={newCount.toLocaleString()} />
         <SummaryStat label="Loaded" value={samples.length.toLocaleString()} />
       </section>
 
       <section className="rounded-lg bg-white p-5 shadow-soft">
-        <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr_1fr_1fr_auto]">
+        <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr_1fr_auto]">
           <label className="relative block">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
             <input
@@ -164,11 +127,6 @@ export function AdminTranslationSampleManager() {
               placeholder="Search"
             />
           </label>
-          <Select
-            value={filters.status}
-            onChange={(value) => setFilters((current) => ({ ...current, status: value }))}
-            options={[["", "All statuses"], ...statuses.map((status) => [status, statusLabels[status]] as [string, string])]}
-          />
           <Select
             value={filters.source}
             onChange={(value) => setFilters((current) => ({ ...current, source: value }))}
@@ -181,33 +139,30 @@ export function AdminTranslationSampleManager() {
               options={[["", "All hospitals"], ...hospitals.map((hospital) => [hospital.id, hospital.name] as [string, string])]}
             />
           ) : null}
-          <button type="button" onClick={() => setFilters({ q: "", status: "", hospitalId: "", source: "" })} className="h-11 rounded-lg bg-slate-100 px-4 text-sm font-bold text-ink">
+          <button type="button" onClick={() => setFilters({ q: "", hospitalId: "", source: "" })} className="h-11 rounded-lg bg-slate-100 px-4 text-sm font-bold text-ink">
             Reset
           </button>
         </div>
       </section>
 
       {error ? <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
-      {notice ? <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{notice}</p> : null}
 
       <section className="overflow-x-auto rounded-lg bg-white shadow-soft">
-        <table className="w-full min-w-[1380px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[980px] border-collapse text-left text-sm">
           <thead className="bg-slate-50 text-xs font-bold uppercase text-slate-500">
             <tr>
               <th className="px-4 py-4">Sentence</th>
               <th className="px-4 py-4">Context</th>
-              <th className="px-4 py-4">Status</th>
-              <th className="px-4 py-4">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={4} className="px-5 py-6 font-semibold text-slate-500">Loading...</td>
+                <td colSpan={2} className="px-5 py-6 font-semibold text-slate-500">Loading...</td>
               </tr>
             ) : filteredSamples.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-5 py-6 font-semibold text-slate-500">No samples.</td>
+                <td colSpan={2} className="px-5 py-6 font-semibold text-slate-500">No samples.</td>
               </tr>
             ) : (
               filteredSamples.map((item) => (
@@ -233,35 +188,6 @@ export function AdminTranslationSampleManager() {
                       <p><span className="font-bold text-ink">Language:</span> {item.sourceLanguage} {"->"} {item.targetLanguage}</p>
                       <p><span className="font-bold text-ink">Model:</span> {item.model ?? "-"}</p>
                       <p><span className="font-bold text-ink">Created:</span> {new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(new Date(item.createdAt))}</p>
-                    </div>
-                  </td>
-                  <td className="w-[180px] px-4 py-4">
-                    <Select
-                      value={item.status}
-                      onChange={(value) => void updateStatus(item, value as FeedbackStatus)}
-                      options={statuses.map((status) => [status, statusLabels[status]] as [string, string])}
-                    />
-                  </td>
-                  <td className="w-[220px] px-4 py-4">
-                    <div className="grid gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void updateStatus(item, item.status === "reviewed" ? "new" : "reviewed")}
-                        disabled={busyId === item.id}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-trust px-3 text-sm font-bold text-white disabled:opacity-50"
-                      >
-                        {busyId === item.id ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                        {item.status === "reviewed" ? "Mark new" : "Mark reviewed"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void updateStatus(item, item.status === "fixed" ? "reviewed" : "fixed")}
-                        disabled={busyId === item.id}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-100 px-3 text-sm font-bold text-ink disabled:opacity-50"
-                      >
-                        {busyId === item.id ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-                        {item.status === "fixed" ? "Mark reviewed" : "Mark fixed"}
-                      </button>
                     </div>
                   </td>
                 </tr>
