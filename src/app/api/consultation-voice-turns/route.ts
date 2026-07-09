@@ -15,6 +15,7 @@ import { compareNumericSignatures, numberGuardEnabled } from "@/lib/number-guard
 import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
 import { broadcastServerTranslationMessage } from "@/lib/supabase-realtime-server";
+import { recordTranslationSample } from "@/lib/translation-samples";
 
 type TargetLanguage = PatientLanguage | "ko";
 
@@ -289,6 +290,26 @@ async function handleRealtimeStaffMessage(request: Request) {
   const messageGuardFlags = parseGuardFlags(message.guardFlags) ?? undefined;
   const messageTargetLanguage = (message.targetLanguage ?? undefined) as TargetLanguage | undefined;
   after(() =>
+    recordTranslationSample({
+      hospitalId: authorization.room.hospitalId,
+      staffId: authorization.room.hostStaffId,
+      roomId: authorization.room.id,
+      messageId: message.id,
+      source: "consultation_voice",
+      mode: "consultation",
+      direction: parsed.data.role === "staff" ? "ko_to_patient" : "patient_to_ko",
+      patientLanguage: parsed.data.patientLanguage,
+      sourceText: message.sourceText ?? parsed.data.sourceText,
+      translatedText: message.text,
+      sourceLanguage: parsed.data.role === "staff" ? "ko" : parsed.data.patientLanguage,
+      targetLanguage,
+      model,
+      guardFlags: messageGuardFlags
+    }).catch((caught) => {
+      console.error("[consultation-voice-turns realtime sample]", caught);
+    })
+  );
+  after(() =>
     broadcastServerTranslationMessage(parsed.data.roomId, {
       id: message.id,
       speaker: message.speaker,
@@ -480,6 +501,26 @@ async function handleAudioTurn(request: Request) {
 
   const messageGuardFlags = parseGuardFlags(message.guardFlags) ?? undefined;
   const messageTargetLanguage = (message.targetLanguage ?? undefined) as TargetLanguage | undefined;
+  after(() =>
+    recordTranslationSample({
+      hospitalId: authorization.room.hospitalId,
+      staffId: authorization.room.hostStaffId,
+      roomId,
+      messageId: message.id,
+      source: "consultation_voice",
+      mode: "consultation",
+      direction: role === "staff" ? "ko_to_patient" : "patient_to_ko",
+      patientLanguage,
+      sourceText,
+      translatedText: message.text,
+      sourceLanguage: role === "staff" ? "ko" : patientLanguage,
+      targetLanguage: translation.targetLanguage,
+      model: translation.model,
+      guardFlags: messageGuardFlags
+    }).catch((caught) => {
+      console.error("[consultation-voice-turns upload sample]", caught);
+    })
+  );
   after(() =>
     broadcastServerTranslationMessage(roomId, {
       id: message.id,

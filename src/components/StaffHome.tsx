@@ -230,6 +230,10 @@ export function StaffHome({
             <MessageSquareText size={18} />
             Feedback
           </Link>
+          <Link href="/admin/samples" className="flex h-12 items-center justify-center gap-2 rounded-lg bg-slate-50 px-3 text-sm font-bold text-ink transition hover:bg-blue-50">
+            <FileText size={18} />
+            Samples
+          </Link>
           {staff.role === "internal_admin" ? (
             <>
               <Link href="/admin/staff" className="flex h-12 items-center justify-center gap-2 rounded-lg bg-slate-50 px-3 text-sm font-bold text-ink transition hover:bg-blue-50">

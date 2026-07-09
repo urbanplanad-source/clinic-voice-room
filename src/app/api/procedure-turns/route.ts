@@ -15,6 +15,7 @@ import { compareNumericSignatures, numberGuardEnabled } from "@/lib/number-guard
 import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
 import { broadcastServerTranslationMessage } from "@/lib/supabase-realtime-server";
+import { recordTranslationSample } from "@/lib/translation-samples";
 
 type TargetLanguage = PatientLanguage | "ko";
 
@@ -256,6 +257,26 @@ async function handleRealtimeStaffMessage(request: Request) {
   const messageGuardFlags = parseGuardFlags(savedMessage.guardFlags) ?? undefined;
   const messageTargetLanguage = (savedMessage.targetLanguage ?? undefined) as TargetLanguage | undefined;
   after(() =>
+    recordTranslationSample({
+      hospitalId: room.hospitalId,
+      staffId: room.hostStaffId,
+      roomId: room.id,
+      messageId: savedMessage.id,
+      source: "procedure_voice",
+      mode: "procedure",
+      direction: parsed.data.role === "staff" ? "ko_to_patient" : "patient_to_ko",
+      patientLanguage: parsed.data.patientLanguage,
+      sourceText: savedMessage.sourceText ?? parsed.data.sourceText,
+      translatedText: savedMessage.text,
+      sourceLanguage: parsed.data.role === "staff" ? "ko" : parsed.data.patientLanguage,
+      targetLanguage,
+      model,
+      guardFlags: messageGuardFlags
+    }).catch((caught) => {
+      console.error("[procedure-turns realtime sample]", caught);
+    })
+  );
+  after(() =>
     broadcastServerTranslationMessage(room.id, {
       id: savedMessage.id,
       speaker: savedMessage.speaker,
@@ -496,6 +517,26 @@ async function handleAudioTurn(request: Request) {
 
   const messageGuardFlags = parseGuardFlags(savedMessage.guardFlags) ?? undefined;
   const messageTargetLanguage = (savedMessage.targetLanguage ?? undefined) as TargetLanguage | undefined;
+  after(() =>
+    recordTranslationSample({
+      hospitalId: room.hospitalId,
+      staffId: room.hostStaffId,
+      roomId: room.id,
+      messageId: savedMessage.id,
+      source: "procedure_voice",
+      mode: "procedure",
+      direction: role === "staff" ? "ko_to_patient" : "patient_to_ko",
+      patientLanguage,
+      sourceText,
+      translatedText: savedMessage.text,
+      sourceLanguage: role === "staff" ? "ko" : patientLanguage,
+      targetLanguage: translation.targetLanguage,
+      model: translation.model,
+      guardFlags: messageGuardFlags
+    }).catch((caught) => {
+      console.error("[procedure-turns upload sample]", caught);
+    })
+  );
   after(() =>
     broadcastServerTranslationMessage(room.id, {
       id: savedMessage.id,

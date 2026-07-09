@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { buildClinicGlossaryInstructions, buildClinicTranscriptionPrompt, normalizeClinicTranslation } from "@/lib/clinic-glossary";
@@ -6,6 +6,7 @@ import { getGlossaryForHospital } from "@/lib/glossary-service";
 import { isPatientLanguage, languageLabels, sourceTargetFor, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { recordLocalInterpreterUsageTurn } from "@/lib/local-interpreter-usage";
 import type { GuardFlags } from "@/lib/guard-flags";
+import { recordTranslationSample } from "@/lib/translation-samples";
 import { normalizedTranscriptionModel } from "@/lib/openai-models";
 import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
@@ -229,6 +230,26 @@ export async function POST(request: Request) {
   }).catch((caught) => {
     console.error("[local-voice-turns usage]", caught);
   });
+
+  after(() =>
+    recordTranslationSample({
+      hospitalId: staff.hospitalId,
+      staffId: staff.id,
+      messageId: clientTurnId,
+      source: "local_voice",
+      mode: "local",
+      direction,
+      patientLanguage,
+      sourceText,
+      translatedText: normalizedTranslatedText,
+      sourceLanguage,
+      targetLanguage,
+      model,
+      guardFlags
+    }).catch((caught) => {
+      console.error("[local-voice-turns sample]", caught);
+    })
+  );
 
   return NextResponse.json({
     sourceText,

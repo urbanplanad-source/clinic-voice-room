@@ -118,7 +118,8 @@ model Hospital {
   localInterpreterUsageTurns LocalInterpreterUsageTurn[]
   glossaryEntries            GlossaryEntry[]
   quickPhrases               HospitalQuickPhrase[]
-  translationFeedback         TranslationFeedback[]
+  translationFeedback        TranslationFeedback[]
+  translationSamples         TranslationSample[]
 }
 
 model GlossaryEntry {
@@ -173,6 +174,7 @@ model StaffUser {
   rooms                      TranslationRoom[]           @relation("RoomHost")
   usageSessions              UsageSession[]
   localInterpreterUsageTurns LocalInterpreterUsageTurn[]
+  translationSamples         TranslationSample[]
 }
 
 model TranslationRoom {
@@ -260,6 +262,34 @@ model TranslationFeedback {
   reviewedAt     DateTime?
 
   @@index([hospitalId, status, createdAt])
+}
+
+model TranslationSample {
+  id              String           @id @default(cuid())
+  hospitalId      String
+  hospital        Hospital         @relation(fields: [hospitalId], references: [id])
+  staffId         String?
+  staff           StaffUser?       @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  roomId          String?
+  messageId       String?
+  source          String
+  mode            String
+  direction       String
+  patientLanguage PatientLanguage?
+  sourceText      String
+  translatedText  String
+  sourceLanguage  String
+  targetLanguage  String
+  model           String?
+  guardFlags      Json?
+  status          FeedbackStatus   @default(new)
+  createdAt       DateTime         @default(now())
+  reviewedAt      DateTime?
+
+  @@unique([hospitalId, source, messageId])
+  @@index([hospitalId, status, createdAt])
+  @@index([staffId, createdAt])
+  @@index([source, createdAt])
 }
 
 model LocalInterpreterUsageTurn {
