@@ -227,7 +227,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.22"
+private const val AppDisplayVersion = "0.3.23"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -256,6 +256,8 @@ private const val StaffAutoStopMinVoiceMs = 260L
 private const val StaffAutoStopSilenceMs = 1600L
 private const val StaffAutoStopSpeechRms = 900.0
 private const val StaffAutoStopSpeechPeak = 2600
+private const val StaffModeIdleTimeoutMs = 15 * 60 * 1000L
+private const val StaffModeIdleCheckMs = 30 * 1000L
 private const val FootpadDuplicateWindowMs = 450L
 private const val LocalValidationTimeoutMs = 900L
 private const val LocalValidationMaxSourceChars = 18
@@ -1239,6 +1241,10 @@ class MainActivity : ComponentActivity() {
     private var messagePollingActive = false
     @Volatile
     private var messagePollInFlight = false
+    @Volatile
+    private var lastModeActivityAt = SystemClock.elapsedRealtime()
+    @Volatile
+    private var modeIdleReturnInProgress = false
     private val realtimeExecutor: ExecutorService = Executors.newFixedThreadPool(2)
     private val pollExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val messageExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -1261,6 +1267,12 @@ class MainActivity : ComponentActivity() {
             if (messagePollingActive) {
                 mainHandler.postDelayed(this, messagePollDelayMs())
             }
+        }
+    }
+    private val modeIdleRunnable = object : Runnable {
+        override fun run() {
+            checkModeIdleTimeout()
+            mainHandler.postDelayed(this, StaffModeIdleCheckMs)
         }
     }
     private val permissionLauncher = registerForActivityResult(
@@ -1354,10 +1366,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        noteModeActivity()
+        startModeIdleWatcher()
         resumeRealtimeAndPollingAfterStart()
     }
 
     override fun onStop() {
+        stopModeIdleWatcher()
         val state = uiState.value
         if (recordingActive || state.speaking) {
             recordingActive = false
@@ -1386,6 +1401,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        stopModeIdleWatcher()
         stopRoomPolling()
         recordingActive = false
         runCatching { recordingThread?.join(500) }
@@ -1405,6 +1421,11 @@ class MainActivity : ComponentActivity() {
         sessionExecutor.shutdownNow()
         executor.shutdownNow()
         super.onDestroy()
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        noteModeActivity()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
@@ -1571,6 +1592,172 @@ class MainActivity : ComponentActivity() {
         updateState { it.copy(logs = (listOf("$stamp $message") + it.logs).take(40)) }
     }
 
+    private fun noteModeActivity() {
+        lastModeActivityAt = SystemClock.elapsedRealtime()
+    }
+
+    private fun startModeIdleWatcher() {
+        mainHandler.removeCallbacks(modeIdleRunnable)
+        mainHandler.postDelayed(modeIdleRunnable, StaffModeIdleCheckMs)
+    }
+
+    private fun stopModeIdleWatcher() {
+        mainHandler.removeCallbacks(modeIdleRunnable)
+    }
+
+    private fun checkModeIdleTimeout() {
+        if (modeIdleReturnInProgress) return
+        val state = uiState.value
+        if (!shouldReturnForModeIdle(state)) return
+        if (SystemClock.elapsedRealtime() - lastModeActivityAt < StaffModeIdleTimeoutMs) return
+
+        when {
+            state.room != null -> autoEndRoomAfterIdle(state.room)
+            state.setupStep == SetupStepLocalInterpreter -> returnToLanguageSelectionAfterIdle()
+            state.setupStep == SetupStepLanguage -> returnToModeSelectionAfterIdle()
+        }
+    }
+
+    private fun shouldReturnForModeIdle(state: StaffUiState): Boolean {
+        if (!state.loggedIn) return false
+        if (state.busy || state.speaking || recordingActive || realtimeTurnActive) return false
+        if (state.ttsPlaybackActive || ttsPlaybackActive) return false
+        if (state.showEndRoomConfirm || state.showExitAppConfirm || state.showLocalSummary) return false
+
+        return when {
+            state.room != null -> state.room.status != "ended"
+            state.setupStep == SetupStepLocalInterpreter -> true
+            state.setupStep == SetupStepLanguage -> true
+            else -> false
+        }
+    }
+
+    private fun returnToModeSelectionAfterIdle() {
+        modeIdleReturnInProgress = true
+        closeLocalRealtimeTurnClients()
+        stopTtsPlayback()
+        resetMessagePolling()
+        noteModeActivity()
+        updateState {
+            it.copy(
+                setupStep = SetupStepMode,
+                connected = false,
+                speaking = false,
+                busy = false,
+                sourceDraft = "",
+                translatedDraft = "",
+                lastMessageSpeaker = "",
+                localTurnDirection = LocalDirectionKoToPatient,
+                localRealtimeReady = false,
+                localEngineStatus = "",
+                localResultBadge = "",
+                localConversationTurns = emptyList(),
+                localSummaryKorean = "",
+                localSummaryPatient = "",
+                showLocalSummary = false,
+                messages = emptyList(),
+                textInput = "",
+                status = "오랜 시간 조작이 없어 모드 선택 화면으로 돌아왔습니다."
+            )
+        }
+        appendLog("Mode idle timeout: returned to mode selection")
+        modeIdleReturnInProgress = false
+    }
+
+    private fun returnToLanguageSelectionAfterIdle() {
+        modeIdleReturnInProgress = true
+        recordingActive = false
+        runCatching { recordingThread?.join(RecordingStopJoinMs) }
+        closeLocalRealtimeTurnClients()
+        stopTtsPlayback()
+        synchronized(recordingLock) {
+            recordedPcm = null
+        }
+        noteModeActivity()
+        updateState {
+            it.copy(
+                room = null,
+                setupStep = SetupStepLanguage,
+                connected = false,
+                speaking = false,
+                busy = false,
+                ttsPlaybackActive = false,
+                localRealtimeReady = false,
+                sourceDraft = "",
+                translatedDraft = "",
+                lastMessageSpeaker = "",
+                localTurnDirection = LocalDirectionKoToPatient,
+                localEngineStatus = "",
+                localResultBadge = "",
+                localConversationTurns = emptyList(),
+                localSummaryKorean = "",
+                localSummaryPatient = "",
+                showLocalSummary = false,
+                messages = emptyList(),
+                textInput = "",
+                status = "오랜 시간 조작이 없어 언어 선택 화면으로 돌아왔습니다."
+            )
+        }
+        appendLog("Mode idle timeout: returned to language selection")
+        modeIdleReturnInProgress = false
+    }
+
+    private fun autoEndRoomAfterIdle(room: RoomInfo) {
+        modeIdleReturnInProgress = true
+        val backend = normalizedBackendUrl(uiState.value.backendUrl)
+        stopRoomPolling()
+        resetMessagePolling()
+        closeRealtimeTurnClient()
+        stopTtsPlayback()
+        updateState {
+            if (it.room?.id == room.id) {
+                it.copy(
+                    busy = true,
+                    showEndRoomConfirm = false,
+                    status = "오랜 시간 조작이 없어 통역방을 종료하는 중입니다."
+                )
+            } else {
+                it
+            }
+        }
+        executor.execute {
+            val ended = runCatching {
+                postEmpty("$backend/api/rooms/${room.id}/end")
+            }.onFailure { caught ->
+                appendLog("Idle room end failed: ${userFacingError(caught)}")
+            }.isSuccess
+
+            noteModeActivity()
+            updateState {
+                if (it.room?.id == room.id) {
+                    it.copy(
+                        room = null,
+                        setupStep = SetupStepMode,
+                        connected = false,
+                        speaking = false,
+                        busy = false,
+                        ttsPlaybackActive = false,
+                        sourceDraft = "",
+                        translatedDraft = "",
+                        lastMessageSpeaker = "",
+                        localTurnDirection = LocalDirectionKoToPatient,
+                        messages = emptyList(),
+                        textInput = "",
+                        status = if (ended) {
+                            "오랜 시간 조작이 없어 통역방을 종료하고 모드 선택 화면으로 돌아왔습니다."
+                        } else {
+                            "오랜 시간 조작이 없어 화면을 초기화했습니다. 필요하면 새 통역방을 만들어주세요."
+                        }
+                    )
+                } else {
+                    it
+                }
+            }
+            appendLog("Mode idle timeout: room reset ${room.id}")
+            modeIdleReturnInProgress = false
+        }
+    }
+
     private fun refreshPermissionState() {
         val record = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         updateState { it.copy(recordAudioGranted = record) }
@@ -1618,6 +1805,7 @@ class MainActivity : ComponentActivity() {
         if (!isSupportedHardwareKey(event)) return false
         if (event.action != KeyEvent.ACTION_DOWN) return true
 
+        noteModeActivity()
         val keyName = KeyEvent.keyCodeToString(event.keyCode)
         if (event.repeatCount > 0) {
             updateState { it.copy(lastKey = "$keyName repeat ignored") }
@@ -1712,6 +1900,7 @@ class MainActivity : ComponentActivity() {
     private fun handleTtsFinished(utteranceId: String) {
         if (activeTtsUtteranceId != utteranceId) return
         activeTtsUtteranceId = ""
+        noteModeActivity()
         setTtsPlaybackActive(false)
     }
 
@@ -2270,6 +2459,7 @@ class MainActivity : ComponentActivity() {
         if (!rememberMessage(message)) return
         appendConversationMessage(messageFromJson(message, uiState.value.room?.patientLanguage))
         if (message.optString("speaker") == "patient") {
+            noteModeActivity()
             messagePollingInitialized = true
             handleIncomingPatientMessage(message, appendToConversation = false, speak = true)
             appendLog("환자 발화 실시간 수신")
@@ -2312,6 +2502,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (joinedNow) appendLog("환자 입장 확인")
+                if (joinedNow) noteModeActivity()
                 if (joinedNow) warmTtsForRoom(updatedRoom)
                 if (ended) {
                     stopRoomPolling()
@@ -2357,6 +2548,7 @@ class MainActivity : ComponentActivity() {
             if (!rememberMessage(message)) continue
             appendConversationMessage(messageFromJson(message, room.patientLanguage))
             if (message.optString("speaker") == "patient") {
+                noteModeActivity()
                 handleIncomingPatientMessage(message, appendToConversation = false, speak = messagePollingInitialized)
             }
         }

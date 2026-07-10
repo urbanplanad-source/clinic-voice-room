@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
+import { ParticipantRole, Prisma, RoomMode } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
 
 const statuses = ["new", "reviewed", "fixed", "dismissed"] as const;
 const sources = ["local_voice", "consultation_voice", "procedure_voice"] as const;
+const sampleBackfillLimit = 500;
 
 const patchSchema = z.object({
   id: z.string().min(1),
@@ -73,11 +74,106 @@ function sampleResponse(sample: {
   };
 }
 
+function roomSampleSource(roomMode: RoomMode) {
+  return roomMode === RoomMode.procedure ? "procedure_voice" : "consultation_voice";
+}
+
+function sampleDirection(speaker: ParticipantRole) {
+  return speaker === ParticipantRole.staff ? "ko_to_patient" : "patient_to_ko";
+}
+
+function sampleSourceLanguage(speaker: ParticipantRole, patientLanguage: string) {
+  return speaker === ParticipantRole.staff ? "ko" : patientLanguage;
+}
+
+function sampleTargetLanguage(speaker: ParticipantRole, patientLanguage: string, targetLanguage?: string | null) {
+  if (targetLanguage) return targetLanguage;
+  return speaker === ParticipantRole.staff ? patientLanguage : "ko";
+}
+
+async function backfillRoomTranslationSamples(request: Request, admin: SampleAdmin) {
+  const url = new URL(request.url);
+  const hospitalId = url.searchParams.get("hospitalId") || undefined;
+  const source = url.searchParams.get("source") || undefined;
+  const roomWhere: Prisma.TranslationRoomWhereInput = {
+    roomMode: { in: [RoomMode.consultation, RoomMode.procedure] }
+  };
+
+  if (admin.role === "hospital_admin") {
+    roomWhere.hospitalId = admin.hospitalId;
+  } else if (hospitalId) {
+    roomWhere.hospitalId = hospitalId;
+  }
+  if (source === "consultation_voice") {
+    roomWhere.roomMode = RoomMode.consultation;
+  } else if (source === "procedure_voice") {
+    roomWhere.roomMode = RoomMode.procedure;
+  } else if (source === "local_voice") {
+    return;
+  }
+
+  const messages = await prisma.consultationMessage.findMany({
+    where: {
+      sourceText: { not: null },
+      text: { not: "" },
+      room: roomWhere
+    },
+    orderBy: { createdAt: "desc" },
+    take: sampleBackfillLimit,
+    include: {
+      room: {
+        select: {
+          id: true,
+          hospitalId: true,
+          hostStaffId: true,
+          patientLanguage: true,
+          roomMode: true
+        }
+      }
+    }
+  });
+
+  const sampleRows: Prisma.TranslationSampleCreateManyInput[] = [];
+  for (const message of messages) {
+    const sourceText = message.sourceText?.trim() ?? "";
+    const translatedText = message.text.trim();
+    if (!sourceText || !translatedText) continue;
+    const patientLanguage = message.room.patientLanguage;
+
+    sampleRows.push({
+      hospitalId: message.room.hospitalId,
+      staffId: message.room.hostStaffId,
+      roomId: message.room.id,
+      messageId: message.id,
+      source: roomSampleSource(message.room.roomMode),
+      mode: message.room.roomMode,
+      direction: sampleDirection(message.speaker),
+      patientLanguage,
+      sourceText,
+      translatedText,
+      sourceLanguage: sampleSourceLanguage(message.speaker, patientLanguage),
+      targetLanguage: sampleTargetLanguage(message.speaker, patientLanguage, message.targetLanguage),
+      model: "backfill"
+    });
+  }
+
+  if (sampleRows.length === 0) return;
+
+  await prisma.translationSample.createMany({
+    data: sampleRows,
+    skipDuplicates: true
+  });
+}
+
 export async function GET(request: Request) {
   const admin = await requireSampleAdmin();
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
   const where = sampleWhereFromRequest(request, admin);
+  await backfillRoomTranslationSamples(request, admin).catch((caught) => {
+    console.error("[admin samples backfill]", caught);
+  });
+
   const samples = await prisma.translationSample.findMany({
     where,
     orderBy: { createdAt: "desc" },
