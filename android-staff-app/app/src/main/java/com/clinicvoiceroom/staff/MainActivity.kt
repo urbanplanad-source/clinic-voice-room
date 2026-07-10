@@ -14,6 +14,7 @@ import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -227,7 +228,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.23"
+private const val AppDisplayVersion = "0.3.25"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -258,6 +259,7 @@ private const val StaffAutoStopSpeechRms = 900.0
 private const val StaffAutoStopSpeechPeak = 2600
 private const val StaffModeIdleTimeoutMs = 15 * 60 * 1000L
 private const val StaffModeIdleCheckMs = 30 * 1000L
+private const val LocalRealtimeUserWaitTimeoutMs = 7_000L
 private const val FootpadDuplicateWindowMs = 450L
 private const val LocalValidationTimeoutMs = 900L
 private const val LocalValidationMaxSourceChars = 18
@@ -1229,6 +1231,10 @@ class MainActivity : ComponentActivity() {
     private val localRealtimeLock = Any()
     private val localRealtimeTurnClients = mutableMapOf<String, AndroidRealtimeTurnClient>()
     private val localRealtimePreparingKeys = mutableSetOf<String>()
+    private val localRealtimeFailedKeys = mutableSetOf<String>()
+    private var localRealtimeGeneration = 0L
+    private var localRealtimeAvailableGeneration = -1L
+    private var localRealtimeWatchdogGeneration = -1L
     @Volatile
     private var realtimePreparingRoomId: String = ""
     @Volatile
@@ -2306,8 +2312,12 @@ class MainActivity : ComponentActivity() {
     private fun closeLocalRealtimeTurnClients() {
         val clients = synchronized(localRealtimeLock) {
             val values = localRealtimeTurnClients.values.toList()
+            localRealtimeGeneration += 1
+            localRealtimeAvailableGeneration = -1L
+            localRealtimeWatchdogGeneration = -1L
             localRealtimeTurnClients.clear()
             localRealtimePreparingKeys.clear()
+            localRealtimeFailedKeys.clear()
             values
         }
         clients.forEach { client ->
@@ -2318,18 +2328,103 @@ class MainActivity : ComponentActivity() {
         updateState { it.copy(localRealtimeReady = false) }
     }
 
-    private fun updateLocalRealtimeReadyState(patientLanguage: String) {
-        val state = uiState.value
-        val ready = state.setupStep == SetupStepLocalInterpreter &&
-            state.room == null &&
-            state.selectedLanguage == patientLanguage &&
-            synchronized(localRealtimeLock) {
-                localRealtimeTurnClients[localRealtimeKey(patientLanguage, LocalDirectionKoToPatient)]?.isReady() == true &&
-                    localRealtimeTurnClients[localRealtimeKey(patientLanguage, LocalDirectionPatientToKo)]?.isReady() == true
+    private fun currentLocalRealtimeGeneration(): Long {
+        return synchronized(localRealtimeLock) { localRealtimeGeneration }
+    }
+
+    private fun isCurrentLocalRealtimeGeneration(generation: Long): Boolean {
+        return synchronized(localRealtimeLock) { generation == localRealtimeGeneration }
+    }
+
+    private fun scheduleLocalRealtimeAvailabilityTimeout(patientLanguage: String, generation: Long) {
+        val shouldSchedule = synchronized(localRealtimeLock) {
+            when {
+                generation != localRealtimeGeneration -> false
+                localRealtimeAvailableGeneration == generation -> false
+                localRealtimeWatchdogGeneration == generation -> false
+                else -> {
+                    localRealtimeWatchdogGeneration = generation
+                    true
+                }
             }
+        }
+        if (!shouldSchedule) return
+
+        mainHandler.postDelayed({
+            val shouldEnableFallback = synchronized(localRealtimeLock) {
+                if (
+                    generation != localRealtimeGeneration ||
+                    localRealtimeWatchdogGeneration != generation
+                ) {
+                    false
+                } else {
+                    localRealtimeWatchdogGeneration = -1L
+                    localRealtimeAvailableGeneration = generation
+                    true
+                }
+            }
+            if (shouldEnableFallback) {
+                appendLog("Local Realtime wait timeout ${LocalRealtimeUserWaitTimeoutMs}ms; upload fallback enabled g=$generation")
+                updateLocalRealtimeReadyState(patientLanguage, generation)
+            }
+        }, LocalRealtimeUserWaitTimeoutMs)
+    }
+
+    private fun markLocalRealtimeDirectionFailed(
+        patientLanguage: String,
+        direction: String,
+        generation: Long
+    ): Boolean {
+        val key = localRealtimeKey(patientLanguage, direction)
+        var accepted = false
+        val client = synchronized(localRealtimeLock) {
+            if (generation != localRealtimeGeneration) {
+                null
+            } else {
+                accepted = true
+                localRealtimePreparingKeys.remove(key)
+                localRealtimeFailedKeys.add(key)
+                localRealtimeTurnClients.remove(key)
+            }
+        }
+        runCatching { client?.close() }
+        if (accepted) updateLocalRealtimeReadyState(patientLanguage, generation)
+        return accepted
+    }
+
+    private fun updateLocalRealtimeReadyState(
+        patientLanguage: String,
+        generation: Long = currentLocalRealtimeGeneration()
+    ) {
+        val state = uiState.value
+        if (
+            state.setupStep != SetupStepLocalInterpreter ||
+            state.room != null ||
+            state.selectedLanguage != patientLanguage
+        ) return
+
+        val ready = synchronized(localRealtimeLock) {
+            if (generation != localRealtimeGeneration) return
+            val koKey = localRealtimeKey(patientLanguage, LocalDirectionKoToPatient)
+            val patientKey = localRealtimeKey(patientLanguage, LocalDirectionPatientToKo)
+            val koDone = localRealtimeTurnClients[koKey]?.isReady() == true || localRealtimeFailedKeys.contains(koKey)
+            val patientDone = localRealtimeTurnClients[patientKey]?.isReady() == true || localRealtimeFailedKeys.contains(patientKey)
+            val preparing = localRealtimePreparingKeys.contains(koKey) || localRealtimePreparingKeys.contains(patientKey)
+            if (koDone && patientDone && !preparing) {
+                localRealtimeAvailableGeneration = generation
+                localRealtimeWatchdogGeneration = -1L
+            }
+            localRealtimeAvailableGeneration == generation
+        }
 
         if (state.localRealtimeReady != ready) {
             updateState { current ->
+                if (
+                    !isCurrentLocalRealtimeGeneration(generation) ||
+                    current.setupStep != SetupStepLocalInterpreter ||
+                    current.room != null ||
+                    current.selectedLanguage != patientLanguage
+                ) return@updateState current
                 val nextStatus = when {
                     ready &&
                         current.setupStep == SetupStepLocalInterpreter &&
@@ -2677,6 +2772,11 @@ class MainActivity : ComponentActivity() {
             return
         }
         if (state.setupStep != SetupStepLocalInterpreter || state.room != null) return
+        if (!state.localRealtimeReady) {
+            updateState { it.copy(status = localConnectingStatus(it.selectedRoomMode)) }
+            prepareLocalRealtimeTurnClientsAsync(state.selectedLanguage)
+            return
+        }
         if (!state.recordAudioGranted) {
             updateState { it.copy(status = "마이크 권한이 필요합니다.") }
             requestMicPermissionIfMissing()
@@ -2880,69 +2980,116 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun prepareLocalRealtimeTurnClientsAsync(patientLanguage: String, force: Boolean = false) {
-        prepareLocalRealtimeTurnClientAsync(patientLanguage, LocalDirectionKoToPatient, force)
-        prepareLocalRealtimeTurnClientAsync(patientLanguage, LocalDirectionPatientToKo, force)
+        val generation = currentLocalRealtimeGeneration()
+        scheduleLocalRealtimeAvailabilityTimeout(patientLanguage, generation)
+        prepareLocalRealtimeTurnClientAsync(patientLanguage, LocalDirectionKoToPatient, force, generation)
+        prepareLocalRealtimeTurnClientAsync(patientLanguage, LocalDirectionPatientToKo, force, generation)
     }
 
-    private fun prepareLocalRealtimeTurnClientAsync(patientLanguage: String, direction: String, force: Boolean = false) {
+    private fun prepareLocalRealtimeTurnClientAsync(
+        patientLanguage: String,
+        direction: String,
+        force: Boolean = false,
+        generation: Long = currentLocalRealtimeGeneration()
+    ) {
         if (recordingActive || realtimeTurnActive) return
         val key = localRealtimeKey(patientLanguage, direction)
-        synchronized(localRealtimeLock) {
+        val shouldPrepare = synchronized(localRealtimeLock) {
             val current = localRealtimeTurnClients[key]
-            if (!force && current != null && current.isReady()) return
-            if (localRealtimePreparingKeys.contains(key)) return
-            localRealtimePreparingKeys.add(key)
+            when {
+                generation != localRealtimeGeneration -> false
+                !force && current != null && current.isReady() -> false
+                localRealtimePreparingKeys.contains(key) -> false
+                else -> {
+                    localRealtimeFailedKeys.remove(key)
+                    localRealtimePreparingKeys.add(key)
+                    true
+                }
+            }
         }
+        if (!shouldPrepare) return
 
-        realtimeExecutor.execute {
-            runCatching {
-                val startedAt = SystemClock.elapsedRealtime()
-                appendLog("Local Realtime preparing: $direction")
+        val task = Runnable {
+            val startedAt = SystemClock.elapsedRealtime()
+            var connectingClient: AndroidRealtimeTurnClient? = null
+            runCatching<AndroidRealtimeTurnClient?> {
+                appendLog("Local Realtime preparing g=$generation: $direction")
                 val token = requestLocalRealtimeToken(patientLanguage, direction)
+                if (!isCurrentLocalRealtimeGeneration(generation)) return@runCatching null
                 val client = AndroidRealtimeTurnClient(
                     http,
                     token,
                     ::appendLog,
                     shouldPlayDirectAudio = { uiState.value.ttsEnabled }
                 )
+                connectingClient = client
                 client.connect()
+                client
+            }.onSuccess { client ->
+                if (client == null) {
+                    appendLog("Local Realtime stale prepare discarded g=$generation: $direction")
+                    return@onSuccess
+                }
                 val state = uiState.value
-                val localSetupActive = state.setupStep == SetupStepLocalInterpreter ||
-                    (state.setupStep == SetupStepLanguage && isLocalInterpreterMode(state.selectedRoomMode))
-                if (
-                    localSetupActive &&
-                    state.room == null &&
-                    state.selectedLanguage == patientLanguage
-                ) {
-                    val previous = synchronized(localRealtimeLock) {
+                var accepted = false
+                val previous = synchronized(localRealtimeLock) {
+                    if (
+                        generation == localRealtimeGeneration &&
+                        state.setupStep == SetupStepLocalInterpreter &&
+                        state.room == null &&
+                        state.selectedLanguage == patientLanguage
+                    ) {
+                        accepted = true
                         val old = localRealtimeTurnClients[key]
                         localRealtimeTurnClients[key] = client
                         localRealtimePreparingKeys.remove(key)
+                        localRealtimeFailedKeys.remove(key)
                         old
+                    } else {
+                        null
                     }
+                }
+                if (accepted) {
                     if (previous !== activeRealtimeTurnClient) {
                         runCatching { previous?.close() }
                     }
-                    updateLocalRealtimeReadyState(patientLanguage)
-                    appendLog("Local Realtime ready ${SystemClock.elapsedRealtime() - startedAt}ms: $direction")
+                    updateLocalRealtimeReadyState(patientLanguage, generation)
+                    appendLog("Local Realtime ready ${SystemClock.elapsedRealtime() - startedAt}ms g=$generation: $direction")
                 } else {
                     client.close()
-                    synchronized(localRealtimeLock) { localRealtimePreparingKeys.remove(key) }
-                    updateLocalRealtimeReadyState(patientLanguage)
+                    val currentGeneration = synchronized(localRealtimeLock) {
+                        if (generation == localRealtimeGeneration) {
+                            localRealtimePreparingKeys.remove(key)
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    if (currentGeneration) updateLocalRealtimeReadyState(patientLanguage, generation)
+                    appendLog("Local Realtime stale connection closed g=$generation: $direction")
                 }
-            }.onFailure {
-                appendLog("Local Realtime prepare failed: ${it.message}")
-                synchronized(localRealtimeLock) { localRealtimePreparingKeys.remove(key) }
-                updateLocalRealtimeReadyState(patientLanguage)
+            }.onFailure { caught ->
+                runCatching { connectingClient?.close() }
+                if (markLocalRealtimeDirectionFailed(patientLanguage, direction, generation)) {
+                    appendLog("Local Realtime prepare failed g=$generation: ${caught.message}")
+                } else {
+                    appendLog("Local Realtime stale failure ignored g=$generation: $direction")
+                }
+            }
+        }
+        runCatching { realtimeExecutor.execute(task) }.onFailure { caught ->
+            if (markLocalRealtimeDirectionFailed(patientLanguage, direction, generation)) {
+                appendLog("Local Realtime queue failed g=$generation: ${caught.message}")
             }
         }
     }
 
     private fun tryStartPreparedLocalRealtimeTurn(patientLanguage: String, direction: String): Boolean {
+        val generation = currentLocalRealtimeGeneration()
         val key = localRealtimeKey(patientLanguage, direction)
         val realtime = synchronized(localRealtimeLock) { localRealtimeTurnClients[key] }
         if (realtime == null || !realtime.isReady()) {
-            prepareLocalRealtimeTurnClientAsync(patientLanguage, direction)
+            prepareLocalRealtimeTurnClientAsync(patientLanguage, direction, generation = generation)
             appendLog("Local Realtime not ready, recording with upload fallback")
             return false
         }
@@ -2955,11 +3102,9 @@ class MainActivity : ComponentActivity() {
         }.onFailure {
             appendLog("Local Realtime start failed, using upload fallback: ${it.message}")
             activeRealtimeTurnClient = null
-            synchronized(localRealtimeLock) {
-                localRealtimeTurnClients.remove(key)
-            }?.close()
-            updateLocalRealtimeReadyState(patientLanguage)
-            prepareLocalRealtimeTurnClientAsync(patientLanguage, direction, force = true)
+            if (markLocalRealtimeDirectionFailed(patientLanguage, direction, generation)) {
+                prepareLocalRealtimeTurnClientAsync(patientLanguage, direction, force = true, generation = generation)
+            }
         }.getOrDefault(false)
     }
 
@@ -3328,6 +3473,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun translateLocalVoiceTurn(direction: String, patientLanguage: String, pcm: ByteArray, durationSeconds: Int): JSONObject {
+        val generation = currentLocalRealtimeGeneration()
         if (isExperimentalLocalInterpreterMode(uiState.value.selectedRoomMode)) {
             return ExperimentalFaceToFaceEngine(
                 translateWithRealtimeFirst = { fastDirection, fastPatientLanguage, fastPcm, fastDurationSeconds ->
@@ -3336,14 +3482,21 @@ class MainActivity : ComponentActivity() {
                         fastPatientLanguage,
                         fastPcm,
                         fastDurationSeconds,
-                        experimentalFastTurn = true
+                        experimentalFastTurn = true,
+                        generation = generation
                     )
                 },
                 log = ::appendLog
             ).translate(direction, patientLanguage, pcm, durationSeconds)
         }
 
-        return translateLocalVoiceTurnRealtimeFirst(direction, patientLanguage, pcm, durationSeconds)
+        return translateLocalVoiceTurnRealtimeFirst(
+            direction,
+            patientLanguage,
+            pcm,
+            durationSeconds,
+            generation = generation
+        )
     }
 
     private fun translateLocalVoiceTurnRealtimeFirst(
@@ -3351,7 +3504,8 @@ class MainActivity : ComponentActivity() {
         patientLanguage: String,
         pcm: ByteArray,
         durationSeconds: Int,
-        experimentalFastTurn: Boolean = false
+        experimentalFastTurn: Boolean = false,
+        generation: Long = currentLocalRealtimeGeneration()
     ): JSONObject {
         val timing = if (experimentalFastTurn) ExperimentalRealtimeTurnTiming else DefaultRealtimeTurnTiming
         val realtimeWasActive = realtimeTurnActive
@@ -3394,16 +3548,26 @@ class MainActivity : ComponentActivity() {
                     )
                 }.onFailure {
                     appendLog("Local Realtime failed, falling back to upload: ${it.message}")
-                    synchronized(localRealtimeLock) {
-                        localRealtimeTurnClients.remove(key)
-                    }?.close()
-                    updateLocalRealtimeReadyState(patientLanguage)
-                    prepareLocalRealtimeTurnClientAsync(patientLanguage, direction, force = true)
+                    if (markLocalRealtimeDirectionFailed(patientLanguage, direction, generation)) {
+                        prepareLocalRealtimeTurnClientAsync(
+                            patientLanguage,
+                            direction,
+                            force = true,
+                            generation = generation
+                        )
+                    }
                 }
             }
         }
 
-        translateLocalPcmWithPreparedRealtime(direction, patientLanguage, pcm, durationSeconds, timing)?.let { return it }
+        translateLocalPcmWithPreparedRealtime(
+            direction,
+            patientLanguage,
+            pcm,
+            durationSeconds,
+            timing,
+            generation
+        )?.let { return it }
 
         val wav = pcm16ToWav(pcm, RealtimePcmSampleRate, 1)
         appendLog("Local voice upload (${wav.size} bytes)")
@@ -3415,7 +3579,8 @@ class MainActivity : ComponentActivity() {
         patientLanguage: String,
         pcm: ByteArray,
         durationSeconds: Int,
-        timing: RealtimeTurnTiming = DefaultRealtimeTurnTiming
+        timing: RealtimeTurnTiming = DefaultRealtimeTurnTiming,
+        generation: Long = currentLocalRealtimeGeneration()
     ): JSONObject? {
         val key = localRealtimeKey(patientLanguage, direction)
         val realtime = synchronized(localRealtimeLock) { localRealtimeTurnClients[key] }
@@ -3451,11 +3616,14 @@ class MainActivity : ComponentActivity() {
             )
         }.onFailure {
             appendLog("Local buffered Realtime failed, falling back to upload: ${it.message}")
-            synchronized(localRealtimeLock) {
-                localRealtimeTurnClients.remove(key)
-            }?.close()
-            updateLocalRealtimeReadyState(patientLanguage)
-            prepareLocalRealtimeTurnClientAsync(patientLanguage, direction, force = true)
+            if (markLocalRealtimeDirectionFailed(patientLanguage, direction, generation)) {
+                prepareLocalRealtimeTurnClientAsync(
+                    patientLanguage,
+                    direction,
+                    force = true,
+                    generation = generation
+                )
+            }
         }.getOrNull()
     }
 
@@ -4089,7 +4257,11 @@ private fun isSupportedHardwareKey(event: KeyEvent): Boolean {
 }
 
 private fun isExternalHardwareInput(event: KeyEvent): Boolean {
-    return InputDevice.getDevice(event.deviceId)?.isExternal == true
+    val device = InputDevice.getDevice(event.deviceId) ?: return false
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return device.isExternal
+
+    val externalSources = InputDevice.SOURCE_KEYBOARD or InputDevice.SOURCE_GAMEPAD or InputDevice.SOURCE_JOYSTICK
+    return event.deviceId > 0 && device.sources and externalSources != 0
 }
 
 private fun canStaffStartTurn(status: String): Boolean {
@@ -5437,7 +5609,7 @@ private fun LocalInterpreterMicButton(
         }
         if (realtimeConnecting) {
             Text(
-                "연결 중...",
+                if (micEnabled) "누르면 시작" else "연결 중...",
                 color = Trust,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.bodySmall,
