@@ -228,7 +228,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.25"
+private const val AppDisplayVersion = "0.3.27"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -261,8 +261,14 @@ private const val StaffModeIdleTimeoutMs = 15 * 60 * 1000L
 private const val StaffModeIdleCheckMs = 30 * 1000L
 private const val LocalRealtimeUserWaitTimeoutMs = 7_000L
 private const val FootpadDuplicateWindowMs = 450L
-private const val LocalValidationTimeoutMs = 900L
+private const val LocalValidationTimeoutMs = 5_000L
 private const val LocalValidationMaxSourceChars = 18
+private const val HybridTranslationModeOff = "off"
+private const val HybridTranslationModeShadow = "shadow"
+private const val HybridTranslationModeLowRiskMain = "low_risk_main"
+private const val HybridTranslationDecisionWaitMs = 350L
+private const val HybridTranslationOutputQuietMs = 180L
+private const val HybridTranslationPolicyRefreshMs = 30_000L
 private const val LocalValidationMaxTranslatedChars = 36
 private const val LocalValidationMaxSourceWords = 3
 private const val LocalSummaryMaxTurns = 80
@@ -503,6 +509,14 @@ private data class RealtimeTurnResult(
     val sourceTranscriptComplete: Boolean,
     val audioPlayed: Boolean = false,
     val instantTemplateId: String? = null
+)
+
+private data class LocalTranslationValidation(
+    val checked: Boolean = false,
+    val ok: Boolean = true,
+    val repaired: Boolean = false,
+    val correctedTranslation: String = "",
+    val reason: String = ""
 )
 
 private data class RealtimeTurnTiming(
@@ -1232,6 +1246,18 @@ class MainActivity : ComponentActivity() {
     private val localRealtimeTurnClients = mutableMapOf<String, AndroidRealtimeTurnClient>()
     private val localRealtimePreparingKeys = mutableSetOf<String>()
     private val localRealtimeFailedKeys = mutableSetOf<String>()
+    private val localHybridTranslationClients = mutableMapOf<String, AndroidRealtimeTranslationClient>()
+    private val localHybridTranslationPreparingKeys = mutableSetOf<String>()
+    private val localHybridTranslationFailedKeys = mutableSetOf<String>()
+    @Volatile
+    private var activeHybridTranslationClient: AndroidRealtimeTranslationClient? = null
+    @Volatile
+    private var hybridTranslationTurnActive = false
+    @Volatile
+    private var localHybridTranslationMode = HybridTranslationModeOff
+    private var localHybridPolicyInFlight = false
+    private var localHybridPolicyGeneration = -1L
+    private var localHybridPolicyPatientLanguage = ""
     private var localRealtimeGeneration = 0L
     private var localRealtimeAvailableGeneration = -1L
     private var localRealtimeWatchdogGeneration = -1L
@@ -1253,6 +1279,8 @@ class MainActivity : ComponentActivity() {
     private var modeIdleReturnInProgress = false
     private val realtimeExecutor: ExecutorService = Executors.newFixedThreadPool(2)
     private val pollExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val hybridTranslationExecutor: ExecutorService = Executors.newFixedThreadPool(2)
+    private val hybridPolicyExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val messageExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var messageCursor: String? = null
     private var messagePollingInitialized = false
@@ -1384,6 +1412,8 @@ class MainActivity : ComponentActivity() {
             recordingActive = false
             realtimeTurnActive = false
             runCatching { recordingThread?.join(RecordingStopJoinMs) }
+            hybridTranslationTurnActive = false
+            activeHybridTranslationClient = null
             synchronized(recordingLock) {
                 recordedPcm = null
             }
@@ -1423,6 +1453,8 @@ class MainActivity : ComponentActivity() {
         textToSpeech = null
         realtimeExecutor.shutdownNow()
         pollExecutor.shutdownNow()
+        hybridTranslationExecutor.shutdownNow()
+        hybridPolicyExecutor.shutdownNow()
         messageExecutor.shutdownNow()
         sessionExecutor.shutdownNow()
         executor.shutdownNow()
@@ -2146,6 +2178,7 @@ class MainActivity : ComponentActivity() {
         prepareLocalRealtimeTurnClientsAsync(state.selectedLanguage, force = true)
         warmLocalVoiceTurnsAsync(state.selectedLanguage)
         appendLog("${localModeDisplayName(state.selectedRoomMode)} 시작: ${state.selectedLanguage}")
+        scheduleLocalHybridPolicyRefresh(state.selectedLanguage, currentLocalRealtimeGeneration(), 0L)
     }
 
     private fun exitLocalInterpreter() {
@@ -2311,20 +2344,33 @@ class MainActivity : ComponentActivity() {
 
     private fun closeLocalRealtimeTurnClients() {
         val clients = synchronized(localRealtimeLock) {
-            val values = localRealtimeTurnClients.values.toList()
+            val realtimeValues = localRealtimeTurnClients.values.toList()
+            val hybridValues = localHybridTranslationClients.values.toList()
             localRealtimeGeneration += 1
             localRealtimeAvailableGeneration = -1L
             localRealtimeWatchdogGeneration = -1L
             localRealtimeTurnClients.clear()
             localRealtimePreparingKeys.clear()
             localRealtimeFailedKeys.clear()
-            values
+            localHybridTranslationClients.clear()
+            localHybridTranslationPreparingKeys.clear()
+            localHybridTranslationFailedKeys.clear()
+            localHybridTranslationMode = HybridTranslationModeOff
+            localHybridPolicyInFlight = false
+            localHybridPolicyGeneration = -1L
+            localHybridPolicyPatientLanguage = ""
+            Pair(realtimeValues, hybridValues)
         }
-        clients.forEach { client ->
+        clients.first.forEach { client ->
             if (activeRealtimeTurnClient === client) activeRealtimeTurnClient = null
             runCatching { client.close() }
         }
+        clients.second.forEach { client ->
+            if (activeHybridTranslationClient === client) activeHybridTranslationClient = null
+            runCatching { client.close() }
+        }
         realtimeTurnActive = false
+        hybridTranslationTurnActive = false
         updateState { it.copy(localRealtimeReady = false) }
     }
 
@@ -2487,6 +2533,7 @@ class MainActivity : ComponentActivity() {
             !state.speaking
         ) {
             prepareLocalRealtimeTurnClientsAsync(state.selectedLanguage)
+            scheduleLocalHybridPolicyRefresh(state.selectedLanguage, currentLocalRealtimeGeneration(), 0L)
         }
     }
 
@@ -2494,6 +2541,247 @@ class MainActivity : ComponentActivity() {
         return "local:$patientLanguage:$direction"
     }
 
+    private fun localHybridTranslationKey(patientLanguage: String, direction: String): String {
+        return "hybrid:$patientLanguage:$direction"
+    }
+
+    private fun isLocalHybridContextCurrent(patientLanguage: String, generation: Long): Boolean {
+        val state = uiState.value
+        return isCurrentLocalRealtimeGeneration(generation) &&
+            state.setupStep == SetupStepLocalInterpreter &&
+            state.room == null &&
+            state.selectedLanguage == patientLanguage
+    }
+
+    private fun scheduleLocalHybridPolicyRefresh(
+        patientLanguage: String,
+        generation: Long = currentLocalRealtimeGeneration(),
+        delayMs: Long = HybridTranslationPolicyRefreshMs
+    ) {
+        mainHandler.postDelayed({
+            if (!isLocalHybridContextCurrent(patientLanguage, generation)) return@postDelayed
+            val shouldRequest = synchronized(localRealtimeLock) {
+                if (
+                    generation != localRealtimeGeneration ||
+                    localHybridPolicyInFlight
+                ) {
+                    false
+                } else {
+                    localHybridPolicyInFlight = true
+                    localHybridPolicyGeneration = generation
+                    localHybridPolicyPatientLanguage = patientLanguage
+                    true
+                }
+            }
+            if (!shouldRequest) return@postDelayed
+
+            val task = Runnable {
+                var refreshAfterMs = HybridTranslationPolicyRefreshMs
+                runCatching {
+                    val backend = normalizedBackendUrl(uiState.value.backendUrl)
+                    val encodedLanguage = URLEncoder.encode(patientLanguage, "UTF-8")
+                    getJson("$backend/api/realtime/local-translation-policy?patientLanguage=$encodedLanguage")
+                }.onSuccess { data ->
+                    val policy = data.optJSONObject("policy") ?: JSONObject()
+                    val requestedMode = policy.optString("mode", HybridTranslationModeOff)
+                    val mode = when (requestedMode) {
+                        HybridTranslationModeShadow -> HybridTranslationModeShadow
+                        HybridTranslationModeLowRiskMain -> HybridTranslationModeLowRiskMain
+                        else -> HybridTranslationModeOff
+                    }
+                    refreshAfterMs = policy.optLong(
+                        "refreshAfterMs",
+                        HybridTranslationPolicyRefreshMs
+                    ).coerceIn(5_000L, 120_000L)
+                    val accepted = synchronized(localRealtimeLock) {
+                        if (
+                            generation != localRealtimeGeneration ||
+                            localHybridPolicyGeneration != generation ||
+                            localHybridPolicyPatientLanguage != patientLanguage
+                        ) {
+                            false
+                        } else {
+                            localHybridPolicyInFlight = false
+                            localHybridTranslationMode = mode
+                            true
+                        }
+                    }
+                    if (accepted && isLocalHybridContextCurrent(patientLanguage, generation)) {
+                        appendLog("Hybrid translation policy: $mode")
+                        if (mode == HybridTranslationModeOff) {
+                            closeLocalHybridTranslationClientsForPolicy(generation)
+                        } else {
+                            prepareLocalHybridTranslationClientsAsync(patientLanguage, generation)
+                        }
+                    }
+                }.onFailure { caught ->
+                    synchronized(localRealtimeLock) {
+                        if (localHybridPolicyGeneration == generation) {
+                            localHybridPolicyInFlight = false
+                        }
+                    }
+                    appendLog("Hybrid translation policy failed: ${caught.message}")
+                }
+
+                if (isLocalHybridContextCurrent(patientLanguage, generation)) {
+                    scheduleLocalHybridPolicyRefresh(patientLanguage, generation, refreshAfterMs)
+                }
+            }
+            runCatching { hybridPolicyExecutor.execute(task) }.onFailure { caught ->
+                synchronized(localRealtimeLock) {
+                    if (localHybridPolicyGeneration == generation) {
+                        localHybridPolicyInFlight = false
+                    }
+                }
+                appendLog("Hybrid translation policy queue failed: ${caught.message}")
+            }
+        }, delayMs)
+    }
+
+    private fun closeLocalHybridTranslationClientsForPolicy(generation: Long) {
+        val clients = synchronized(localRealtimeLock) {
+            if (generation != localRealtimeGeneration) {
+                emptyList()
+            } else {
+                val values = localHybridTranslationClients.values.toList()
+                localHybridTranslationClients.clear()
+                localHybridTranslationPreparingKeys.clear()
+                localHybridTranslationFailedKeys.clear()
+                activeHybridTranslationClient = null
+                hybridTranslationTurnActive = false
+                values
+            }
+        }
+        clients.forEach { client -> runCatching { client.close() } }
+    }
+
+    private fun requestLocalHybridTranslationToken(
+        patientLanguage: String,
+        direction: String
+    ): AndroidRealtimeTranslationToken? {
+        val backend = normalizedBackendUrl(uiState.value.backendUrl)
+        val payload = JSONObject()
+            .put("patientLanguage", patientLanguage)
+            .put("direction", direction)
+            .toString()
+        val startedAt = SystemClock.elapsedRealtime()
+        val data = postJson("$backend/api/realtime/local-translation-session-token", payload)
+        val policy = data.optJSONObject("policy") ?: JSONObject()
+        val mode = policy.optString("mode", HybridTranslationModeOff)
+        if (mode == HybridTranslationModeOff || data.isNull("token")) return null
+        val token = data.getJSONObject("token")
+        val value = token.optString("value").ifBlank {
+            error("Realtime Translate token response was missing a client secret")
+        }
+        appendLog("Hybrid translation token ${SystemClock.elapsedRealtime() - startedAt}ms")
+        return AndroidRealtimeTranslationToken(
+            value = value,
+            model = token.optString("realtimeModel", "gpt-realtime-translate")
+                .ifBlank { "gpt-realtime-translate" },
+            mode = mode
+        )
+    }
+
+    private fun prepareLocalHybridTranslationClientsAsync(
+        patientLanguage: String,
+        generation: Long = currentLocalRealtimeGeneration()
+    ) {
+        prepareLocalHybridTranslationClientAsync(patientLanguage, LocalDirectionKoToPatient, generation)
+        prepareLocalHybridTranslationClientAsync(patientLanguage, LocalDirectionPatientToKo, generation)
+    }
+
+    private fun prepareLocalHybridTranslationClientAsync(
+        patientLanguage: String,
+        direction: String,
+        generation: Long = currentLocalRealtimeGeneration()
+    ) {
+        if (recordingActive || hybridTranslationTurnActive) return
+        val key = localHybridTranslationKey(patientLanguage, direction)
+        val shouldPrepare = synchronized(localRealtimeLock) {
+            val current = localHybridTranslationClients[key]
+            when {
+                generation != localRealtimeGeneration -> false
+                localHybridTranslationMode == HybridTranslationModeOff -> false
+                current?.isReady() == true -> false
+                localHybridTranslationPreparingKeys.contains(key) -> false
+                else -> {
+                    localHybridTranslationFailedKeys.remove(key)
+                    localHybridTranslationPreparingKeys.add(key)
+                    true
+                }
+            }
+        }
+        if (!shouldPrepare) return
+
+        val task = Runnable {
+            var connectingClient: AndroidRealtimeTranslationClient? = null
+            runCatching<AndroidRealtimeTranslationClient?> {
+                val token = requestLocalHybridTranslationToken(patientLanguage, direction)
+                    ?: return@runCatching null
+                if (!isLocalHybridContextCurrent(patientLanguage, generation)) return@runCatching null
+                val client = AndroidRealtimeTranslationClient(http, token, ::appendLog)
+                connectingClient = client
+                client.connect()
+                client
+            }.onSuccess { client ->
+                if (client == null) {
+                    synchronized(localRealtimeLock) {
+                        if (generation == localRealtimeGeneration) {
+                            localHybridTranslationPreparingKeys.remove(key)
+                        }
+                    }
+                    return@onSuccess
+                }
+                var accepted = false
+                val previous = synchronized(localRealtimeLock) {
+                    if (
+                        generation == localRealtimeGeneration &&
+                        localHybridTranslationMode != HybridTranslationModeOff &&
+                        isLocalHybridContextCurrent(patientLanguage, generation)
+                    ) {
+                        accepted = true
+                        val old = localHybridTranslationClients[key]
+                        localHybridTranslationClients[key] = client
+                        localHybridTranslationPreparingKeys.remove(key)
+                        localHybridTranslationFailedKeys.remove(key)
+                        old
+                    } else {
+                        null
+                    }
+                }
+                if (accepted) {
+                    if (previous !== activeHybridTranslationClient) runCatching { previous?.close() }
+                    appendLog("Hybrid translation ready: $direction")
+                } else {
+                    client.close()
+                    synchronized(localRealtimeLock) {
+                        if (generation == localRealtimeGeneration) {
+                            localHybridTranslationPreparingKeys.remove(key)
+                        }
+                    }
+                }
+            }.onFailure { caught ->
+                runCatching { connectingClient?.close() }
+                synchronized(localRealtimeLock) {
+                    if (generation == localRealtimeGeneration) {
+                        localHybridTranslationPreparingKeys.remove(key)
+
+                        localHybridTranslationFailedKeys.add(key)
+                    }
+                }
+                appendLog("Hybrid translation prepare failed: ${caught.message}")
+            }
+        }
+        runCatching { hybridTranslationExecutor.execute(task) }.onFailure { caught ->
+            synchronized(localRealtimeLock) {
+                if (generation == localRealtimeGeneration) {
+                    localHybridTranslationPreparingKeys.remove(key)
+                    localHybridTranslationFailedKeys.add(key)
+                }
+            }
+            appendLog("Hybrid translation queue failed: ${caught.message}")
+        }
+    }
     private fun closeTranslationRealtimeClient() {
         runCatching { translationRealtimeClient?.close() }
         translationRealtimeClient = null
@@ -2801,6 +3089,7 @@ class MainActivity : ComponentActivity() {
             )
         }
         realtimeTurnActive = tryStartPreparedLocalRealtimeTurn(state.selectedLanguage, normalizedDirection)
+        hybridTranslationTurnActive = tryStartPreparedLocalHybridTranslationTurn(state.selectedLanguage, normalizedDirection)
         val recordingStatus = if (realtimeTurnActive) {
             "Realtime 연결됨. 말이 끝나면 자동 번역합니다."
         } else {
@@ -3108,6 +3397,59 @@ class MainActivity : ComponentActivity() {
         }.getOrDefault(false)
     }
 
+    private fun markLocalHybridTranslationDirectionFailed(
+        patientLanguage: String,
+        direction: String,
+        generation: Long
+    ) {
+        val key = localHybridTranslationKey(patientLanguage, direction)
+        val client = synchronized(localRealtimeLock) {
+            if (generation != localRealtimeGeneration) {
+                null
+            } else {
+                localHybridTranslationPreparingKeys.remove(key)
+                localHybridTranslationFailedKeys.add(key)
+                localHybridTranslationClients.remove(key)
+            }
+        }
+        if (activeHybridTranslationClient === client) activeHybridTranslationClient = null
+        hybridTranslationTurnActive = false
+        runCatching { client?.close() }
+    }
+
+    private fun tryStartPreparedLocalHybridTranslationTurn(
+        patientLanguage: String,
+        direction: String
+    ): Boolean {
+        val generation = currentLocalRealtimeGeneration()
+        val mode = synchronized(localRealtimeLock) { localHybridTranslationMode }
+        if (mode == HybridTranslationModeOff) return false
+
+        val key = localHybridTranslationKey(patientLanguage, direction)
+        val client = synchronized(localRealtimeLock) { localHybridTranslationClients[key] }
+        if (client == null || !client.isReady()) {
+            prepareLocalHybridTranslationClientAsync(patientLanguage, direction, generation)
+            appendLog("Hybrid translation not ready; primary path unchanged")
+            return false
+        }
+
+        return runCatching {
+            client.startTurn()
+            activeHybridTranslationClient = client
+            appendLog("Hybrid translation turn started: $direction ($mode)")
+            true
+        }.onFailure { caught ->
+            appendLog("Hybrid translation start failed: ${caught.message}")
+            activeHybridTranslationClient = null
+            markLocalHybridTranslationDirectionFailed(
+                patientLanguage,
+                direction,
+                generation
+            )
+            prepareLocalHybridTranslationClientAsync(patientLanguage, direction, generation)
+        }.getOrDefault(false)
+    }
+
     @SuppressLint("MissingPermission")
     private fun startStaffRecording(statusOverride: String? = null) {
         if (recordingActive) return
@@ -3185,6 +3527,9 @@ class MainActivity : ComponentActivity() {
                     if (realtimeTurnActive) {
                         activeRealtimeTurnClient?.appendPcm(byteBuffer, count * 2)
                     }
+                    if (hybridTranslationTurnActive) {
+                        activeHybridTranslationClient?.appendPcm(byteBuffer, count * 2)
+                    }
 
                     if (
                         voiceMs >= StaffAutoStopMinVoiceMs &&
@@ -3207,6 +3552,8 @@ class MainActivity : ComponentActivity() {
                 recordingActive = false
                 realtimeTurnActive = false
                 activeRealtimeTurnClient = null
+                hybridTranslationTurnActive = false
+                activeHybridTranslationClient = null
                 recoverRoomToReady("마이크 녹음 실패")
                 val message = userFacingError(caught)
                 updateState { it.copy(speaking = false, busy = false, status = "마이크 녹음 실패: $message") }
@@ -3299,34 +3646,36 @@ class MainActivity : ComponentActivity() {
                 val sourceLanguage = result.optString("sourceLanguage")
                 val targetLanguage = result.optString("targetLanguage")
                 val sourceTranscriptComplete = result.optBoolean("sourceTranscriptComplete", true)
-                val isInstantTemplate = result.optString("model") == "instant-template"
+                val initialModel = result.optString("model")
+                val isInstantTemplate = initialModel == "instant-template"
+                val hybridLowRiskSelected = initialModel == "realtime-translate-low-risk"
+                val hybridObservation = result.optJSONObject("hybridObservation")
                 val experimentalMode = isExperimentalLocalInterpreterMode(snapshot.selectedRoomMode)
-                val experimentalBadge = if (experimentalMode) {
-                    result.optString("experimentalResultBadge").ifBlank { if (isInstantTemplate) "템플릿" else "Realtime" }
-                } else {
-                    ""
-                }
-                val experimentalEngineStatus = if (experimentalMode) {
-                    result.optString("experimentalEngineStatus").ifBlank { if (isInstantTemplate) "템플릿 즉시" else "Realtime 처리" }
-                } else {
-                    ""
-                }
                 val source = if (sourceLanguage == "ko") {
                     normalizeKoreanSourceText(result.optString("sourceText"))
                 } else {
                     result.optString("sourceText").trim()
                 }
-                val translated = normalizeClinicText(result.optString("translatedText"), targetLanguage)
+                var translated = normalizeClinicText(result.optString("translatedText"), targetLanguage)
                 val realtimeAudioPlayed = result.optBoolean("audioPlayed", false)
                 val speaker = if (direction == LocalDirectionKoToPatient) "staff" else "patient"
-                val summaryTurn = if (experimentalMode) {
-                    localConversationTurnForSummary(direction, source, translated)
-                } else {
-                    null
-                }
                 prepareLocalRealtimeTurnClientsAsync(patientLanguage)
 
-                if (!isInstantTemplate && sourceTranscriptComplete && localTranslationNeedsRetry(direction, patientLanguage, source, translated)) {
+                val validationRequired = !isInstantTemplate &&
+                    !hybridLowRiskSelected &&
+                    sourceTranscriptComplete &&
+                    shouldValidateLocalTranslation(source, translated)
+                val validation = if (validationRequired) {
+                    validateLocalTranslation(direction, patientLanguage, source, translated)
+                } else {
+                    LocalTranslationValidation()
+                }
+                if (validation.repaired && validation.correctedTranslation.isNotBlank()) {
+                    translated = normalizeClinicText(validation.correctedTranslation, targetLanguage)
+                    appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 의미 불일치 자동 교정")
+                }
+
+                if (validation.checked && !validation.ok && !validation.repaired) {
                     val retryKorean = localRetryPromptKorean()
                     val retryPatient = localRetryPromptForPatientLanguage(patientLanguage)
                     updateState {
@@ -3344,6 +3693,48 @@ class MainActivity : ComponentActivity() {
                     }
                     appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 의미 불일치: 다시 말하기 요청")
                     return@runCatching
+                }
+
+                val finalModel = if (validation.repaired) "realtime-local-repair" else initialModel
+                if (
+                    initialModel == "realtime-local" || initialModel == "instant-template" || hybridLowRiskSelected
+                ) {
+                    recordLocalInterpreterUsageAsync(
+                        direction = direction,
+                        patientLanguage = patientLanguage,
+                        transport = "realtime",
+                        durationSeconds = durationSeconds,
+                        sourceText = source,
+                        translatedText = translated,
+                        sourceTranscriptComplete = sourceTranscriptComplete,
+                        recordSample = !validationRequired || validation.checked,
+                        model = finalModel,
+                        hybridObservation = hybridObservation
+                    )
+                }
+
+                val experimentalBadge = if (experimentalMode) {
+                    if (validation.repaired) {
+                        "교정됨"
+                    } else {
+                        result.optString("experimentalResultBadge").ifBlank { if (isInstantTemplate) "템플릿" else "Realtime" }
+                    }
+                } else {
+                    ""
+                }
+                val experimentalEngineStatus = if (experimentalMode) {
+                    if (validation.repaired) {
+                        "검증 후 자동 교정"
+                    } else {
+                        result.optString("experimentalEngineStatus").ifBlank { if (isInstantTemplate) "템플릿 즉시" else "Realtime 처리" }
+                    }
+                } else {
+                    ""
+                }
+                val summaryTurn = if (experimentalMode) {
+                    localConversationTurnForSummary(direction, source, translated)
+                } else {
+                    null
                 }
 
                 updateState {
@@ -3366,7 +3757,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                if (!realtimeAudioPlayed) {
+                if (!realtimeAudioPlayed || validation.repaired) {
                     val ttsDelayMs = SystemClock.elapsedRealtime() - translationCompleteAt
                     appendLog("TTS start ${ttsDelayMs}ms after ${localModeDisplayName(snapshot.selectedRoomMode)} translation")
                     if (direction == LocalDirectionKoToPatient) {
@@ -3406,13 +3797,13 @@ class MainActivity : ComponentActivity() {
         return rms >= StaffAutoStopSpeechRms || peak >= StaffAutoStopSpeechPeak
     }
 
-    private fun localTranslationNeedsRetry(
+    private fun validateLocalTranslation(
         direction: String,
         patientLanguage: String,
         sourceText: String,
         translatedText: String
-    ): Boolean {
-        if (!shouldValidateLocalTranslation(sourceText, translatedText)) return false
+    ): LocalTranslationValidation {
+        if (!shouldValidateLocalTranslation(sourceText, translatedText)) return LocalTranslationValidation()
 
         return runCatching {
             val backend = normalizedBackendUrl(uiState.value.backendUrl)
@@ -3425,11 +3816,23 @@ class MainActivity : ComponentActivity() {
             val data = postJsonWithTimeout("$backend/api/local-voice-turns/validate", payload, LocalValidationTimeoutMs)
             val checked = data.optBoolean("checked", false)
             val ok = data.optBoolean("ok", true)
-            if (checked) appendLog("Local consistency ${if (ok) "ok" else "retry"}: ${data.optString("reason")}")
-            checked && !ok
+            val repaired = data.optBoolean("repaired", false)
+            val correctedTranslation = data.optString("correctedTranslation").trim()
+            val reason = data.optString("reason")
+            if (checked) {
+                val result = if (ok) "ok" else if (repaired) "repaired" else "unresolved"
+                appendLog("Local consistency $result: $reason")
+            }
+            LocalTranslationValidation(
+                checked = checked,
+                ok = ok,
+                repaired = repaired && correctedTranslation.isNotBlank(),
+                correctedTranslation = correctedTranslation,
+                reason = reason
+            )
         }.onFailure {
             appendLog("Local consistency skipped: ${it.message}")
-        }.getOrDefault(false)
+        }.getOrDefault(LocalTranslationValidation())
     }
 
     private fun shouldValidateLocalTranslation(sourceText: String, translatedText: String): Boolean {
@@ -3508,46 +3911,132 @@ class MainActivity : ComponentActivity() {
         generation: Long = currentLocalRealtimeGeneration()
     ): JSONObject {
         val timing = if (experimentalFastTurn) ExperimentalRealtimeTurnTiming else DefaultRealtimeTurnTiming
+        val realtimeKey = localRealtimeKey(patientLanguage, direction)
+        val hybridKey = localHybridTranslationKey(patientLanguage, direction)
         val realtimeWasActive = realtimeTurnActive
+        val hybridWasActive = hybridTranslationTurnActive
         realtimeTurnActive = false
+        hybridTranslationTurnActive = false
 
-        if (realtimeWasActive) {
-            val key = localRealtimeKey(patientLanguage, direction)
-            val realtime = activeRealtimeTurnClient ?: synchronized(localRealtimeLock) { localRealtimeTurnClients[key] }
-            activeRealtimeTurnClient = null
-            if (realtime != null) {
-                runCatching {
+        val realtime = if (realtimeWasActive) {
+            activeRealtimeTurnClient ?: synchronized(localRealtimeLock) { localRealtimeTurnClients[realtimeKey] }
+        } else {
+            null
+        }
+        val hybridClient = if (hybridWasActive) {
+            activeHybridTranslationClient ?: synchronized(localRealtimeLock) {
+                localHybridTranslationClients[hybridKey]
+            }
+        } else {
+            null
+        }
+        activeRealtimeTurnClient = null
+        activeHybridTranslationClient = null
+
+        val primaryFuture = if (realtime != null) {
+            runCatching {
+                hybridTranslationExecutor.submit<RealtimeTurnResult> {
                     val startedAt = SystemClock.elapsedRealtime()
-                    val result = realtime.stopTurnAndTranslate(
+                    realtime.stopTurnAndTranslate(
                         timing = timing,
                         instantTemplateResolver = instantTemplateResolverFor(direction, patientLanguage)
-                    )
-                    appendLog("Local Realtime translation complete ${SystemClock.elapsedRealtime() - startedAt}ms")
-                    val currentForDirection = synchronized(localRealtimeLock) { localRealtimeTurnClients[key] }
-                    if (currentForDirection !== realtime) {
-                        runCatching { realtime.close() }
+                    ).also {
+                        appendLog(
+                            "Local Realtime translation complete " +
+                                "${SystemClock.elapsedRealtime() - startedAt}ms"
+                        )
                     }
-                    recordLocalInterpreterUsageAsync(
-                        direction = direction,
-                        patientLanguage = patientLanguage,
-                        transport = "realtime",
-                        durationSeconds = durationSeconds,
-                        sourceText = result.sourceText,
-                        translatedText = result.translatedText,
-                        sourceTranscriptComplete = result.sourceTranscriptComplete,
-                        model = if (result.instantTemplateId == null) "realtime-local" else "instant-template"
-                    )
-                    return localRealtimeVoiceTurn(
-                        direction,
-                        patientLanguage,
-                        result.sourceText,
-                        result.translatedText,
-                        result.sourceTranscriptComplete,
-                        result.audioPlayed,
-                        result.instantTemplateId
-                    )
-                }.onFailure {
-                    appendLog("Local Realtime failed, falling back to upload: ${it.message}")
+                }
+            }.onFailure { caught ->
+                appendLog("Local Realtime completion queue failed: ${caught.message}")
+            }.getOrNull()
+        } else {
+            null
+        }
+
+        var hybridFailure: Throwable? = null
+        val hybridResult = if (hybridClient != null) {
+            runCatching {
+                hybridClient.finishTurn(
+                    maxWaitMs = HybridTranslationDecisionWaitMs,
+                    quietMs = HybridTranslationOutputQuietMs
+                )
+            }.onFailure { caught ->
+                hybridFailure = caught
+                appendLog("Hybrid translation turn failed: ${caught.message}")
+                markLocalHybridTranslationDirectionFailed(
+                    patientLanguage,
+                    direction,
+                    generation
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+        if (
+            hybridResult != null &&
+            (!hybridResult.sourceTranscriptComplete || !hybridResult.outputTranscriptComplete)
+        ) {
+            appendLog("Hybrid translation session retired after incomplete turn")
+            markLocalHybridTranslationDirectionFailed(patientLanguage, direction, generation)
+            prepareLocalHybridTranslationClientAsync(patientLanguage, direction, generation)
+        }
+        val hybridMode = synchronized(localRealtimeLock) { localHybridTranslationMode }
+        val riskDecision = hybridResult?.let {
+            classifyHybridTranslationRisk(
+                sourceText = it.sourceText,
+                translatedText = it.translatedText,
+                sourceTranscriptComplete = it.sourceTranscriptComplete
+            )
+        }
+        val selectHybrid = hybridMode == HybridTranslationModeLowRiskMain &&
+            hybridResult?.settled == true &&
+            hybridResult.outputTranscriptComplete &&
+            hybridResult.sourceTranscriptComplete &&
+            hybridResult.sourceText.isNotBlank() &&
+            hybridResult.translatedText.isNotBlank() &&
+            riskDecision?.lowRisk == true
+        val hybridObservation = hybridTranslationObservation(
+            mode = hybridMode,
+            result = hybridResult,
+            riskDecision = riskDecision,
+            selected = selectHybrid,
+            error = hybridFailure?.message
+        )
+
+        if (selectHybrid && hybridResult != null) {
+            appendLog("Hybrid low-risk result selected in ${hybridResult.completedMs}ms")
+            if (realtime != null && primaryFuture != null) {
+                synchronized(localRealtimeLock) {
+                    if (localRealtimeTurnClients[realtimeKey] === realtime) {
+                        localRealtimeTurnClients.remove(realtimeKey)
+                    }
+                }
+                val cleanupTask = Runnable {
+                    runCatching { primaryFuture.get() }
+                        .onSuccess { appendLog("Hybrid comparison primary completed") }
+                        .onFailure { appendLog("Hybrid comparison primary failed: ${it.message}") }
+                    runCatching { realtime.close() }
+                }
+                runCatching { hybridTranslationExecutor.execute(cleanupTask) }
+                    .onFailure { runCatching { realtime.close() } }
+            }
+            return localRealtimeVoiceTurn(
+                direction = direction,
+                patientLanguage = patientLanguage,
+                sourceText = hybridResult.sourceText,
+                translatedText = hybridResult.translatedText,
+                sourceTranscriptComplete = true,
+                audioPlayed = false,
+                modelOverride = "realtime-translate-low-risk",
+                hybridObservation = hybridObservation
+            )
+        }
+
+        if (primaryFuture != null && realtime != null) {
+            val result = runCatching { primaryFuture.get() }
+                .onFailure { caught ->
+                    appendLog("Local Realtime failed, falling back to upload: ${caught.message}")
                     if (markLocalRealtimeDirectionFailed(patientLanguage, direction, generation)) {
                         prepareLocalRealtimeTurnClientAsync(
                             patientLanguage,
@@ -3557,6 +4046,22 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+                .getOrNull()
+            if (result != null) {
+                val currentForDirection = synchronized(localRealtimeLock) {
+                    localRealtimeTurnClients[realtimeKey]
+                }
+                if (currentForDirection !== realtime) runCatching { realtime.close() }
+                return localRealtimeVoiceTurn(
+                    direction = direction,
+                    patientLanguage = patientLanguage,
+                    sourceText = result.sourceText,
+                    translatedText = result.translatedText,
+                    sourceTranscriptComplete = result.sourceTranscriptComplete,
+                    audioPlayed = result.audioPlayed,
+                    instantTemplateId = result.instantTemplateId,
+                    hybridObservation = hybridObservation
+                )
             }
         }
 
@@ -3566,12 +4071,39 @@ class MainActivity : ComponentActivity() {
             pcm,
             durationSeconds,
             timing,
-            generation
+            generation,
+            hybridObservation
         )?.let { return it }
 
         val wav = pcm16ToWav(pcm, RealtimePcmSampleRate, 1)
         appendLog("Local voice upload (${wav.size} bytes)")
-        return uploadLocalVoiceTurn(direction, patientLanguage, wav, durationSeconds)
+        return uploadLocalVoiceTurn(direction, patientLanguage, wav, durationSeconds).also { result ->
+            if (hybridObservation != null) result.put("hybridObservation", hybridObservation)
+        }
+    }
+
+    private fun hybridTranslationObservation(
+        mode: String,
+        result: AndroidRealtimeTranslationTurnResult?,
+        riskDecision: HybridTranslationRiskDecision?,
+        selected: Boolean,
+        error: String?
+    ): JSONObject? {
+        if (mode == HybridTranslationModeOff && result == null && error.isNullOrBlank()) return null
+        return JSONObject()
+            .put("mode", mode)
+            .put("available", result != null)
+            .put("selected", selected)
+            .put("settled", result?.settled ?: false)
+            .put("sourceTranscriptComplete", result?.sourceTranscriptComplete ?: false)
+            .put("outputTranscriptComplete", result?.outputTranscriptComplete ?: false)
+            .put("firstOutputMs", result?.firstOutputMs ?: JSONObject.NULL)
+            .put("completedMs", result?.completedMs ?: JSONObject.NULL)
+            .put("sourceText", result?.sourceText.orEmpty())
+            .put("translatedText", result?.translatedText.orEmpty())
+            .put("lowRisk", riskDecision?.lowRisk ?: false)
+            .put("riskReasons", JSONArray(riskDecision?.reasons ?: emptyList<String>()))
+            .put("error", error?.take(500) ?: JSONObject.NULL)
     }
 
     private fun translateLocalPcmWithPreparedRealtime(
@@ -3580,7 +4112,8 @@ class MainActivity : ComponentActivity() {
         pcm: ByteArray,
         durationSeconds: Int,
         timing: RealtimeTurnTiming = DefaultRealtimeTurnTiming,
-        generation: Long = currentLocalRealtimeGeneration()
+        generation: Long = currentLocalRealtimeGeneration(),
+        hybridObservation: JSONObject? = null
     ): JSONObject? {
         val key = localRealtimeKey(patientLanguage, direction)
         val realtime = synchronized(localRealtimeLock) { localRealtimeTurnClients[key] }
@@ -3595,16 +4128,6 @@ class MainActivity : ComponentActivity() {
                 instantTemplateResolver = instantTemplateResolverFor(direction, patientLanguage)
             )
             appendLog("Local buffered Realtime complete ${SystemClock.elapsedRealtime() - startedAt}ms")
-            recordLocalInterpreterUsageAsync(
-                direction = direction,
-                patientLanguage = patientLanguage,
-                transport = "realtime",
-                durationSeconds = durationSeconds,
-                sourceText = result.sourceText,
-                translatedText = result.translatedText,
-                sourceTranscriptComplete = result.sourceTranscriptComplete,
-                model = if (result.instantTemplateId == null) "realtime-local" else "instant-template"
-            )
             localRealtimeVoiceTurn(
                 direction,
                 patientLanguage,
@@ -3612,7 +4135,8 @@ class MainActivity : ComponentActivity() {
                 result.translatedText,
                 result.sourceTranscriptComplete,
                 result.audioPlayed,
-                result.instantTemplateId
+                result.instantTemplateId,
+                hybridObservation = hybridObservation
             )
         }.onFailure {
             appendLog("Local buffered Realtime failed, falling back to upload: ${it.message}")
@@ -3652,10 +4176,13 @@ class MainActivity : ComponentActivity() {
         translatedText: String,
         sourceTranscriptComplete: Boolean = true,
         audioPlayed: Boolean = false,
-        instantTemplateId: String? = null
+        instantTemplateId: String? = null,
+        modelOverride: String? = null,
+        hybridObservation: JSONObject? = null
     ): JSONObject {
         val targetLanguage = if (direction == LocalDirectionKoToPatient) patientLanguage else "ko"
         val sourceLanguage = if (direction == LocalDirectionKoToPatient) "ko" else patientLanguage
+        val model = modelOverride ?: if (instantTemplateId == null) "realtime-local" else "instant-template"
         return JSONObject()
             .put("sourceText", sourceText)
             .put("translatedText", translatedText)
@@ -3664,8 +4191,11 @@ class MainActivity : ComponentActivity() {
             .put("direction", direction)
             .put("sourceTranscriptComplete", sourceTranscriptComplete)
             .put("audioPlayed", audioPlayed)
-            .put("model", if (instantTemplateId == null) "realtime-local" else "instant-template")
+            .put("model", model)
             .put("instantTemplateId", instantTemplateId ?: JSONObject.NULL)
+            .also { result ->
+                if (hybridObservation != null) result.put("hybridObservation", hybridObservation)
+            }
     }
 
     private fun recoverRoomToReady(context: String) {
@@ -3831,7 +4361,9 @@ class MainActivity : ComponentActivity() {
         sourceText: String,
         translatedText: String,
         sourceTranscriptComplete: Boolean = true,
-        model: String = ""
+        recordSample: Boolean = true,
+        model: String = "",
+        hybridObservation: JSONObject? = null
     ) {
         val backend = normalizedBackendUrl(uiState.value.backendUrl)
         val payload = JSONObject()
@@ -3844,8 +4376,12 @@ class MainActivity : ComponentActivity() {
             .put("sourceText", sourceText)
             .put("translatedText", translatedText)
             .put("sourceTranscriptComplete", sourceTranscriptComplete)
+            .put("recordSample", recordSample)
         if (model.isNotBlank()) {
             payload.put("model", model)
+        }
+        if (hybridObservation != null) {
+            payload.put("hybridObservation", hybridObservation)
         }
         val payloadText = payload.toString()
         sessionExecutor.execute {
