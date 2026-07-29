@@ -37,6 +37,21 @@ describe("clinic glossary display normalization", () => {
     expect(buildClinicTranscriptionPrompt("ko")).toContain("리투오");
   });
 
+  it("normalizes common Thermage and Ultherapy Korean transcription variants", () => {
+    expect(normalizeClinicTranslation("서머지 600샷", "ja")).toBe("サーマクール 600ショット");
+    expect(normalizeClinicTranslation("써머지 FLX 600샷", "en")).toBe("Thermage FLX 600 shots");
+    expect(normalizeClinicTranslation("웃음세라 시술", "en")).toBe("Ultherapy 시술");
+    expect(normalizeClinicTranslation("올셀라와 울셀라", "ko")).toBe("울쎄라와 울쎄라");
+  });
+
+  it("includes Thermage and Ultherapy misrecognitions in Korean transcription guidance", () => {
+    const prompt = buildClinicTranscriptionPrompt("ko");
+    expect(prompt).toContain("서머지");
+    expect(prompt).toContain("써마지");
+    expect(prompt).toContain("웃음세라");
+    expect(prompt).toContain("울쎄라");
+  });
+
   it("normalizes price-list treatment and brand names from dermatology and plastic surgery sheets", () => {
     expect(normalizeClinicTranslation("브이로어드밴스와 듀얼 프락셀", "en")).toContain("V-RO ADVANCE");
     expect(normalizeClinicTranslation("브이로어드밴스와 듀얼 프락셀", "en")).toContain("Fraxel Dual");

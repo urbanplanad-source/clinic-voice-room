@@ -294,10 +294,10 @@ const rawClinicGlossary = `
 오십유닛|50유닛,50유닛,五十单位,ごじゅうユニット,fifty units,пятьдесят единиц,năm mươi đơn vị,lima puluh unit,unit,보툴리눔 톡신 단위
 한바이알|1바이알,1바이알,一瓶,いちバイアル,one vial,один флакон,một lọ,satu vial,unit,바이알 수
 두바이알|2바이알,2바이알,两瓶,にバイアル,two vials,два флакона,hai lọ,dua vial,unit,바이알 수
-울쎄라|울세라|美版超声刀|美版超聲刀,울쎄라,Ultherapy,ウルセラ,Ultherapy,Ultherapy,Ultherapy,Ultherapy,device,장비명 의역 금지
+울쎄라|울세라|울셀라|올셀라|웃음세라|美版超声刀|美版超聲刀,울쎄라,Ultherapy,ウルセラ,Ultherapy,Ultherapy,Ultherapy,Ultherapy,device,장비명 의역 금지
 울쎄라피프라임|울쎄라 프라임|울세라피 프라임,울쎄라피 프라임,Ultherapy Prime,ウルセラピー プライム,Ultherapy Prime,Ultherapy Prime,Ultherapy Prime,Ultherapy Prime,device,장비명 의역 금지
-써마지|서마지|热玛吉|熱瑪吉|热马吉|熱馬吉|热麻吉|熱麻吉|热妈吉|惹玛吉,써마지,Thermage,サーマクール,Thermage,Thermage,Thermage,Thermage,device,장비명
-써마지에프엘엑스|써마지 FLX|서마지 FLX,써마지 FLX,Thermage FLX,サーマクールFLX,Thermage FLX,Thermage FLX,Thermage FLX,Thermage FLX,device,장비명
+써마지|서마지|서머지|써머지|热玛吉|熱瑪吉|热马吉|熱馬吉|热麻吉|熱麻吉|热妈吉|惹玛吉,써마지,Thermage,サーマクール,Thermage,Thermage,Thermage,Thermage,device,장비명
+써마지에프엘엑스|써마지 FLX|서마지 FLX|서머지 FLX|써머지 FLX,써마지 FLX,Thermage FLX,サーマクールFLX,Thermage FLX,Thermage FLX,Thermage FLX,Thermage FLX,device,장비명
 세르프|세르프리프팅|세르프 리프팅|제르프|제르프리프팅|제르프 리프팅|셀프리프팅|셀프 리프팅|셀프 시술|Self lifting|Self Lifting|Self procedure|XERF lifting|XERF lifting treatment|XERF,XERF,XERF,ザーフ,XERF,XERF,XERF,XERF,device,장비명 의역 금지
 포텐자|포텐자레이저|黄金微针|黃金微針,포텐자,Potenza 微针射频,ポテンツァ,Potenza,Potenza,Potenza,Potenza,device,장비명
 실펌|실펌엑스|Sylfirm X,실펌 X,Sylfirm X,シルファームX,Sylfirm X,Sylfirm X,Sylfirm X,Sylfirm X,device,장비명
@@ -1158,6 +1158,8 @@ export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLang
       `Prefer these Korean phrases when acoustically plausible: ${koreanHints}.`,
       "When the sound is close, prefer Rejuran as 리쥬란 and swelling as 부종, not 니주란 or 그종.",
       "When the sound is close to 리투오, 리투어, 리트오, or 알이투오 in a skinbooster context, transcribe the product name as Re2O.",
+      "When the sound is close to 서마지, 서머지, or 써머지 in a lifting-device context, transcribe the product name as 써마지; preserve FLX when spoken.",
+      "When the sound is close to 울세라, 울셀라, 올셀라, or 웃음세라 in a lifting-device context, transcribe the product name as 울쎄라.",
       "When the sound is close to 세르프 or 셀프 리프팅 in a lifting-device context, transcribe it as XERF, not Self.",
       "Price-list procedure names may include Ultherapy Prime, Thermage FLX, XERF, Titanium Lifting, Revinas, ONDA, V-RO ADVANCE, Shurink Universe, Fraxel Dual, Miracle Spot Clinic, C+B Toning, PRP, LDM, HDA, Restylane Vital, Skinvive, Sculptra, Hyaju, Dermashine, Liztox, Dysport, Xeomin, and Allergan.",
       "Rejuran color-box product names may be spoken as 리쥬란 블랙박스, 리쥬란 레드박스, 리쥬란 화이트박스, 리쥬란 블루박스, or 리쥬란 퍼플박스.",
