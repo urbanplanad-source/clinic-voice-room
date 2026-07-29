@@ -1,26 +1,323 @@
 import type { HospitalSpecialty } from "@prisma/client";
+import type { PatientLanguage } from "./languages";
 
 export type VerifiedSentenceSeedEntry = {
-  specialty: HospitalSpecialty;
+  specialty: HospitalSpecialty | null;
   spoken: string[];
   standardKo: string;
-  translations: Record<string, string>;
+  translations: Record<PatientLanguage, string>;
   category: string;
   note: string;
 };
 
-const reviewNote = "Verified sentence starter. Operator medical review required before enabling.";
+const reviewNote = "Shared verified sentence across dermatology and plastic surgery. Native-speaker review recommended.";
+const manualSampleNote = "Manual multilingual template from operator-provided samples. Native-speaker review recommended.";
 
-export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
+type ManualVerifiedSentenceInput = {
+  standardKo: string;
+  spoken?: string[];
+  translations: Record<PatientLanguage, string>;
+  category: string;
+};
+
+function manualVerifiedSentence({ standardKo, spoken = [], translations, category }: ManualVerifiedSentenceInput): VerifiedSentenceSeedEntry {
+  return {
+    specialty: null,
+    spoken: Array.from(new Set([...spoken, ...Object.values(translations)])),
+    standardKo,
+    translations,
+    category,
+    note: manualSampleNote
+  };
+}
+
+const verifiedSentenceSeedSourceEntries: VerifiedSentenceSeedEntry[] = [
+  manualVerifiedSentence({
+    standardKo: "누가 먼저 하실까요?",
+    spoken: ["谁先开始呢？"],
+    translations: {
+      zh: "请问哪位先开始？",
+      yue: "請問邊位先開始？",
+      zh_tw: "請問哪位先開始？",
+      ja: "どなたから先に始めますか？",
+      en: "Who would like to go first?",
+      th: "ใครจะเริ่มก่อนดี?",
+      vi: "Ai sẽ làm trước ạ?",
+      id: "Siapa yang akan mulai lebih dulu?",
+      ms: "Siapa yang mahu mula dahulu?",
+      tl: "Sino ang mauuna?",
+      mn: "Хэн түрүүлж эхлэх вэ?",
+      ru: "Кто будет первым?",
+      fr: "Qui souhaite commencer en premier ?",
+      es: "¿Quién desea empezar primero?",
+      de: "Wer möchte zuerst beginnen?",
+      it: "Chi desidera iniziare per primo?",
+      pt: "Quem gostaria de começar primeiro?"
+    },
+    category: "workflow"
+  }),
+  manualVerifiedSentence({
+    standardKo: "시간은 얼마나 걸릴까요?",
+    spoken: ["请问多长时间?"],
+    translations: {
+      zh: "请问需要多长时间？",
+      yue: "請問要幾耐？",
+      zh_tw: "請問需要多長時間？",
+      ja: "どのくらい時間がかかりますか？",
+      en: "How long will it take?",
+      th: "ใช้เวลานานเท่าไร?",
+      vi: "Sẽ mất bao lâu ạ?",
+      id: "Berapa lama waktu yang dibutuhkan?",
+      ms: "Berapa lama masa yang diperlukan?",
+      tl: "Gaano katagal ito?",
+      mn: "Хэр удаан үргэлжлэх вэ?",
+      ru: "Сколько времени это займет?",
+      fr: "Combien de temps cela prendra-t-il ?",
+      es: "¿Cuánto tiempo tardará?",
+      de: "Wie lange dauert es?",
+      it: "Quanto tempo ci vorrà?",
+      pt: "Quanto tempo vai demorar?"
+    },
+    category: "timing"
+  }),
+  manualVerifiedSentence({
+    standardKo: "오늘 보톡스 시술을 원하시는 게 맞으세요?",
+    spoken: ["오늘 보톡스 시술 원하는 거 맞으세요?", "您是想要今天打肉毒素注射，对吗？"],
+    translations: {
+      zh: "您今天是想注射肉毒素，对吗？",
+      yue: "您今日係想打肉毒桿菌素，係咪？",
+      zh_tw: "您今天是想施打肉毒桿菌素，對嗎？",
+      ja: "本日はボトックス注射をご希望でお間違いないですか？",
+      en: "You would like to have Botox injections today, correct?",
+      th: "วันนี้คุณต้องการฉีดโบท็อกซ์ ใช่ไหม?",
+      vi: "Hôm nay quý khách muốn tiêm Botox, đúng không ạ?",
+      id: "Anda ingin menjalani suntik Botox hari ini, benar?",
+      ms: "Anda mahu mendapatkan suntikan Botox hari ini, betul?",
+      tl: "Gusto ninyong magpa-Botox ngayon, tama po ba?",
+      mn: "Та өнөөдөр ботокс тариулахыг хүсэж байгаа, зөв үү?",
+      ru: "Вы хотите сегодня сделать инъекции ботокса, верно?",
+      fr: "Vous souhaitez recevoir des injections de Botox aujourd’hui, c’est bien cela ?",
+      es: "Quiere ponerse inyecciones de bótox hoy, ¿correcto?",
+      de: "Sie möchten heute eine Botox-Behandlung, richtig?",
+      it: "Desidera sottoporsi oggi alle iniezioni di Botox, corretto?",
+      pt: "Você deseja fazer aplicações de Botox hoje, correto?"
+    },
+    category: "consultation"
+  }),
+  manualVerifiedSentence({
+    standardKo: "몸무게가 어떻게 되세요?",
+    spoken: ["몸무게 어떻게 되세요?", "体重是多少？"],
+    translations: {
+      zh: "请问您的体重是多少？",
+      yue: "請問您體重幾多？",
+      zh_tw: "請問您的體重是多少？",
+      ja: "体重はどのくらいですか？",
+      en: "How much do you weigh?",
+      th: "ขอทราบน้ำหนักของคุณได้ไหม?",
+      vi: "Cân nặng của quý khách là bao nhiêu ạ?",
+      id: "Berapa berat badan Anda?",
+      ms: "Berapakah berat badan anda?",
+      tl: "Magkano po ang timbang ninyo?",
+      mn: "Таны биеийн жин хэд вэ?",
+      ru: "Сколько вы весите?",
+      fr: "Combien pesez-vous ?",
+      es: "¿Cuánto pesa?",
+      de: "Wie viel wiegen Sie?",
+      it: "Quanto pesa?",
+      pt: "Quanto você pesa?"
+    },
+    category: "intake"
+  }),
+  manualVerifiedSentence({
+    standardKo: "써마지 FLX 600샷 시술은 얼마나 걸리나요?",
+    spoken: ["이 시술, 써마지 FLX 600샷은 얼마나 걸리나요?", "How much time will this treatment take Thermage FLX 600s?"],
+    translations: {
+      zh: "热玛吉 FLX 600发治疗需要多长时间？",
+      yue: "Thermage FLX 600發療程要做幾耐？",
+      zh_tw: "Thermage FLX 600發療程需要多久？",
+      ja: "Thermage FLX 600ショットの施術にはどのくらい時間がかかりますか？",
+      en: "How long does the Thermage FLX 600-shot treatment take?",
+      th: "การทำ Thermage FLX 600 ช็อตใช้เวลานานเท่าไร?",
+      vi: "Liệu trình Thermage FLX 600 shot mất bao lâu ạ?",
+      id: "Berapa lama perawatan Thermage FLX 600 shot berlangsung?",
+      ms: "Berapa lama rawatan Thermage FLX 600 shot mengambil masa?",
+      tl: "Gaano katagal ang Thermage FLX na 600 shots?",
+      mn: "Thermage FLX 600 шот эмчилгээ хэр удаан үргэлжлэх вэ?",
+      ru: "Сколько времени занимает процедура Thermage FLX на 600 импульсов?",
+      fr: "Combien de temps dure le traitement Thermage FLX de 600 tirs ?",
+      es: "¿Cuánto dura el tratamiento Thermage FLX de 600 disparos?",
+      de: "Wie lange dauert die Thermage-FLX-Behandlung mit 600 Impulsen?",
+      it: "Quanto dura il trattamento Thermage FLX da 600 impulsi?",
+      pt: "Quanto tempo dura o tratamento Thermage FLX de 600 disparos?"
+    },
+    category: "timing"
+  }),
+  manualVerifiedSentence({
+    standardKo: "이 시술을 받으면 할인이 가능한가요?",
+    spoken: ["Any discount I'll get on this treatment if I get it done?"],
+    translations: {
+      zh: "如果我做这个项目，可以优惠吗？",
+      yue: "如果我做呢個療程，可以有折扣嗎？",
+      zh_tw: "如果我做這個療程，可以有折扣嗎？",
+      ja: "この施術を受ける場合、割引はありますか？",
+      en: "Is there any discount if I get this treatment?",
+      th: "หากฉันทำหัตถการนี้ มีส่วนลดไหม?",
+      vi: "Nếu tôi thực hiện liệu trình này thì có được giảm giá không ạ?",
+      id: "Apakah ada diskon jika saya menjalani perawatan ini?",
+      ms: "Adakah diskaun jika saya menjalani rawatan ini?",
+      tl: "May discount po ba kung ipapagawa ko ang treatment na ito?",
+      mn: "Би энэ эмчилгээг хийлгэвэл хөнгөлөлт авах боломжтой юу?",
+      ru: "Будет ли скидка, если я сделаю эту процедуру?",
+      fr: "Puis-je bénéficier d’une réduction si je fais ce traitement ?",
+      es: "¿Hay algún descuento si me hago este tratamiento?",
+      de: "Gibt es einen Rabatt, wenn ich diese Behandlung durchführen lasse?",
+      it: "È previsto uno sconto se mi sottopongo a questo trattamento?",
+      pt: "Há algum desconto se eu fizer este tratamento?"
+    },
+    category: "pricing"
+  }),
+  manualVerifiedSentence({
+    standardKo: "의사와 상담한 후 어떤 시술을 받을지 결정할 수 있을까요?",
+    spoken: ["의사와 상담해서 어떤 처치를 할지 결정할 수 있을까요?", "Can we consult a doctor what to be done?"],
+    translations: {
+      zh: "可以先和医生咨询，再决定做什么项目吗？",
+      yue: "可以先同醫生諮詢，再決定做咩療程嗎？",
+      zh_tw: "可以先和醫師諮詢，再決定要做什麼療程嗎？",
+      ja: "医師と相談してから、どの施術を受けるか決められますか？",
+      en: "Can I consult with a doctor and then decide which treatment to have?",
+      th: "สามารถปรึกษาแพทย์ก่อน แล้วค่อยตัดสินใจว่าจะทำหัตถการอะไรได้ไหม?",
+      vi: "Tôi có thể tư vấn với bác sĩ rồi quyết định sẽ thực hiện liệu trình nào không ạ?",
+      id: "Bisakah saya berkonsultasi dengan dokter terlebih dahulu lalu memutuskan perawatan apa yang akan dijalani?",
+      ms: "Bolehkah saya berunding dengan doktor dahulu, kemudian memutuskan rawatan yang hendak dijalani?",
+      tl: "Maaari po ba akong kumonsulta muna sa doktor bago magpasya kung anong treatment ang gagawin?",
+      mn: "Эмчтэй зөвлөлдсөний дараа ямар эмчилгээ хийлгэхээ шийдэж болох уу?",
+      ru: "Можно сначала проконсультироваться с врачом, а затем решить, какую процедуру сделать?",
+      fr: "Puis-je consulter un médecin avant de décider quel traitement faire ?",
+      es: "¿Puedo consultar primero con un médico y luego decidir qué tratamiento realizarme?",
+      de: "Kann ich mich zuerst von einem Arzt beraten lassen und danach entscheiden, welche Behandlung ich machen lasse?",
+      it: "Posso consultare prima un medico e poi decidere quale trattamento fare?",
+      pt: "Posso consultar um médico primeiro e depois decidir qual tratamento fazer?"
+    },
+    category: "consultation"
+  }),
+  manualVerifiedSentence({
+    standardKo: "의사 상담 비용이 따로 있나요?",
+    spoken: ["상담 비용이 따로 있나요?", "Are there any consultation charges of the doctor?"],
+    translations: {
+      zh: "医生的咨询需要另外收费吗？",
+      yue: "醫生診症要另外收費嗎？",
+      zh_tw: "醫師諮詢需要另外收費嗎？",
+      ja: "医師の診察料は別途かかりますか？",
+      en: "Is there a separate fee for the doctor's consultation?",
+      th: "มีค่าปรึกษาแพทย์แยกต่างหากไหม?",
+      vi: "Có tính phí tư vấn bác sĩ riêng không ạ?",
+      id: "Apakah ada biaya terpisah untuk konsultasi dokter?",
+      ms: "Adakah bayaran berasingan untuk konsultasi doktor?",
+      tl: "May hiwalay po bang bayad para sa konsultasyon ng doktor?",
+      mn: "Эмчийн зөвлөгөө тусдаа төлбөртэй юу?",
+      ru: "Консультация врача оплачивается отдельно?",
+      fr: "La consultation avec le médecin est-elle facturée séparément ?",
+      es: "¿La consulta con el médico tiene un costo adicional?",
+      de: "Fällt für die ärztliche Beratung eine separate Gebühr an?",
+      it: "La consulenza con il medico prevede un costo separato?",
+      pt: "A consulta com o médico tem um custo separado?"
+    },
+    category: "pricing"
+  }),
+  manualVerifiedSentence({
+    standardKo: "수분크림과 진정크림을 발라드릴게요.",
+    spoken: ["수분크림과 진정크림 발라드릴게요.", "好的，我来给您涂保湿霜和镇静霜。"],
+    translations: {
+      zh: "我来给您涂保湿霜和舒缓霜。",
+      yue: "我幫您搽保濕霜同舒緩霜。",
+      zh_tw: "我幫您擦保濕霜和舒緩霜。",
+      ja: "保湿クリームと鎮静クリームを塗りますね。",
+      en: "I'll apply moisturizer and soothing cream for you.",
+      th: "เดี๋ยวจะทาครีมบำรุงความชุ่มชื้นและครีมปลอบประโลมผิวให้นะ",
+      vi: "Tôi sẽ thoa kem dưỡng ẩm và kem làm dịu da cho quý khách.",
+      id: "Saya akan mengoleskan krim pelembap dan krim penenang kulit untuk Anda.",
+      ms: "Saya akan sapukan krim pelembap dan krim penenang kulit untuk anda.",
+      tl: "Lalagyan ko po kayo ng moisturizer at soothing cream.",
+      mn: "Танд чийгшүүлэгч тос болон тайвшруулах тос түрхэж өгье.",
+      ru: "Я нанесу вам увлажняющий и успокаивающий крем.",
+      fr: "Je vais vous appliquer une crème hydratante et une crème apaisante.",
+      es: "Le aplicaré una crema hidratante y una crema calmante.",
+      de: "Ich trage Ihnen eine Feuchtigkeitscreme und eine beruhigende Creme auf.",
+      it: "Le applicherò una crema idratante e una crema lenitiva.",
+      pt: "Vou aplicar um creme hidratante e um creme calmante em você."
+    },
+    category: "aftercare"
+  }),
+  manualVerifiedSentence({
+    standardKo: "선크림도 발라드릴까요?",
+    spoken: ["혹시 선크림도 발라드릴까요?", "您需要我帮您涂防晒霜吗？"],
+    translations: {
+      zh: "也需要我帮您涂防晒霜吗？",
+      yue: "需唔需要我幫您搽埋防曬霜？",
+      zh_tw: "需要我也幫您擦防曬霜嗎？",
+      ja: "日焼け止めもお塗りしましょうか？",
+      en: "Would you like me to apply sunscreen as well?",
+      th: "ให้ทาครีมกันแดดให้ด้วยไหม?",
+      vi: "Quý khách có muốn tôi thoa thêm kem chống nắng không ạ?",
+      id: "Apakah Anda ingin saya mengoleskan tabir surya juga?",
+      ms: "Adakah anda mahu saya sapukan pelindung matahari juga?",
+      tl: "Gusto rin po ba ninyong lagyan ko kayo ng sunscreen?",
+      mn: "Нарны тос ч бас түрхэж өгөх үү?",
+      ru: "Нанести вам также солнцезащитный крем?",
+      fr: "Souhaitez-vous que je vous applique également de la crème solaire ?",
+      es: "¿Quiere que le aplique también protector solar?",
+      de: "Soll ich Ihnen auch Sonnencreme auftragen?",
+      it: "Vuole che le applichi anche la crema solare?",
+      pt: "Gostaria que eu aplicasse protetor solar também?"
+    },
+    category: "aftercare"
+  }),
+  manualVerifiedSentence({
+    standardKo: "가방을 잘 챙기신 후 데스크로 가시면 됩니다.",
+    spoken: ["가방 잘 챙기시고 데스크로 가시면 됩니다.", "请收好您的包，然后前往前台就可以了。"],
+    translations: {
+      zh: "请带好您的包，然后到前台即可。",
+      yue: "請拎好您嘅袋，然後去前台就可以喇。",
+      zh_tw: "請帶好您的包包，然後到櫃檯即可。",
+      ja: "お荷物を忘れずにお持ちになり、受付へお進みください。",
+      en: "Please make sure you have your bag and then proceed to the front desk.",
+      th: "กรุณาตรวจสอบกระเป๋าให้เรียบร้อย แล้วไปที่เคาน์เตอร์ด้านหน้าได้เลย",
+      vi: "Quý khách vui lòng mang theo túi xách đầy đủ rồi đến quầy lễ tân.",
+      id: "Pastikan Anda membawa tas Anda, lalu silakan menuju meja resepsionis.",
+      ms: "Pastikan anda membawa beg anda, kemudian sila ke kaunter hadapan.",
+      tl: "Pakikuha po nang maayos ang inyong bag, pagkatapos ay pumunta sa front desk.",
+      mn: "Цүнхээ сайтар аваад ресепшн рүү очно уу.",
+      ru: "Пожалуйста, не забудьте сумку и пройдите к стойке регистрации.",
+      fr: "Veuillez bien prendre votre sac, puis rendez-vous à l’accueil.",
+      es: "Asegúrese de llevar su bolso y diríjase a recepción.",
+      de: "Bitte nehmen Sie Ihre Tasche mit und gehen Sie anschließend zur Rezeption.",
+      it: "Si assicuri di prendere la borsa e poi si rechi alla reception.",
+      pt: "Certifique-se de pegar sua bolsa e depois dirija-se à recepção."
+    },
+    category: "workflow"
+  }),
   {
     specialty: "dermatology",
     spoken: ["레이저시술후 일주일간 사우나는 피해주세요", "레이저 시술 후 1주일간 사우나는 피해주세요"],
     standardKo: "레이저 시술 후 일주일간 사우나는 피해주세요.",
     translations: {
       zh: "激光治疗后一周内请避免桑拿。",
+      yue: "激光療程後一星期內請避免焗桑拿。",
+      zh_tw: "雷射療程後一週內請避免蒸桑拿。",
       ja: "レーザー施術後1週間はサウナを避けてください。",
       en: "Please avoid saunas for one week after the laser treatment.",
-      th: "โปรดหลีกเลี่ยงการอบซาวน่าเป็นเวลา 1 สัปดาห์หลังการทำเลเซอร์"
+      th: "โปรดหลีกเลี่ยงการอบซาวน่าเป็นเวลา 1 สัปดาห์หลังการทำเลเซอร์",
+      vi: "Vui lòng tránh xông hơi trong một tuần sau khi điều trị bằng laser.",
+      id: "Harap hindari sauna selama satu minggu setelah perawatan laser.",
+      ms: "Sila elakkan sauna selama satu minggu selepas rawatan laser.",
+      tl: "Iwasan po ang sauna sa loob ng isang linggo pagkatapos ng laser treatment.",
+      mn: "Лазер эмчилгээний дараа нэг долоо хоногийн турш саунд орохгүй байна уу.",
+      ru: "Пожалуйста, избегайте сауны в течение недели после лазерной процедуры.",
+      fr: "Veuillez éviter le sauna pendant une semaine après le traitement au laser.",
+      es: "Evite la sauna durante una semana después del tratamiento con láser.",
+      de: "Bitte vermeiden Sie eine Woche lang nach der Laserbehandlung Saunabesuche.",
+      it: "Eviti la sauna per una settimana dopo il trattamento laser.",
+      pt: "Evite sauna durante uma semana após o tratamento a laser."
     },
     category: "aftercare",
     note: reviewNote
@@ -31,9 +328,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "시술 부위는 오늘 세게 문지르지 마세요.",
     translations: {
       zh: "今天请不要用力揉搓治疗部位。",
+      yue: "今日請唔好大力捽療程部位。",
+      zh_tw: "今天請勿用力搓揉療程部位。",
       ja: "本日は施術部位を強くこすらないでください。",
       en: "Please do not rub the treated area hard today.",
-      th: "วันนี้โปรดอย่าถูบริเวณที่ทำหัตถการแรง ๆ"
+      th: "วันนี้โปรดอย่าถูบริเวณที่ทำหัตถการแรง ๆ",
+      vi: "Hôm nay, vui lòng không chà xát mạnh vùng điều trị.",
+      id: "Harap jangan menggosok area perawatan dengan kuat hari ini.",
+      ms: "Sila jangan gosok kawasan rawatan dengan kuat hari ini.",
+      tl: "Huwag po munang kuskusin nang mariin ang ginamot na bahagi ngayong araw.",
+      mn: "Өнөөдөр эмчилгээ хийсэн хэсгийг хүчтэй үрж болохгүй.",
+      ru: "Сегодня не трите сильно обработанную область.",
+      fr: "Veuillez ne pas frotter fortement la zone traitée aujourd’hui.",
+      es: "No frote con fuerza la zona tratada hoy.",
+      de: "Bitte reiben Sie die behandelte Stelle heute nicht stark.",
+      it: "Oggi non strofini con forza la zona trattata.",
+      pt: "Não esfregue com força a área tratada hoje."
     },
     category: "aftercare",
     note: reviewNote
@@ -44,9 +354,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "붉어짐과 열감은 일시적으로 생길 수 있습니다.",
     translations: {
       zh: "可能会暂时出现发红和发热感。",
+      yue: "可能會暫時出現泛紅同灼熱感。",
+      zh_tw: "可能會暫時出現泛紅和發熱感。",
       ja: "赤みやほてりが一時的に出ることがあります。",
       en: "Redness and a warm sensation may occur temporarily.",
-      th: "อาจมีรอยแดงและความรู้สึกร้อนเกิดขึ้นชั่วคราวได้"
+      th: "อาจมีรอยแดงและความรู้สึกร้อนเกิดขึ้นชั่วคราวได้",
+      vi: "Tình trạng đỏ da và cảm giác nóng có thể xuất hiện tạm thời.",
+      id: "Kemerahan dan sensasi hangat dapat terjadi sementara.",
+      ms: "Kemerahan dan rasa panas mungkin berlaku buat sementara waktu.",
+      tl: "Maaaring pansamantalang mamula at makaramdam ng init ang balat.",
+      mn: "Улайх болон халуу оргих мэдрэмж түр хугацаанд илэрч болно.",
+      ru: "Временно могут появиться покраснение и ощущение тепла.",
+      fr: "Des rougeurs et une sensation de chaleur peuvent apparaître temporairement.",
+      es: "Puede aparecer enrojecimiento y sensación de calor de forma temporal.",
+      de: "Vorübergehend können Rötungen und ein Wärmegefühl auftreten.",
+      it: "Possono comparire temporaneamente arrossamento e una sensazione di calore.",
+      pt: "Podem ocorrer temporariamente vermelhidão e sensação de calor."
     },
     category: "side_effect",
     note: reviewNote
@@ -57,9 +380,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "피부가 건조할 수 있으니 보습제를 충분히 발라주세요.",
     translations: {
       zh: "皮肤可能会干燥，请充分涂抹保湿霜。",
+      yue: "皮膚可能會乾燥，請搽足夠嘅保濕霜。",
+      zh_tw: "皮膚可能會乾燥，請充分塗抹保濕乳霜。",
       ja: "肌が乾燥することがあるため、保湿剤を十分に塗ってください。",
       en: "Your skin may feel dry, so please apply enough moisturizer.",
-      th: "ผิวอาจแห้งได้ โปรดทามอยส์เจอไรเซอร์ให้เพียงพอ"
+      th: "ผิวอาจแห้งได้ โปรดทามอยส์เจอไรเซอร์ให้เพียงพอ",
+      vi: "Da có thể bị khô, vì vậy vui lòng thoa đủ kem dưỡng ẩm.",
+      id: "Kulit mungkin terasa kering, jadi oleskan pelembap secukupnya.",
+      ms: "Kulit mungkin menjadi kering, jadi sila sapukan pelembap secukupnya.",
+      tl: "Maaaring matuyo ang balat, kaya maglagay po ng sapat na moisturizer.",
+      mn: "Арьс хуурайшиж болзошгүй тул чийгшүүлэгч тосыг хангалттай түрхээрэй.",
+      ru: "Кожа может стать сухой, поэтому наносите достаточное количество увлажняющего средства.",
+      fr: "Votre peau peut devenir sèche ; appliquez donc suffisamment de crème hydratante.",
+      es: "La piel puede resecarse, así que aplique suficiente crema hidratante.",
+      de: "Die Haut kann trocken werden. Tragen Sie daher ausreichend Feuchtigkeitscreme auf.",
+      it: "La pelle potrebbe seccarsi, quindi applichi una quantità sufficiente di crema idratante.",
+      pt: "A pele pode ficar seca, portanto aplique bastante hidratante."
     },
     category: "aftercare",
     note: reviewNote
@@ -70,9 +406,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "외출 시 자외선 차단제를 꼭 발라주세요.",
     translations: {
       zh: "外出时请务必涂抹防晒霜。",
+      yue: "外出時請一定要搽防曬霜。",
+      zh_tw: "外出時請務必塗抹防曬乳。",
       ja: "外出時は必ず日焼け止めを塗ってください。",
       en: "Please be sure to apply sunscreen when going outside.",
-      th: "เมื่อออกไปข้างนอก โปรดทาครีมกันแดดทุกครั้ง"
+      th: "เมื่อออกไปข้างนอก โปรดทาครีมกันแดดทุกครั้ง",
+      vi: "Khi ra ngoài, vui lòng nhớ thoa kem chống nắng.",
+      id: "Pastikan untuk memakai tabir surya saat keluar rumah.",
+      ms: "Pastikan anda memakai pelindung matahari apabila keluar.",
+      tl: "Siguraduhing maglagay ng sunscreen kapag lalabas.",
+      mn: "Гадагш гарахдаа нарны тос заавал түрхээрэй.",
+      ru: "Обязательно наносите солнцезащитный крем перед выходом на улицу.",
+      fr: "Veillez à appliquer de la crème solaire lorsque vous sortez.",
+      es: "Asegúrese de aplicarse protector solar cuando salga.",
+      de: "Tragen Sie beim Hinausgehen unbedingt Sonnenschutzmittel auf.",
+      it: "Quando esce, applichi sempre la protezione solare.",
+      pt: "Ao sair, não se esqueça de aplicar protetor solar."
     },
     category: "aftercare",
     note: reviewNote
@@ -83,9 +432,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "딱지가 생기면 억지로 떼지 마세요.",
     translations: {
       zh: "如果结痂，请不要强行剥掉。",
+      yue: "如果結痂，請唔好夾硬搣走。",
+      zh_tw: "如果結痂，請不要勉強摳除。",
       ja: "かさぶたができても無理にはがさないでください。",
       en: "If scabs form, please do not pick them off.",
-      th: "หากมีสะเก็ดแผล โปรดอย่าแกะออก"
+      th: "หากมีสะเก็ดแผล โปรดอย่าแกะออก",
+      vi: "Nếu hình thành vảy, vui lòng không tự bóc ra.",
+      id: "Jika terbentuk keropeng, jangan mengelupasnya secara paksa.",
+      ms: "Jika terbentuk keruping, jangan kopeknya secara paksa.",
+      tl: "Kung magkaroon ng langib, huwag po itong piliting tanggalin.",
+      mn: "Тав тогтвол хүчээр хуулж болохгүй.",
+      ru: "Если образуются корочки, не сдирайте их.",
+      fr: "Si des croûtes se forment, ne les arrachez pas.",
+      es: "Si se forman costras, no las retire a la fuerza.",
+      de: "Wenn sich Krusten bilden, entfernen Sie diese bitte nicht gewaltsam.",
+      it: "Se si formano crosticine, non le rimuova forzatamente.",
+      pt: "Se formarem crostas, não as retire à força."
     },
     category: "aftercare",
     note: reviewNote
@@ -96,9 +458,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "오늘은 음주를 피해주세요.",
     translations: {
       zh: "今天请避免饮酒。",
+      yue: "今日請避免飲酒。",
+      zh_tw: "今天請避免飲酒。",
       ja: "本日は飲酒を避けてください。",
       en: "Please avoid alcohol today.",
-      th: "วันนี้โปรดหลีกเลี่ยงการดื่มแอลกอฮอล์"
+      th: "วันนี้โปรดหลีกเลี่ยงการดื่มแอลกอฮอล์",
+      vi: "Hôm nay, vui lòng tránh uống rượu bia.",
+      id: "Harap hindari alkohol hari ini.",
+      ms: "Sila elakkan alkohol hari ini.",
+      tl: "Iwasan po muna ang pag-inom ng alak ngayong araw.",
+      mn: "Өнөөдөр согтууруулах ундаа хэрэглэхгүй байна уу.",
+      ru: "Сегодня воздержитесь от употребления алкоголя.",
+      fr: "Veuillez éviter de boire de l’alcool aujourd’hui.",
+      es: "Evite consumir alcohol hoy.",
+      de: "Bitte verzichten Sie heute auf Alkohol.",
+      it: "Eviti di bere alcolici oggi.",
+      pt: "Evite consumir álcool hoje."
     },
     category: "aftercare",
     note: reviewNote
@@ -109,9 +484,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "임신 중이거나 수유 중이신가요?",
     translations: {
       zh: "您现在是否怀孕或正在哺乳？",
+      yue: "您而家係咪懷孕或者餵緊母乳？",
+      zh_tw: "您目前是否懷孕或正在哺乳？",
       ja: "現在、妊娠中または授乳中ですか？",
       en: "Are you pregnant or breastfeeding?",
-      th: "คุณกำลังตั้งครรภ์หรือให้นมบุตรอยู่หรือไม่"
+      th: "คุณกำลังตั้งครรภ์หรือให้นมบุตรอยู่หรือไม่",
+      vi: "Hiện tại quý khách có đang mang thai hoặc cho con bú không ạ?",
+      id: "Apakah Anda sedang hamil atau menyusui?",
+      ms: "Adakah anda sedang hamil atau menyusukan anak?",
+      tl: "Buntis o nagpapasuso po ba kayo?",
+      mn: "Та жирэмсэн эсвэл хөхүүл байгаа юу?",
+      ru: "Вы беременны или кормите грудью?",
+      fr: "Êtes-vous enceinte ou allaitez-vous ?",
+      es: "¿Está embarazada o en período de lactancia?",
+      de: "Sind Sie schwanger oder stillen Sie?",
+      it: "È incinta o sta allattando?",
+      pt: "Você está grávida ou amamentando?"
     },
     category: "contraindication",
     note: reviewNote
@@ -122,9 +510,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "최근 복용 중인 약이 있으신가요?",
     translations: {
       zh: "您最近有正在服用的药物吗？",
+      yue: "您最近有冇食緊任何藥？",
+      zh_tw: "您最近有正在服用的藥物嗎？",
       ja: "最近服用している薬はありますか？",
       en: "Are you currently taking any medications?",
-      th: "ขณะนี้คุณมียาที่รับประทานอยู่หรือไม่"
+      th: "ขณะนี้คุณมียาที่รับประทานอยู่หรือไม่",
+      vi: "Gần đây quý khách có đang dùng thuốc gì không ạ?",
+      id: "Apakah akhir-akhir ini Anda sedang mengonsumsi obat?",
+      ms: "Adakah anda sedang mengambil sebarang ubat kebelakangan ini?",
+      tl: "May iniinom po ba kayong gamot kamakailan?",
+      mn: "Та сүүлийн үед ямар нэгэн эм ууж байгаа юу?",
+      ru: "Принимаете ли вы сейчас какие-либо лекарства?",
+      fr: "Prenez-vous actuellement des médicaments ?",
+      es: "¿Está tomando algún medicamento actualmente?",
+      de: "Nehmen Sie derzeit Medikamente ein?",
+      it: "Sta assumendo farmaci attualmente?",
+      pt: "Você está tomando algum medicamento atualmente?"
     },
     category: "contraindication",
     note: reviewNote
@@ -135,9 +536,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "알레르기나 이전 부작용 경험이 있으신가요?",
     translations: {
       zh: "您是否有过敏或以往副作用的经历？",
+      yue: "您有冇過敏，或者以前試過有副作用？",
+      zh_tw: "您是否有過敏或曾經出現過副作用？",
       ja: "アレルギーや過去の副作用の経験はありますか？",
       en: "Do you have any allergies or previous side effect history?",
-      th: "คุณมีอาการแพ้หรือเคยมีผลข้างเคียงมาก่อนหรือไม่"
+      th: "คุณมีอาการแพ้หรือเคยมีผลข้างเคียงมาก่อนหรือไม่",
+      vi: "Quý khách có bị dị ứng hoặc từng gặp tác dụng phụ trước đây không ạ?",
+      id: "Apakah Anda memiliki alergi atau pernah mengalami efek samping sebelumnya?",
+      ms: "Adakah anda mempunyai alahan atau pernah mengalami kesan sampingan sebelum ini?",
+      tl: "May allergy po ba kayo o nakaranas na dati ng side effect?",
+      mn: "Танд харшил байдаг уу, эсвэл өмнө нь гаж нөлөө илэрч байсан уу?",
+      ru: "Есть ли у вас аллергия или были ли раньше побочные реакции?",
+      fr: "Avez-vous des allergies ou avez-vous déjà présenté des effets indésirables ?",
+      es: "¿Tiene alguna alergia o ha sufrido efectos secundarios anteriormente?",
+      de: "Haben Sie Allergien oder bereits früher Nebenwirkungen erlebt?",
+      it: "Ha allergie o ha avuto effetti collaterali in passato?",
+      pt: "Você tem alguma alergia ou já apresentou efeitos colaterais anteriormente?"
     },
     category: "contraindication",
     note: reviewNote
@@ -148,9 +562,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "통증이 심하면 바로 말씀해주세요.",
     translations: {
       zh: "如果疼痛明显，请立刻告诉我们。",
+      yue: "如果痛得好犀利，請即刻話俾我哋知。",
+      zh_tw: "如果疼痛很嚴重，請立即告訴我們。",
       ja: "痛みが強い場合はすぐにお知らせください。",
       en: "Please tell us right away if the pain is severe.",
-      th: "หากปวดมาก โปรดแจ้งเราทันที"
+      th: "หากปวดมาก โปรดแจ้งเราทันที",
+      vi: "Nếu đau nhiều, vui lòng báo cho chúng tôi ngay.",
+      id: "Segera beri tahu kami jika rasa sakitnya parah.",
+      ms: "Sila beritahu kami segera jika sakitnya teruk.",
+      tl: "Sabihin po agad sa amin kung matindi ang sakit.",
+      mn: "Өвдөлт хүчтэй байвал бидэнд шууд хэлээрэй.",
+      ru: "Если боль сильная, сразу сообщите нам.",
+      fr: "Si la douleur est intense, prévenez-nous immédiatement.",
+      es: "Si el dolor es intenso, avísenos de inmediato.",
+      de: "Bitte sagen Sie uns sofort Bescheid, wenn die Schmerzen stark sind.",
+      it: "Se il dolore è intenso, ce lo comunichi immediatamente.",
+      pt: "Se a dor for intensa, avise-nos imediatamente."
     },
     category: "pain_safety",
     note: reviewNote
@@ -161,9 +588,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "시술 후 이상 반응이 있으면 병원으로 연락해주세요.",
     translations: {
       zh: "治疗后如有异常反应，请联系医院。",
+      yue: "療程後如果有異常反應，請聯絡診所。",
+      zh_tw: "療程後若出現異常反應，請聯絡診所。",
       ja: "施術後に異常な反応があれば、病院へご連絡ください。",
       en: "Please contact the clinic if you have any unusual reaction after the procedure.",
-      th: "หากมีอาการผิดปกติหลังทำหัตถการ โปรดติดต่อโรงพยาบาล"
+      th: "หากมีอาการผิดปกติหลังทำหัตถการ โปรดติดต่อโรงพยาบาล",
+      vi: "Nếu có phản ứng bất thường sau thủ thuật, vui lòng liên hệ với phòng khám.",
+      id: "Hubungi klinik jika terjadi reaksi yang tidak biasa setelah prosedur.",
+      ms: "Sila hubungi klinik jika berlaku reaksi luar biasa selepas prosedur.",
+      tl: "Makipag-ugnayan po sa klinika kung magkaroon ng kakaibang reaksyon pagkatapos ng procedure.",
+      mn: "Ажилбарын дараа хэвийн бус урвал илэрвэл эмнэлэгтэй холбоо барина уу.",
+      ru: "Если после процедуры возникнет необычная реакция, свяжитесь с клиникой.",
+      fr: "Contactez la clinique en cas de réaction inhabituelle après l’intervention.",
+      es: "Póngase en contacto con la clínica si presenta alguna reacción inusual después del procedimiento.",
+      de: "Bitte kontaktieren Sie die Klinik, wenn nach der Behandlung eine ungewöhnliche Reaktion auftritt.",
+      it: "Contatti la clinica se si verifica una reazione insolita dopo la procedura.",
+      pt: "Entre em contato com a clínica se ocorrer alguma reação incomum após o procedimento."
     },
     category: "side_effect",
     note: reviewNote
@@ -174,9 +614,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "마취 크림을 바르고 기다리겠습니다.",
     translations: {
       zh: "我们会涂抹麻醉膏后等待。",
+      yue: "我哋會幫您搽麻醉膏，之後等一陣。",
+      zh_tw: "我們會先塗上麻醉藥膏，然後等待一段時間。",
       ja: "麻酔クリームを塗ってからお待ちいただきます。",
       en: "We will apply numbing cream and wait.",
-      th: "เราจะทายาชาแบบครีมแล้วรอสักครู่"
+      th: "เราจะทายาชาแบบครีมแล้วรอสักครู่",
+      vi: "Chúng tôi sẽ thoa kem gây tê rồi chờ một lúc.",
+      id: "Kami akan mengoleskan krim anestesi lalu menunggu beberapa saat.",
+      ms: "Kami akan sapukan krim kebas, kemudian tunggu seketika.",
+      tl: "Maglalagay po kami ng numbing cream at maghihintay sandali.",
+      mn: "Мэдээ алдуулах тос түрхээд хэсэг хүлээнэ.",
+      ru: "Мы нанесём обезболивающий крем и немного подождём.",
+      fr: "Nous allons appliquer une crème anesthésiante, puis attendre un moment.",
+      es: "Aplicaremos una crema anestésica y esperaremos un momento.",
+      de: "Wir tragen eine Betäubungscreme auf und warten anschließend eine Weile.",
+      it: "Applicheremo una crema anestetica e poi attenderemo un po’.",
+      pt: "Vamos aplicar um creme anestésico e aguardar um pouco."
     },
     category: "procedure",
     note: reviewNote
@@ -187,9 +640,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "시술 전 사진 촬영을 진행하겠습니다.",
     translations: {
       zh: "我们将进行治疗前拍照。",
+      yue: "我哋會喺療程前影相。",
+      zh_tw: "我們會在療程前拍照。",
       ja: "施術前の写真撮影を行います。",
       en: "We will take photos before the procedure.",
-      th: "เราจะถ่ายภาพก่อนทำหัตถการ"
+      th: "เราจะถ่ายภาพก่อนทำหัตถการ",
+      vi: "Chúng tôi sẽ chụp ảnh trước khi thực hiện thủ thuật.",
+      id: "Kami akan mengambil foto sebelum prosedur.",
+      ms: "Kami akan mengambil gambar sebelum prosedur.",
+      tl: "Kukuhaan po namin kayo ng litrato bago ang procedure.",
+      mn: "Ажилбарын өмнө зураг авна.",
+      ru: "Перед процедурой мы сделаем фотографии.",
+      fr: "Nous allons prendre des photos avant l’intervention.",
+      es: "Tomaremos fotografías antes del procedimiento.",
+      de: "Wir werden vor der Behandlung Fotos aufnehmen.",
+      it: "Scatteremo delle foto prima della procedura.",
+      pt: "Vamos tirar fotos antes do procedimento."
     },
     category: "procedure",
     note: reviewNote
@@ -200,9 +666,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "설명 들으신 내용에 동의하시면 서명해주세요.",
     translations: {
       zh: "如果您同意刚才说明的内容，请签名。",
+      yue: "如果您同意頭先講解嘅內容，請簽名。",
+      zh_tw: "如果您同意剛才說明的內容，請簽名。",
       ja: "説明を受けた内容に同意される場合は署名してください。",
       en: "Please sign if you agree with the explanation you received.",
-      th: "หากคุณยินยอมตามคำอธิบายที่ได้รับ โปรดลงชื่อ"
+      th: "หากคุณยินยอมตามคำอธิบายที่ได้รับ โปรดลงชื่อ",
+      vi: "Nếu quý khách đồng ý với nội dung đã được giải thích, vui lòng ký tên.",
+      id: "Silakan tanda tangan jika Anda menyetujui penjelasan yang telah diberikan.",
+      ms: "Sila tandatangan jika anda bersetuju dengan penerangan yang telah diberikan.",
+      tl: "Pumirma po kung sumasang-ayon kayo sa ipinaliwanag sa inyo.",
+      mn: "Тайлбарласан зүйлтэй зөвшөөрч байвал гарын үсэг зурна уу.",
+      ru: "Если вы согласны с полученными разъяснениями, пожалуйста, подпишите.",
+      fr: "Veuillez signer si vous acceptez les explications qui vous ont été données.",
+      es: "Firme si está de acuerdo con la explicación que ha recibido.",
+      de: "Bitte unterschreiben Sie, wenn Sie mit den erhaltenen Erklärungen einverstanden sind.",
+      it: "Firmi se è d’accordo con le spiegazioni ricevute.",
+      pt: "Assine se concordar com as explicações fornecidas."
     },
     category: "consent",
     note: reviewNote
@@ -213,9 +692,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "수술 후 일주일간 음주와 흡연은 피해주세요.",
     translations: {
       zh: "手术后一周内请避免饮酒和吸烟。",
+      yue: "手術後一星期內請避免飲酒同吸煙。",
+      zh_tw: "手術後一週內請避免飲酒和吸菸。",
       ja: "手術後1週間は飲酒と喫煙を避けてください。",
       en: "Please avoid alcohol and smoking for one week after surgery.",
-      th: "หลังผ่าตัด 1 สัปดาห์ โปรดหลีกเลี่ยงการดื่มแอลกอฮอล์และสูบบุหรี่"
+      th: "หลังผ่าตัด 1 สัปดาห์ โปรดหลีกเลี่ยงการดื่มแอลกอฮอล์และสูบบุหรี่",
+      vi: "Vui lòng tránh uống rượu bia và hút thuốc trong một tuần sau phẫu thuật.",
+      id: "Harap hindari alkohol dan merokok selama satu minggu setelah operasi.",
+      ms: "Sila elakkan alkohol dan merokok selama satu minggu selepas pembedahan.",
+      tl: "Iwasan po ang alak at paninigarilyo sa loob ng isang linggo pagkatapos ng operasyon.",
+      mn: "Мэс заслын дараа нэг долоо хоногийн турш архи, тамхи хэрэглэхгүй байна уу.",
+      ru: "Пожалуйста, не употребляйте алкоголь и не курите в течение недели после операции.",
+      fr: "Veuillez éviter l’alcool et le tabac pendant une semaine après l’opération.",
+      es: "Evite el alcohol y el tabaco durante una semana después de la cirugía.",
+      de: "Bitte verzichten Sie eine Woche lang nach der Operation auf Alkohol und Rauchen.",
+      it: "Eviti alcol e fumo per una settimana dopo l’intervento.",
+      pt: "Evite álcool e cigarro durante uma semana após a cirurgia."
     },
     category: "aftercare",
     note: reviewNote
@@ -226,9 +718,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "붓기와 멍은 시간이 지나면서 서서히 좋아집니다.",
     translations: {
       zh: "肿胀和淤青会随着时间逐渐好转。",
+      yue: "腫脹同瘀青會隨時間慢慢改善。",
+      zh_tw: "腫脹和瘀青會隨著時間逐漸改善。",
       ja: "腫れや内出血は時間とともに徐々に改善します。",
       en: "Swelling and bruising will gradually improve over time.",
-      th: "อาการบวมและรอยช้ำจะค่อย ๆ ดีขึ้นตามเวลา"
+      th: "อาการบวมและรอยช้ำจะค่อย ๆ ดีขึ้นตามเวลา",
+      vi: "Tình trạng sưng và bầm tím sẽ dần cải thiện theo thời gian.",
+      id: "Bengkak dan memar akan berangsur membaik seiring waktu.",
+      ms: "Bengkak dan lebam akan beransur pulih dari semasa ke semasa.",
+      tl: "Unti-unting huhupa ang pamamaga at pasa habang lumilipas ang panahon.",
+      mn: "Хаван болон хөхрөлт цаг хугацааны явцад аажмаар багасна.",
+      ru: "Отёк и синяки со временем постепенно уменьшатся.",
+      fr: "Le gonflement et les ecchymoses s’amélioreront progressivement avec le temps.",
+      es: "La hinchazón y los hematomas mejorarán gradualmente con el tiempo.",
+      de: "Schwellungen und Blutergüsse werden mit der Zeit allmählich besser.",
+      it: "Il gonfiore e i lividi miglioreranno gradualmente con il tempo.",
+      pt: "O inchaço e os hematomas melhorarão gradualmente com o tempo."
     },
     category: "side_effect",
     note: reviewNote
@@ -239,9 +744,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "실밥 제거 일정에 맞춰 내원해주세요.",
     translations: {
       zh: "请按拆线预约时间来院。",
+      yue: "請按拆線預約時間返嚟診所。",
+      zh_tw: "請依照拆線預約時間到院。",
       ja: "抜糸の予定に合わせてご来院ください。",
       en: "Please visit the clinic according to your stitch removal schedule.",
-      th: "โปรดมาตามนัดสำหรับการตัดไหม"
+      th: "โปรดมาตามนัดสำหรับการตัดไหม",
+      vi: "Vui lòng đến phòng khám đúng lịch hẹn cắt chỉ.",
+      id: "Silakan datang ke klinik sesuai jadwal pelepasan jahitan.",
+      ms: "Sila datang ke klinik mengikut jadual membuka jahitan.",
+      tl: "Pumunta po sa klinika ayon sa iskedyul ng pagtanggal ng tahi.",
+      mn: "Оёдол авах товлосон хугацаандаа эмнэлэгт ирнэ үү.",
+      ru: "Пожалуйста, придите в клинику в назначенное время для снятия швов.",
+      fr: "Veuillez venir à la clinique à la date prévue pour le retrait des fils.",
+      es: "Acuda a la clínica según la cita programada para retirar los puntos.",
+      de: "Bitte kommen Sie zum vereinbarten Termin zur Fadenentfernung in die Klinik.",
+      it: "Si presenti in clinica all’appuntamento fissato per la rimozione dei punti.",
+      pt: "Compareça à clínica na data marcada para a retirada dos pontos."
     },
     category: "aftercare",
     note: reviewNote
@@ -252,9 +770,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "수술 부위를 손으로 만지지 마세요.",
     translations: {
       zh: "请不要用手触摸手术部位。",
+      yue: "請唔好用手掂手術部位。",
+      zh_tw: "請不要用手觸摸手術部位。",
       ja: "手術部位を手で触らないでください。",
       en: "Please do not touch the surgical area with your hands.",
-      th: "โปรดอย่าใช้มือสัมผัสบริเวณผ่าตัด"
+      th: "โปรดอย่าใช้มือสัมผัสบริเวณผ่าตัด",
+      vi: "Vui lòng không dùng tay chạm vào vùng phẫu thuật.",
+      id: "Jangan menyentuh area operasi dengan tangan.",
+      ms: "Jangan sentuh kawasan pembedahan dengan tangan.",
+      tl: "Huwag po hawakan ng kamay ang bahaging inoperahan.",
+      mn: "Мэс засал хийсэн хэсэгт гараараа хүрч болохгүй.",
+      ru: "Не прикасайтесь руками к области операции.",
+      fr: "Ne touchez pas la zone opérée avec les mains.",
+      es: "No toque con las manos la zona operada.",
+      de: "Berühren Sie den Operationsbereich nicht mit den Händen.",
+      it: "Non tocchi con le mani la zona operata.",
+      pt: "Não toque na área operada com as mãos."
     },
     category: "aftercare",
     note: reviewNote
@@ -265,9 +796,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "처방받은 약은 안내대로 복용해주세요.",
     translations: {
       zh: "请按说明服用处方药。",
+      yue: "請按照指示服用處方藥。",
+      zh_tw: "請依照指示服用處方藥物。",
       ja: "処方された薬は案内どおりに服用してください。",
       en: "Please take the prescribed medication as instructed.",
-      th: "โปรดรับประทานยาตามที่ได้รับคำแนะนำ"
+      th: "โปรดรับประทานยาตามที่ได้รับคำแนะนำ",
+      vi: "Vui lòng uống thuốc được kê theo đúng hướng dẫn.",
+      id: "Minumlah obat yang diresepkan sesuai petunjuk.",
+      ms: "Sila ambil ubat yang dipreskripsikan mengikut arahan.",
+      tl: "Inumin po ang niresetang gamot ayon sa tagubilin.",
+      mn: "Жороор өгсөн эмийг зааврын дагуу ууна уу.",
+      ru: "Принимайте назначенные лекарства согласно инструкции.",
+      fr: "Prenez les médicaments prescrits conformément aux instructions.",
+      es: "Tome los medicamentos recetados según las indicaciones.",
+      de: "Nehmen Sie die verschriebenen Medikamente wie angewiesen ein.",
+      it: "Assuma i farmaci prescritti secondo le indicazioni.",
+      pt: "Tome os medicamentos prescritos conforme as orientações."
     },
     category: "aftercare",
     note: reviewNote
@@ -278,9 +822,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "출혈이 계속되면 바로 병원으로 연락해주세요.",
     translations: {
       zh: "如果持续出血，请立即联系医院。",
+      yue: "如果持續流血，請即刻聯絡診所。",
+      zh_tw: "如果持續出血，請立即聯絡診所。",
       ja: "出血が続く場合はすぐに病院へご連絡ください。",
       en: "Please contact the clinic immediately if bleeding continues.",
-      th: "หากมีเลือดออกต่อเนื่อง โปรดติดต่อโรงพยาบาลทันที"
+      th: "หากมีเลือดออกต่อเนื่อง โปรดติดต่อโรงพยาบาลทันที",
+      vi: "Nếu vẫn tiếp tục chảy máu, vui lòng liên hệ ngay với phòng khám.",
+      id: "Segera hubungi klinik jika perdarahan terus berlanjut.",
+      ms: "Sila hubungi klinik dengan segera jika pendarahan berterusan.",
+      tl: "Makipag-ugnayan po agad sa klinika kung patuloy ang pagdurugo.",
+      mn: "Цус алдалт үргэлжилбэл эмнэлэгтэй яаралтай холбоо барина уу.",
+      ru: "Если кровотечение продолжается, немедленно свяжитесь с клиникой.",
+      fr: "Contactez immédiatement la clinique si le saignement persiste.",
+      es: "Póngase en contacto con la clínica de inmediato si el sangrado continúa.",
+      de: "Bitte kontaktieren Sie sofort die Klinik, wenn die Blutung anhält.",
+      it: "Contatti immediatamente la clinica se il sanguinamento continua.",
+      pt: "Entre em contato imediatamente com a clínica se o sangramento continuar."
     },
     category: "pain_safety",
     note: reviewNote
@@ -291,9 +848,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "수술 전 금식 시간을 지켜주세요.",
     translations: {
       zh: "请遵守手术前禁食时间。",
+      yue: "請遵守手術前嘅禁食時間。",
+      zh_tw: "請遵守手術前的禁食時間。",
       ja: "手術前の絶食時間を守ってください。",
       en: "Please follow the fasting time before surgery.",
-      th: "โปรดปฏิบัติตามเวลางดอาหารก่อนผ่าตัด"
+      th: "โปรดปฏิบัติตามเวลางดอาหารก่อนผ่าตัด",
+      vi: "Vui lòng tuân thủ thời gian nhịn ăn trước phẫu thuật.",
+      id: "Harap patuhi waktu puasa sebelum operasi.",
+      ms: "Sila patuhi tempoh berpuasa sebelum pembedahan.",
+      tl: "Sundin po ang itinakdang oras ng pag-aayuno bago ang operasyon.",
+      mn: "Мэс заслын өмнөх хоол, унд хорих хугацааг мөрдөнө үү.",
+      ru: "Соблюдайте установленное время голодания перед операцией.",
+      fr: "Veuillez respecter la durée de jeûne indiquée avant l’opération.",
+      es: "Respete el tiempo de ayuno indicado antes de la cirugía.",
+      de: "Bitte halten Sie die vorgeschriebene Nüchternheitszeit vor der Operation ein.",
+      it: "Rispetti il periodo di digiuno indicato prima dell’intervento.",
+      pt: "Respeite o período de jejum indicado antes da cirurgia."
     },
     category: "procedure",
     note: reviewNote
@@ -304,9 +874,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "복용 중인 항응고제가 있으신가요?",
     translations: {
       zh: "您目前有服用抗凝血药吗？",
+      yue: "您而家有冇食緊抗凝血藥？",
+      zh_tw: "您目前有服用抗凝血藥物嗎？",
       ja: "現在服用している抗凝固薬はありますか？",
       en: "Are you taking any anticoagulant medication?",
-      th: "คุณกำลังรับประทานยาต้านการแข็งตัวของเลือดอยู่หรือไม่"
+      th: "คุณกำลังรับประทานยาต้านการแข็งตัวของเลือดอยู่หรือไม่",
+      vi: "Hiện tại quý khách có đang dùng thuốc chống đông máu không ạ?",
+      id: "Apakah Anda sedang mengonsumsi obat antikoagulan?",
+      ms: "Adakah anda sedang mengambil ubat antikoagulan?",
+      tl: "Umiinom po ba kayo ng gamot na pampalabnaw ng dugo?",
+      mn: "Та цус шингэлэх эм хэрэглэж байгаа юу?",
+      ru: "Принимаете ли вы антикоагулянты?",
+      fr: "Prenez-vous actuellement un traitement anticoagulant ?",
+      es: "¿Está tomando algún medicamento anticoagulante?",
+      de: "Nehmen Sie derzeit gerinnungshemmende Medikamente ein?",
+      it: "Sta assumendo farmaci anticoagulanti?",
+      pt: "Você está tomando algum medicamento anticoagulante?"
     },
     category: "contraindication",
     note: reviewNote
@@ -317,9 +900,22 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "마취에 이상 반응이 있었던 적이 있으신가요?",
     translations: {
       zh: "您曾经对麻醉有过异常反应吗？",
+      yue: "您以前對麻醉有冇出現過異常反應？",
+      zh_tw: "您以前是否曾對麻醉出現異常反應？",
       ja: "麻酔で異常反応が出たことはありますか？",
       en: "Have you ever had an unusual reaction to anesthesia?",
-      th: "คุณเคยมีอาการผิดปกติต่อยาชาหรือยาสลบหรือไม่"
+      th: "คุณเคยมีอาการผิดปกติต่อยาชาหรือยาสลบหรือไม่",
+      vi: "Quý khách đã từng có phản ứng bất thường với thuốc gây tê hoặc gây mê chưa ạ?",
+      id: "Apakah Anda pernah mengalami reaksi yang tidak biasa terhadap anestesi?",
+      ms: "Pernahkah anda mengalami reaksi luar biasa terhadap anestesia?",
+      tl: "Nagkaroon na po ba kayo dati ng kakaibang reaksyon sa anesthesia?",
+      mn: "Танд мэдээ алдуулалтад хэвийн бус урвал илэрч байсан уу?",
+      ru: "Были ли у вас когда-либо необычные реакции на анестезию?",
+      fr: "Avez-vous déjà eu une réaction inhabituelle à l’anesthésie ?",
+      es: "¿Ha tenido alguna vez una reacción inusual a la anestesia?",
+      de: "Hatten Sie schon einmal eine ungewöhnliche Reaktion auf eine Anästhesie?",
+      it: "Ha mai avuto una reazione insolita all’anestesia?",
+      pt: "Você já teve alguma reação incomum à anestesia?"
     },
     category: "contraindication",
     note: reviewNote
@@ -330,11 +926,30 @@ export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = [
     standardKo: "설명 들으신 수술 내용에 동의하시면 서명해주세요.",
     translations: {
       zh: "如果您同意刚才说明的手术内容，请签名。",
+      yue: "如果您同意頭先講解嘅手術內容，請簽名。",
+      zh_tw: "如果您同意剛才說明的手術內容，請簽名。",
       ja: "説明を受けた手術内容に同意される場合は署名してください。",
       en: "Please sign if you agree with the surgical explanation you received.",
-      th: "หากคุณยินยอมตามคำอธิบายเกี่ยวกับการผ่าตัด โปรดลงชื่อ"
+      th: "หากคุณยินยอมตามคำอธิบายเกี่ยวกับการผ่าตัด โปรดลงชื่อ",
+      vi: "Nếu quý khách đồng ý với nội dung phẫu thuật đã được giải thích, vui lòng ký tên.",
+      id: "Silakan tanda tangan jika Anda menyetujui penjelasan mengenai operasi tersebut.",
+      ms: "Sila tandatangan jika anda bersetuju dengan penerangan mengenai pembedahan tersebut.",
+      tl: "Pumirma po kung sumasang-ayon kayo sa ipinaliwanag na operasyon.",
+      mn: "Тайлбарласан мэс заслын талаар зөвшөөрч байвал гарын үсэг зурна уу.",
+      ru: "Если вы согласны с разъяснёнными условиями операции, пожалуйста, подпишите.",
+      fr: "Veuillez signer si vous acceptez les explications concernant l’opération.",
+      es: "Firme si está de acuerdo con la explicación sobre la cirugía.",
+      de: "Bitte unterschreiben Sie, wenn Sie mit der Erklärung zur Operation einverstanden sind.",
+      it: "Firmi se è d’accordo con le spiegazioni relative all’intervento.",
+      pt: "Assine se concordar com as explicações sobre a cirurgia."
     },
     category: "consent",
     note: reviewNote
   }
 ];
+
+export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = verifiedSentenceSeedSourceEntries.map((entry) => ({
+  ...entry,
+  specialty: null,
+  spoken: Array.from(new Set([...entry.spoken, ...Object.values(entry.translations)]))
+}));

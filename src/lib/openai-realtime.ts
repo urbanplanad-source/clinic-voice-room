@@ -77,6 +77,8 @@ function buildRealtimeTranslationInstructions(inputLanguage: PatientLanguage | "
     `Translate the speaker from ${inputLabel} to ${outputLabel}.`,
     characterInstruction,
     "Output only the translated utterance. Do not add explanations, disclaimers, summaries, or extra conversation.",
+    "Preserve the speech act exactly: questions must remain questions, requests must remain requests, and statements must remain statements.",
+    "Never answer the speaker, predict the other participant's reply, or continue the conversation.",
     "Preserve clinic brand names such as Rejuran, Juvelook, Re2O, Ultherapy, Ultherapy Prime, Thermage FLX, XERF, Potenza, Pico laser, Restylane, Belotero, Sculptra, Skinvive, PRP, LDM, and HDA.",
     "For Korean procedure-room speech, interpret common clinic misrecognitions in context: Nijuran usually means Rejuran, and geujong usually means swelling or edema.",
     glossaryInstructions,

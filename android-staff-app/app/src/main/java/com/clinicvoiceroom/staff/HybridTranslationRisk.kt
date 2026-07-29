@@ -6,7 +6,7 @@ internal data class HybridTranslationRiskDecision(
 )
 
 private val HybridUnitPattern = Regex(
-    """(?:\bcc\b|\bml\b|\bmg\b|\bkg\b|\bmm\b|\bcm\b|%|\x{C5D4}\x{D50C})""",
+    """(?:\bcc\b|\bml\b|\bmg\b|\bg\b|\bkg\b|\bmm\b|\bcm\b|\biu\b|\bshots?\b|%|\x{C0F7}|\x{C568}\x{D50C}|\x{C5D4}\x{D50C})""",
     RegexOption.IGNORE_CASE
 )
 private val HybridMoneyPattern = Regex(
@@ -18,16 +18,33 @@ private val HybridBrandPattern = Regex(
     RegexOption.IGNORE_CASE
 )
 private val HybridSafetyPattern = Regex(
-    """(?:\x{D1B5}\x{C99D}|\x{C544}\x{D504}|\x{C54C}\x{B808}\x{B974}\x{AE30}|\x{C784}\x{C2E0}|\x{C218}\x{C720}|\x{BD80}\x{C791}\x{C6A9}|\x{B9C8}\x{CDE8}|\x{C57D}|\x{CC98}\x{BC29}|\x{D56D}\x{C0DD}|\x{CD9C}\x{D608}|\x{BD93}|\x{AC10}\x{C5FC}|\x{D749}\x{D130}|\x{C8FC}\x{C0AC}|\x{C2DC}\x{C220}|\x{C218}\x{C220}|\x{B808}\x{C774}\x{C800}|\x{75DB}\x{307F}|\x{75DB}\x{3044}|\x{30A2}\x{30EC}\x{30EB}\x{30AE}\x{30FC}|\x{598A}\x{5A20}|\x{6388}\x{4E73}|\x{526F}\x{4F5C}\x{7528}|\x{9EBB}\x{9154}|\x{85AC}|\x{51E6}\x{65B9}|\x{6297}\x{751F}\x{7269}\x{8CEA}|\x{51FA}\x{8840}|\x{816B}\x{308C}|\x{611F}\x{67D3}|\x{50B7}\x{8DE1}|\x{6CE8}\x{5C04}|\x{6CBB}\x{7642}|\x{624B}\x{8853}|\x{30EC}\x{30FC}\x{30B6}\x{30FC}|\x{75BC}|\x{75DB}|\x{8FC7}\x{654F}|\x{6000}\x{5B55}|\x{54FA}\x{4E73}|\x{526F}\x{4F5C}\x{7528}|\x{9EBB}\x{9189}|\x{836F}|\x{5904}\x{65B9}|\x{6297}\x{751F}\x{7D20}|\x{51FA}\x{8840}|\x{80BF}|\x{611F}\x{67D3}|\x{75A4}\x{75D5}|\x{6CE8}\x{5C04}|\x{6CBB}\x{7597}|\x{624B}\x{672F}|\x{6FC0}\x{5149}|allerg|pregnan|breastfeed|side effect|anesthe|medicine|prescription|antibiotic|pain|bleed|swelling|infection|scar|inject|procedure|surgery|laser)""",
+    """(?:\x{D1B5}\x{C99D}|\x{C544}\x{D504}|\x{C544}\x{D30C}|\x{C54C}\x{B808}\x{B974}\x{AE30}|\x{C784}\x{C2E0}|\x{C218}\x{C720}|\x{BD80}\x{C791}\x{C6A9}|\x{B9C8}\x{CDE8}|\x{CC98}\x{BC29}|\x{D56D}\x{C0DD}|\x{CD9C}\x{D608}|\x{BD93}|\x{AC10}\x{C5FC}|\x{D749}\x{D130}|\x{C8FC}\x{C0AC}|\x{C2DC}\x{C220}|\x{C218}\x{C220}|\x{B808}\x{C774}\x{C800}|\x{75DB}\x{307F}|\x{75DB}\x{3044}|\x{30A2}\x{30EC}\x{30EB}\x{30AE}\x{30FC}|\x{598A}\x{5A20}|\x{6388}\x{4E73}|\x{526F}\x{4F5C}\x{7528}|\x{9EBB}\x{9154}|\x{85AC}|\x{51E6}\x{65B9}|\x{6297}\x{751F}\x{7269}\x{8CEA}|\x{51FA}\x{8840}|\x{816B}\x{308C}|\x{611F}\x{67D3}|\x{50B7}\x{8DE1}|\x{6CE8}\x{5C04}|\x{6CBB}\x{7642}|\x{624B}\x{8853}|\x{30EC}\x{30FC}\x{30B6}\x{30FC}|\x{75BC}|\x{75DB}|\x{8FC7}\x{654F}|\x{6000}\x{5B55}|\x{54FA}\x{4E73}|\x{526F}\x{4F5C}\x{7528}|\x{9EBB}\x{9189}|\x{836F}|\x{5904}\x{65B9}|\x{6297}\x{751F}\x{7D20}|\x{51FA}\x{8840}|\x{80BF}|\x{611F}\x{67D3}|\x{75A4}\x{75D5}|\x{6CE8}\x{5C04}|\x{6CBB}\x{7597}|\x{624B}\x{672F}|\x{6FC0}\x{5149})""",
     RegexOption.IGNORE_CASE
 )
+private val HybridEnglishSafetyPattern = Regex(
+    """\b(?:side effects?|anesthe(?:sia|tic)?|medicines?|prescriptions?|antibiotics?|pain|hurts?|bleed(?:ing)?|swelling|infections?|scars?|inject(?:ion|ed|ing)?|procedures?|surger(?:y|ies)|lasers?)\b""",
+    RegexOption.IGNORE_CASE
+)
+private val HybridKoreanMedicationPattern = Regex(
+    """(?<![\p{L}\p{N}])(?:\x{C57D}\x{BB3C}|\x{C57D})(?:\x{C744}|\x{C774}|\x{C5D0}|\x{C740}|\x{B294}|\x{C758}|\x{ACFC}|\x{B3C4}|\x{C785}\x{B2C8}\x{B2E4}|\x{C774}\x{C5D0}\x{C694})?(?![\p{L}\p{N}])"""
+)
 private val HybridRelaxedSafetyPattern = Regex(
-    """(?:\x{C54C}\x{B808}\x{B974}\x{AE30}|\x{C784}\x{C2E0}|\x{30A2}\x{30EC}\x{30EB}\x{30AE}\x{30FC}|\x{598A}\x{5A20}|\x{8FC7}\x{654F}|\x{6000}\x{5B55}|allerg|pregnan)""",
+    """(?:\x{C54C}\x{B808}\x{B974}\x{AE30}|\x{C784}\x{C2E0}|\x{30A2}\x{30EC}\x{30EB}\x{30AE}\x{30FC}|\x{598A}\x{5A20}|\x{8FC7}\x{654F}|\x{6000}\x{5B55}|\ballerg(?:y|ic|ies)?\b|\bpregnan(?:t|cy)?\b)""",
     RegexOption.IGNORE_CASE
 )
 
 private val HybridBodyPattern = Regex(
-    """(?:\x{B208}|\x{CF54}|\x{C785}|\x{D131}|\x{BCFC}|\x{C774}\x{B9C8}|\x{B208}\x{AC00}|\x{C5BC}\x{AD74}|\x{D53C}\x{BD80}|\x{BAA9}|\x{AC00}\x{C2B4}|\x{BC30}|\x{D314}|\x{B2E4}\x{B9AC}|\x{C190}|\x{BC1C}|\x{C0C1}\x{CC98}|\x{76EE}|\x{9F3B}|\x{53E3}|\x{984E}|\x{982C}|\x{984D}|\x{9854}|\x{76AE}\x{819A}|\x{9996}|\x{80F8}|\x{8179}|\x{8155}|\x{811A}|\x{624B}|\x{8DB3}|\x{50B7}|\x{773C}|\x{9F3B}|\x{53E3}|\x{4E0B}\x{5DF4}|\x{9762}\x{988A}|\x{989D}|\x{8138}|\x{76AE}\x{80A4}|\x{9888}|\x{80F8}|\x{8179}|\x{80F3}\x{818A}|\x{817F}|\x{624B}|\x{811A}|\x{4F24}|eye|nose|mouth|jaw|cheek|forehead|face|skin|neck|chest|abdomen|arm|leg|hand|foot|wound)""",
+    """(?:\x{C774}\x{B9C8}|\x{B208}\x{AC00}|\x{C5BC}\x{AD74}|\x{D53C}\x{BD80}|\x{AC00}\x{C2B4}|\x{B2E4}\x{B9AC}|\x{C0C1}\x{CC98}|\x{76EE}|\x{9F3B}|\x{53E3}|\x{984E}|\x{982C}|\x{984D}|\x{9854}|\x{76AE}\x{819A}|\x{9996}|\x{80F8}|\x{8179}|\x{8155}|\x{811A}|\x{624B}|\x{8DB3}|\x{50B7}|\x{773C}|\x{9F3B}|\x{53E3}|\x{4E0B}\x{5DF4}|\x{9762}\x{988A}|\x{989D}|\x{8138}|\x{76AE}\x{80A4}|\x{9888}|\x{80F8}|\x{8179}|\x{80F3}\x{818A}|\x{817F}|\x{624B}|\x{811A}|\x{4F24})""",
+    RegexOption.IGNORE_CASE
+)
+private val HybridKoreanBodyPattern = Regex(
+    """(?<![\p{L}\p{N}])(?:\x{B208}|\x{CF54}|\x{D131}|\x{BCFC}|\x{BAA9}|\x{BC30}|\x{D314}|\x{C190}|\x{BC1C})(?:\x{C774}|\x{AC00}|\x{C744}|\x{B97C}|\x{C5D0}|\x{C740}|\x{B294}|\x{C758}|\x{ACFC}|\x{C640}|\x{B3C4}|\x{CABD}|\x{BD80}\x{C704}|\x{C8FC}\x{BCC0})?(?![\p{L}\p{N}])"""
+)
+private val HybridKoreanMouthPattern = Regex(
+    """(?<![\p{L}\p{N}])\x{C785}(?:\x{C220}\x{C774}|\x{C548}|\x{C8FC}\x{BCC0}|\x{C774}|\x{C744}|\x{C5D0}|\x{C740}|\x{B294}|\x{C758}|\x{ACFC}|\x{B3C4})?(?![\p{L}\p{N}])"""
+)
+private val HybridEnglishBodyPattern = Regex(
+    """\b(?:eye|nose|mouth|jaw|cheek|forehead|face|skin|neck|chest|abdomen|arm|leg|hand|foot|wound)s?\b""",
     RegexOption.IGNORE_CASE
 )
 
@@ -49,8 +66,21 @@ internal fun classifyHybridTranslationRisk(
     if (HybridUnitPattern.containsMatchIn(combined)) reasons += "unit"
     if (HybridMoneyPattern.containsMatchIn(combined)) reasons += "money"
     if (HybridBrandPattern.containsMatchIn(combined)) reasons += "brand"
-    if (HybridSafetyPattern.containsMatchIn(safetyComparable)) reasons += "clinical_safety"
-    if (HybridBodyPattern.containsMatchIn(combined)) reasons += "body_part"
+    if (
+        HybridSafetyPattern.containsMatchIn(safetyComparable) ||
+        HybridEnglishSafetyPattern.containsMatchIn(safetyComparable) ||
+        HybridKoreanMedicationPattern.containsMatchIn(safetyComparable)
+    ) {
+        reasons += "clinical_safety"
+    }
+    if (
+        HybridBodyPattern.containsMatchIn(combined) ||
+        HybridKoreanBodyPattern.containsMatchIn(combined) ||
+        HybridKoreanMouthPattern.containsMatchIn(combined) ||
+        HybridEnglishBodyPattern.containsMatchIn(combined)
+    ) {
+        reasons += "body_part"
+    }
 
     return HybridTranslationRiskDecision(
         lowRisk = reasons.isEmpty(),

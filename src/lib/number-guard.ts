@@ -182,7 +182,6 @@ export function extractNumericSignature(text: string) {
 export function compareNumericSignatures(source: string, translated: string): NumericComparison {
   const sourceNumbers = extractNumericSignature(source);
   const translatedNumbers = extractNumericSignature(translated);
-  if (sourceNumbers.length === 0) return { ok: true, missing: [], extra: [], sourceNumbers, translatedNumbers };
 
   const sourceCounts = countValues(sourceNumbers);
   const translatedCounts = countValues(translatedNumbers);
@@ -197,6 +196,20 @@ export function compareNumericSignatures(source: string, translated: string): Nu
   };
 }
 
+const criticalMoneyContextPattern =
+  /(?:[\u20A9\u00A5\u0024\uFFE6\uFFE5]|\uC6D0|\u5186|\u5143|\b(?:won|krw|yen|jpy|yuan|cny|rmb|dollars?|usd|euros?|eur)\b)/iu;
+
+const criticalClinicalUnitContextPattern =
+  /(?:(?<![A-Za-z])(?:cc|ml|mg|g|kg|mm|cm|iu)(?![A-Za-z])|%|\uC0F7|\uC568\uD50C|\uC5E0\uD50C)/iu;
+
+export function hasCriticalNumericContext(text: string) {
+  if (extractNumericSignature(text).length === 0) return false;
+  return (
+    criticalMoneyContextPattern.test(text) ||
+    criticalClinicalUnitContextPattern.test(text)
+  );
+}
+
 export function numberGuardEnabled() {
-  return process.env.NUMBER_GUARD === "on";
+  return process.env.NUMBER_GUARD?.trim().toLowerCase() !== "off";
 }

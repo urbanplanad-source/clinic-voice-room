@@ -107,8 +107,8 @@ function makeSpecialtyTermEntries(): ImportEntry[] {
 
 function makeVerifiedSentenceEntries(): ImportEntry[] {
   return verifiedSentenceSeedEntries.map((entry, index) => ({
-    scope: "specialty",
-    specialty: entry.specialty,
+    scope: "global",
+    specialty: null,
     hospitalId: null,
     entryType: "verified_sentence",
     spokenForms: dedupe(entry.spoken),
@@ -148,14 +148,22 @@ function importIdentityKey(entry: ImportEntry) {
 
 async function upsertImportEntry(entry: ImportEntry) {
   const existing = await prisma.glossaryEntry.findFirst({
-    where: {
-      scope: entry.scope,
-      entryType: entry.entryType,
-      standardKo: entry.standardKo,
-      category: entry.category ?? null,
-      note: entry.note ?? null,
-      spokenForms: { equals: entry.spokenForms }
-    },
+    where:
+      entry.entryType === "verified_sentence"
+        ? {
+            entryType: entry.entryType,
+            standardKo: entry.standardKo,
+            hospitalId: null,
+            scope: { in: ["global", "specialty"] }
+          }
+        : {
+            scope: entry.scope,
+            entryType: entry.entryType,
+            standardKo: entry.standardKo,
+            category: entry.category ?? null,
+            note: entry.note ?? null,
+            spokenForms: { equals: entry.spokenForms }
+          },
     select: { id: true }
   });
 

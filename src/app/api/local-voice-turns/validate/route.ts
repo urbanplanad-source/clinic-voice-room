@@ -2,9 +2,18 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
-import { isPatientLanguage, languageLabels, type PatientLanguage } from "@/lib/languages";
+import { buildClinicGlossaryInstructions, normalizeClinicTranslation } from "@/lib/clinic-glossary";
+import { getGlossaryForHospital } from "@/lib/glossary-service";
+import { isPatientLanguage, languageLabels, sourceTargetFor, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
+import {
+  buildLocalTranslationValidationInstructions,
+  parseLocalTranslationValidationResult,
+  resolveLocalTranslation
+} from "@/lib/local-translation-validation";
 import { normalizedTextTranslationModel } from "@/lib/openai-models";
+import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { recordTranslationSample, stableTranslationSampleMessageId } from "@/lib/translation-samples";
+import { matchVerifiedSentence } from "@/lib/verified-sentences";
 
 type ResponsesApiContent = {
   type?: string;
@@ -27,6 +36,9 @@ const schema = z.object({
   sourceText: z.string().trim().min(1).max(500),
   translatedText: z.string().trim().min(1).max(500)
 });
+
+const validationRequestBudgetMs = 4_300;
+const validationModelTimeoutMs = 3_200;
 
 function compactText(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -57,21 +69,6 @@ function extractOutputText(data: ResponsesApiResponse) {
   );
 }
 
-function parseVerifierResult(value: string) {
-  const objectText = value.match(/\{[\s\S]*\}/)?.[0] ?? "";
-  if (!objectText) return null;
-  try {
-    const parsed = JSON.parse(objectText) as { ok?: unknown; reason?: unknown };
-    if (typeof parsed.ok !== "boolean") return null;
-    return {
-      ok: parsed.ok,
-      reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 160) : ""
-    };
-  } catch {
-    return null;
-  }
-}
-
 async function recordValidatedLocalSample({
   staff,
   patientLanguage,
@@ -85,7 +82,7 @@ async function recordValidatedLocalSample({
   direction: "ko_to_patient" | "patient_to_ko";
   sourceText: string;
   translatedText: string;
-  validation: { checked: boolean; ok: boolean; reason?: string };
+  validation: { checked: boolean; ok: boolean; reason?: string; repaired?: boolean };
 }) {
   const sourceLanguage = direction === "ko_to_patient" ? "ko" : patientLanguage;
   const targetLanguage = direction === "ko_to_patient" ? patientLanguage : "ko";
@@ -111,7 +108,7 @@ async function recordValidatedLocalSample({
     translatedText,
     sourceLanguage,
     targetLanguage,
-    model: "realtime-local",
+    model: validation.repaired ? "realtime-local-repair" : "realtime-local",
     guardFlags: { localValidation: validation }
   }).catch((caught) => {
     console.error("[local-voice-turns validate sample]", caught);
@@ -123,6 +120,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid validation request" }, { status: 400 });
   }
+  const deadlineAt = Date.now() + validationRequestBudgetMs;
 
   const staff = await getCurrentStaff();
   if (!staff) {
@@ -150,17 +148,20 @@ export async function POST(request: Request) {
 
   const sourceLanguage = direction === "ko_to_patient" ? "Korean" : languageLabels[patientLanguage].english;
   const targetLanguage = direction === "ko_to_patient" ? languageLabels[patientLanguage].english : "Korean";
+  const targetLanguageCode = direction === "ko_to_patient" ? patientLanguage : "ko";
+  const role: ParticipantRole = direction === "ko_to_patient" ? "staff" : "patient";
+  const glossaryData = await getGlossaryForHospital(staff.hospitalId, staff.hospital.specialty);
   const model = normalizedTextTranslationModel(process.env.OPENAI_TEXT_TRANSLATION_MODEL);
-  const instructions = [
-    "You validate a short medical interpreter turn.",
-    "Decide whether the translated text preserves the same meaning as the source text.",
-    `Expected source language: ${sourceLanguage}.`,
-    `Expected target language: ${targetLanguage}.`,
-    "Accept minor punctuation, politeness, and natural phrasing differences.",
-    "Return ok=false if the language is wrong, the meaning changed, an unrelated word appears, or the source and translation do not correspond.",
-    'Return only JSON like {"ok":true,"reason":""} or {"ok":false,"reason":"brief reason"}.'
-  ].join("\n");
+  const instructions = buildLocalTranslationValidationInstructions({
+    sourceLanguage,
+    targetLanguage,
+    glossaryInstructions: buildClinicGlossaryInstructions(patientLanguage, glossaryData)
+  });
 
+  const validationTimeoutMs = Math.max(
+    1,
+    Math.min(validationModelTimeoutMs, deadlineAt - Date.now())
+  );
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -171,7 +172,24 @@ export async function POST(request: Request) {
     body: JSON.stringify({
       model,
       reasoning: { effort: "low" },
-      text: { verbosity: "low" },
+      text: {
+        verbosity: "low",
+        format: {
+          type: "json_schema",
+          name: "local_translation_validation",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              ok: { type: "boolean" },
+              reason: { type: "string" },
+              correctedTranslation: { type: "string" }
+            },
+            required: ["ok", "reason", "correctedTranslation"],
+            additionalProperties: false
+          }
+        }
+      },
       input: [
         {
           role: "system",
@@ -187,9 +205,16 @@ export async function POST(request: Request) {
           ]
         }
       ]
-    })
+    }),
+    signal: AbortSignal.timeout(validationTimeoutMs)
+  }).catch((caught) => {
+    console.error("[local-voice-turns validate] unavailable", caught);
+    return null;
   });
 
+  if (!response) {
+    return NextResponse.json({ checked: false, ok: true, reason: "validation unavailable" });
+  }
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     console.error("[local-voice-turns validate]", response.status, detail);
@@ -197,27 +222,79 @@ export async function POST(request: Request) {
   }
 
   const data = (await response.json()) as ResponsesApiResponse;
-  const result = parseVerifierResult(extractOutputText(data));
+  const result = parseLocalTranslationValidationResult(extractOutputText(data));
   if (!result) {
+    return NextResponse.json({ checked: false, ok: true, reason: "validation parse skipped" });
+  }
+
+  let resolved = resolveLocalTranslation(translatedText, result);
+  if (!result.ok && !resolved.repaired) {
+    const verifiedMatch = matchVerifiedSentence(sourceText, targetLanguageCode, glossaryData);
+    if (verifiedMatch) {
+      resolved = {
+        translatedText: normalizeClinicTranslation(verifiedMatch.translatedText, targetLanguageCode, glossaryData),
+        repaired: true
+      };
+    } else {
+      const directionPrompt = sourceTargetFor(role, patientLanguage);
+      const repairInstructions = [
+        "You are a professional medical interpreter for a Korean dermatology and plastic-surgery clinic.",
+        `Source language: ${sourceLanguage}.`,
+        `Target language: ${targetLanguage}.`,
+        directionPrompt.instructions,
+        "Preserve the speech act exactly: questions must remain questions, requests must remain requests, and statements must remain statements.",
+        "Never answer the speaker, predict the other participant's reply, or continue the conversation.",
+        "Preserve clinical meaning, numbers, body parts, brands, and safety instructions.",
+        "Return only the faithful translated text, with no label, quote, explanation, or commentary.",
+        buildClinicGlossaryInstructions(patientLanguage, glossaryData)
+      ].join("\n");
+      const repairTimeoutMs = deadlineAt - Date.now();
+
+      if (repairTimeoutMs >= 500) {
+        try {
+          const repaired = await translateWithOpenAITextSafety({
+            apiKey,
+            safetyIdentifier: `clinic-voice-room-local-repair-${staff.hospitalId}-${staff.id}-${direction}`,
+            sourceText,
+            instructions: repairInstructions,
+            glossaryData,
+            errorLabel: "[local-voice-turns repair]",
+            context: "local-voice-turns-repair",
+            forceStandard: true,
+            timeoutMs: repairTimeoutMs
+          });
+          resolved = {
+            translatedText: normalizeClinicTranslation(repaired.translatedText, targetLanguageCode, glossaryData),
+            repaired: true
+          };
+        } catch (caught) {
+          console.error("[local-voice-turns repair]", caught);
+        }
+      }
+    }
+  } else if (resolved.repaired) {
+    resolved = {
+      translatedText: normalizeClinicTranslation(resolved.translatedText, targetLanguageCode, glossaryData),
+      repaired: true
+    };
+  }
+
+  if (result.ok || resolved.repaired) {
     await recordValidatedLocalSample({
       staff,
       patientLanguage,
       direction,
       sourceText,
-      translatedText,
-      validation: { checked: false, ok: true, reason: "validation parse skipped" }
+      translatedText: resolved.translatedText,
+      validation: { checked: true, ok: result.ok, reason: result.reason, repaired: resolved.repaired }
     });
-    return NextResponse.json({ checked: false, ok: true, reason: "validation parse skipped" });
   }
 
-  await recordValidatedLocalSample({
-    staff,
-    patientLanguage,
-    direction,
-    sourceText,
-    translatedText,
-    validation: { checked: true, ok: result.ok, reason: result.reason }
+  return NextResponse.json({
+    checked: true,
+    ok: result.ok,
+    reason: result.reason,
+    repaired: resolved.repaired,
+    correctedTranslation: resolved.repaired ? resolved.translatedText : ""
   });
-
-  return NextResponse.json({ checked: true, ok: result.ok, reason: result.reason });
 }

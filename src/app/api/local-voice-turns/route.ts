@@ -182,6 +182,8 @@ export async function POST(request: Request) {
     `Source language: ${sourceLabel}.`,
     `Target language: ${targetLabel}.`,
     directionPrompt.instructions,
+    "Preserve the speech act exactly: questions must remain questions, requests must remain requests, and statements must remain statements.",
+    "Never answer the speaker, predict the other participant's reply, or continue the conversation.",
     "Preserve clinical meaning, numbers, body parts, brands, and safety instructions.",
     "Do not add advice, diagnosis, consent language, labels, quotes, markdown, or commentary.",
     "Return only the translated text.",

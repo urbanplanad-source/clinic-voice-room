@@ -14,6 +14,7 @@ import { recordTranslationSample, stableTranslationSampleMessageId } from "@/lib
 
 const hybridObservationSchema = z.object({
   mode: z.enum(["off", "shadow", "low_risk_main"]),
+  appVersion: z.string().trim().min(1).max(40).optional(),
   available: z.boolean(),
   selected: z.boolean(),
   settled: z.boolean(),
@@ -21,6 +22,8 @@ const hybridObservationSchema = z.object({
   outputTranscriptComplete: z.boolean(),
   firstOutputMs: z.number().min(0).max(120_000).nullable(),
   completedMs: z.number().min(0).max(120_000).nullable(),
+  finalizationMs: z.number().min(0).max(120_000).nullable().optional(),
+  completionReason: z.enum(["session_closed", "socket_closed", "timeout"]).nullable().optional(),
   sourceText: z.string().max(10_000),
   translatedText: z.string().max(10_000),
   lowRisk: z.boolean(),
@@ -87,52 +90,55 @@ export async function POST(request: Request) {
       targetLanguage
     });
 
+    try {
+      const recorded = await recordTranslationSample({
+        hospitalId: staff.hospitalId,
+        staffId: staff.id,
+        messageId: sampleMessageId,
+        source: "local_voice",
+        mode: "local",
+        direction: parsed.data.direction,
+        patientLanguage: parsed.data.patientLanguage,
+        sourceText: parsed.data.sourceText,
+        translatedText: parsed.data.translatedText,
+        sourceLanguage,
+        targetLanguage,
+        model: parsed.data.model ?? `${parsed.data.transport}-local`,
+        sourceTranscriptComplete: parsed.data.sourceTranscriptComplete,
+        guardFlags: parsed.data.hybridObservation
+          ? { hybrid: parsed.data.hybridObservation }
+          : undefined
+      });
 
-    await recordTranslationSample({
-      hospitalId: staff.hospitalId,
-      staffId: staff.id,
-      messageId: sampleMessageId,
-      source: "local_voice",
-      mode: "local",
-      direction: parsed.data.direction,
-      patientLanguage: parsed.data.patientLanguage,
-      sourceText: parsed.data.sourceText,
-      translatedText: parsed.data.translatedText,
-      sourceLanguage,
-      targetLanguage,
-      model: parsed.data.model ?? `${parsed.data.transport}-local`,
-      sourceTranscriptComplete: parsed.data.sourceTranscriptComplete,
-      guardFlags: parsed.data.hybridObservation
-        ? { hybrid: parsed.data.hybridObservation }
-        : undefined
-    }).then(async () => {
-      if (!parsed.data.hybridObservation) return;
-      const existing = await prisma.translationSample.findFirst({
-        where: {
-          hospitalId: staff.hospitalId,
-          source: "local_voice",
-          messageId: sampleMessageId
-        },
-        select: { id: true, guardFlags: true }
-      });
-      if (!existing) return;
-      const existingFlags = existing.guardFlags &&
-        typeof existing.guardFlags === "object" &&
-        !Array.isArray(existing.guardFlags)
-        ? existing.guardFlags as Prisma.JsonObject
-        : {};
-      await prisma.translationSample.update({
-        where: { id: existing.id },
-        data: {
-          guardFlags: {
-            ...existingFlags,
-            hybrid: parsed.data.hybridObservation
-          } as Prisma.InputJsonObject
+      if (parsed.data.hybridObservation && !recorded) {
+        const existing = await prisma.translationSample.findFirst({
+          where: {
+            hospitalId: staff.hospitalId,
+            source: "local_voice",
+            messageId: sampleMessageId
+          },
+          select: { id: true, guardFlags: true }
+        });
+        if (existing) {
+          const existingFlags = existing.guardFlags &&
+            typeof existing.guardFlags === "object" &&
+            !Array.isArray(existing.guardFlags)
+            ? existing.guardFlags as Prisma.JsonObject
+            : {};
+          await prisma.translationSample.update({
+            where: { id: existing.id },
+            data: {
+              guardFlags: {
+                ...existingFlags,
+                hybrid: parsed.data.hybridObservation
+              } as Prisma.InputJsonObject
+            }
+          });
         }
-      });
-    }).catch((caught) => {
+      }
+    } catch (caught) {
       console.error("[local-voice-turns usage sample]", caught);
-    });
+    }
   }
 
   return NextResponse.json({ ok: true });

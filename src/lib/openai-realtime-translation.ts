@@ -93,7 +93,8 @@ export async function createRealtimeTranslationClientSecret(params: {
           }
         }
       }
-    })
+    }),
+    signal: AbortSignal.timeout(5_000)
   });
 
   const detail = await response.text();

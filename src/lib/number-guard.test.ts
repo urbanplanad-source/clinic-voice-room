@@ -7,39 +7,46 @@ function sorted(values: number[]) {
 
 describe("number guard", () => {
   it("extracts Arabic numbers, ranges, decimals, full-width digits, and Thai digits", () => {
-    expect(sorted(extractNumericSignature("3~4회, 1.5ml, １주, ๒วัน"))).toEqual([1, 1.5, 2, 3, 4]);
+    expect(sorted(extractNumericSignature("3~4\uD68C, 1.5ml, \uFF11\uC8FC, \u0E52\u0E27\u0E31\u0E19"))).toEqual([1, 1.5, 2, 3, 4]);
   });
 
   it("extracts common Korean number words", () => {
-    expect(sorted(extractNumericSignature("하루 두 번, 3일간 복용하세요"))).toEqual([2, 3]);
-    expect(sorted(extractNumericSignature("사흘 동안 반 시간씩"))).toEqual([0.5, 3]);
+    expect(sorted(extractNumericSignature("\uD558\uB8E8 \uB450 \uBC88, 3\uC77C\uAC04 \uBCF5\uC6A9\uD558\uC138\uC694"))).toEqual([2, 3]);
+    expect(sorted(extractNumericSignature("\uC0AC\uD758 \uB3D9\uC548 \uBC18 \uC2DC\uAC04\uC529"))).toEqual([0.5, 3]);
   });
 
   it("detects a missing number in Korean to English", () => {
-    const result = compareNumericSignatures("하루 두 번, 3일간 복용하세요", "Take it once a day for 3 days.");
+    const result = compareNumericSignatures("\uD558\uB8E8 \uB450 \uBC88, 3\uC77C\uAC04 \uBCF5\uC6A9\uD558\uC138\uC694", "Take it once a day for 3 days.");
     expect(result.ok).toBe(false);
     expect(result.missing).toContain(2);
   });
 
   it("passes matching Korean to English numbers", () => {
-    expect(compareNumericSignatures("하루 두 번, 3일간 복용하세요", "Take it 2 times a day for 3 days.").ok).toBe(true);
+    expect(compareNumericSignatures("\uD558\uB8E8 \uB450 \uBC88, 3\uC77C\uAC04 \uBCF5\uC6A9\uD558\uC138\uC694", "Take it 2 times a day for 3 days.").ok).toBe(true);
   });
 
   it("handles Chinese week phrasing without a false positive", () => {
-    expect(compareNumericSignatures("一周后复诊", "일주일 후 재방문").ok).toBe(true);
+    expect(compareNumericSignatures("\u4E00\u5468\u540E\u590D\u8BCA", "\uC77C\uC8FC\uC77C \uD6C4 \uC7AC\uBC29\uBB38").ok).toBe(true);
   });
 
   it("handles Korean to Chinese and Japanese fixture pairs", () => {
-    expect(compareNumericSignatures("3일 후 다시 오세요", "请3天后再来。").ok).toBe(true);
-    expect(compareNumericSignatures("2주 동안 술은 피해주세요", "2週間は飲酒を避けてください。").ok).toBe(true);
+    expect(compareNumericSignatures("3\uC77C \uD6C4 \uB2E4\uC2DC \uC624\uC138\uC694", "\u8BF7\u0033\u5929\u540E\u518D\u6765\u3002").ok).toBe(true);
+    expect(compareNumericSignatures("2\uC8FC \uB3D9\uC548 \uC220\uC740 \uD53C\uD574\uC8FC\uC138\uC694", "2\u9031\u9593\u306F\u98F2\u9152\u3092\u907F\u3051\u3066\u304F\u3060\u3055\u3044\u3002").ok).toBe(true);
   });
 
   it("handles Korean to Thai fixture pairs", () => {
-    expect(compareNumericSignatures("하루 두 번 발라주세요", "ทาวันละ ๒ ครั้ง").ok).toBe(true);
-    expect(compareNumericSignatures("3일 동안 복용하세요", "รับประทานเป็นเวลา ๓ วัน").ok).toBe(true);
+    expect(compareNumericSignatures("\uD558\uB8E8 \uB450 \uBC88 \uBC1C\uB77C\uC8FC\uC138\uC694", "\u0E17\u0E32\u0E27\u0E31\u0E19\u0E25\u0E30 \u0E52 \u0E04\u0E23\u0E31\u0E49\u0E07").ok).toBe(true);
+    expect(compareNumericSignatures("3\uC77C \uB3D9\uC548 \uBCF5\uC6A9\uD558\uC138\uC694", "\u0E23\u0E31\u0E1A\u0E1B\u0E23\u0E30\u0E17\u0E32\u0E19\u0E40\u0E1B\u0E47\u0E19\u0E40\u0E27\u0E25\u0E32 \u0E53 \u0E27\u0E31\u0E19").ok).toBe(true);
   });
 
-  it("does not trigger when the source has no numbers", () => {
-    expect(compareNumericSignatures("오늘은 음주를 피해주세요", "Please avoid alcohol today and tomorrow.").ok).toBe(true);
+  it("does not trigger when neither side has numeric values", () => {
+    expect(compareNumericSignatures("\uC624\uB298\uC740 \uC74C\uC8FC\uB97C \uD53C\uD574\uC8FC\uC138\uC694", "Please avoid alcohol today and tomorrow.").ok).toBe(true);
+  });
+
+  it("detects a numeric value introduced by the translation", () => {
+    const comparison = compareNumericSignatures("\uAD1C\uCC2E\uC2B5\uB2C8\uB2E4.", "It costs 300,000 won.");
+
+    expect(comparison.ok).toBe(false);
+    expect(comparison.extra).toEqual([300000]);
   });
 });

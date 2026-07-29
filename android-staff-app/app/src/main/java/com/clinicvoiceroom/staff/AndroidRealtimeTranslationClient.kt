@@ -16,8 +16,17 @@ import java.util.concurrent.atomic.AtomicReference
 internal data class AndroidRealtimeTranslationToken(
     val value: String,
     val model: String,
-    val mode: String
+    val mode: String,
+    val expiresAtEpochSeconds: Long? = null
 )
+
+internal fun AndroidRealtimeTranslationToken.isReusable(
+    nowEpochSeconds: Long,
+    minimumValiditySeconds: Long = 15L
+): Boolean {
+    val expiresAt = expiresAtEpochSeconds ?: return false
+    return expiresAt > nowEpochSeconds + minimumValiditySeconds
+}
 
 internal data class AndroidRealtimeTranslationTurnResult(
     val sourceText: String,
@@ -26,8 +35,30 @@ internal data class AndroidRealtimeTranslationTurnResult(
     val outputTranscriptComplete: Boolean,
     val settled: Boolean,
     val firstOutputMs: Long?,
-    val completedMs: Long
+    val completedMs: Long,
+    val finalizationMs: Long,
+    val completionReason: String
 )
+
+internal data class RealtimeTranslationCompletion(
+    val sourceTranscriptComplete: Boolean,
+    val outputTranscriptComplete: Boolean,
+    val settled: Boolean
+)
+
+internal fun realtimeTranslationCompletion(
+    sessionClosed: Boolean,
+    sourceText: String,
+    translatedText: String
+): RealtimeTranslationCompletion {
+    val sourceComplete = sessionClosed && sourceText.isNotBlank()
+    val outputComplete = sessionClosed && translatedText.isNotBlank()
+    return RealtimeTranslationCompletion(
+        sourceTranscriptComplete = sourceComplete,
+        outputTranscriptComplete = outputComplete,
+        settled = sourceComplete && outputComplete
+    )
+}
 
 internal class AndroidRealtimeTranslationClient(
     private val http: OkHttpClient,
@@ -36,6 +67,8 @@ internal class AndroidRealtimeTranslationClient(
 ) {
     private var webSocket: WebSocket? = null
     private var openLatch = CountDownLatch(1)
+    @Volatile
+    private var terminalLatch = CountDownLatch(1)
     private val errorRef = AtomicReference<Throwable?>(null)
     private val textLock = Any()
     private val inputText = StringBuilder()
@@ -48,10 +81,10 @@ internal class AndroidRealtimeTranslationClient(
     private var acceptingTurn = false
 
     @Volatile
-    private var inputDone = false
+    private var sessionCloseSent = false
 
     @Volatile
-    private var outputDone = false
+    private var sessionClosed = false
 
     @Volatile
     private var turnStartedAt = 0L
@@ -59,13 +92,11 @@ internal class AndroidRealtimeTranslationClient(
     @Volatile
     private var firstOutputAt = 0L
 
-    @Volatile
-    private var lastOutputAt = 0L
-
     fun mode(): String = token.mode
 
     fun connect() {
-        if (open) return
+        if (isReady()) return
+        if (sessionCloseSent) error("Realtime Translate client cannot reconnect after session.close")
 
         openLatch = CountDownLatch(1)
         errorRef.set(null)
@@ -88,13 +119,17 @@ internal class AndroidRealtimeTranslationClient(
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 open = false
+                acceptingTurn = false
+                terminalLatch.countDown()
                 log("Realtime Translate closed: $code $reason")
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 open = false
+                acceptingTurn = false
                 errorRef.set(t)
                 openLatch.countDown()
+                terminalLatch.countDown()
                 log("Realtime Translate failure: ${t.message}")
             }
         })
@@ -107,18 +142,17 @@ internal class AndroidRealtimeTranslationClient(
         if (!open) error("Realtime Translate connection did not open")
     }
 
-    fun isReady(): Boolean = open
+    fun isReady(): Boolean = open && !sessionCloseSent
 
     fun startTurn() {
-        if (!open) error("Realtime Translate connection is not open")
+        if (!isReady()) error("Realtime Translate connection is not ready")
         synchronized(textLock) {
             inputText.clear()
             outputText.clear()
         }
-        inputDone = false
-        outputDone = false
+        terminalLatch = CountDownLatch(1)
+        sessionClosed = false
         firstOutputAt = 0L
-        lastOutputAt = 0L
         turnStartedAt = SystemClock.elapsedRealtime()
         errorRef.set(null)
         acceptingTurn = true
@@ -134,60 +168,75 @@ internal class AndroidRealtimeTranslationClient(
         )
     }
 
-    fun finishTurn(maxWaitMs: Long, quietMs: Long): AndroidRealtimeTranslationTurnResult {
-        if (!open || !acceptingTurn) error("Realtime Translate turn is not active")
+    fun finishTurn(maxWaitMs: Long): AndroidRealtimeTranslationTurnResult {
+        if (!isReady() || !acceptingTurn) error("Realtime Translate turn is not active")
 
-        appendPcm(ByteArray(RealtimeTranslationFlushSilenceBytes), RealtimeTranslationFlushSilenceBytes)
         val waitStartedAt = SystemClock.elapsedRealtime()
-        val deadlineAt = waitStartedAt + maxWaitMs
-        var settled = false
-
-        while (SystemClock.elapsedRealtime() < deadlineAt) {
-            errorRef.get()?.let { throw it }
-            val now = SystemClock.elapsedRealtime()
-            val hasOutput = synchronized(textLock) { outputText.isNotBlank() }
-            val outputQuiet = hasOutput && lastOutputAt > 0L && now - lastOutputAt >= quietMs
-            if (hasOutput && inputDone && (outputDone || outputQuiet)) {
-                settled = true
-                break
-            }
-            Thread.sleep(20)
+        sessionCloseSent = true
+        if (!send(JSONObject().put("type", "session.close"))) {
+            acceptingTurn = false
+            open = false
+            error("Realtime Translate session.close could not be sent")
         }
+
+        val terminalReached = terminalLatch.await(maxWaitMs, TimeUnit.MILLISECONDS)
+        val terminalError = errorRef.get()
+        if (terminalError != null && !sessionClosed) throw terminalError
 
         acceptingTurn = false
         val completedAt = SystemClock.elapsedRealtime()
         val source = synchronized(textLock) { inputText.toString().trim() }
         val translated = synchronized(textLock) { outputText.toString().trim() }
+        val completion = realtimeTranslationCompletion(sessionClosed, source, translated)
         val firstOutputMs = firstOutputAt.takeIf { it > 0L }?.let { it - turnStartedAt }
+        val completionReason = when {
+            sessionClosed -> "session_closed"
+            terminalReached -> "socket_closed"
+            else -> "timeout"
+        }
+
+        if (!terminalReached) {
+            runCatching { webSocket?.cancel() }
+            webSocket = null
+            open = false
+        }
+
         log(
             "Realtime Translate turn ${completedAt - waitStartedAt}ms " +
-                "settled=$settled inputDone=$inputDone outputDone=$outputDone"
+                "settled=${completion.settled} completion=$completionReason"
         )
 
         return AndroidRealtimeTranslationTurnResult(
             sourceText = source,
             translatedText = translated,
-            sourceTranscriptComplete = inputDone,
-            outputTranscriptComplete = outputDone,
-            settled = settled,
+            sourceTranscriptComplete = completion.sourceTranscriptComplete,
+            outputTranscriptComplete = completion.outputTranscriptComplete,
+            settled = completion.settled,
             firstOutputMs = firstOutputMs,
-            completedMs = completedAt - turnStartedAt
+            completedMs = completedAt - turnStartedAt,
+            finalizationMs = completedAt - waitStartedAt,
+            completionReason = completionReason
         )
     }
 
     fun close() {
         acceptingTurn = false
-        runCatching {
-            if (open) send(JSONObject().put("type", "session.close"))
+        val socket = webSocket
+        if (open && !sessionCloseSent) {
+            sessionCloseSent = true
+            runCatching { socket?.send(JSONObject().put("type", "session.close").toString()) }
         }
-        runCatching { webSocket?.cancel() }
+        val closing = runCatching { socket?.close(1000, "client closed") }.getOrDefault(false)
+        if (closing != true) runCatching { socket?.cancel() }
         webSocket = null
         open = false
+        terminalLatch.countDown()
     }
 
-    private fun send(event: JSONObject) {
+    private fun send(event: JSONObject): Boolean {
         val sent = webSocket?.send(event.toString()) ?: false
         if (!sent) log("Realtime Translate send skipped: ${event.optString("type")}")
+        return sent
     }
 
     private fun handleServerEvent(text: String) {
@@ -207,7 +256,6 @@ internal class AndroidRealtimeTranslationClient(
                         inputText.clear()
                         inputText.append(transcript)
                     }
-                    inputDone = true
                 }
 
                 "session.output_transcript.delta" -> {
@@ -217,7 +265,6 @@ internal class AndroidRealtimeTranslationClient(
                         val now = SystemClock.elapsedRealtime()
                         synchronized(textLock) { outputText.append(delta) }
                         if (firstOutputAt == 0L) firstOutputAt = now
-                        lastOutputAt = now
                     }
                 }
 
@@ -230,27 +277,27 @@ internal class AndroidRealtimeTranslationClient(
                     }
                     val now = SystemClock.elapsedRealtime()
                     if (firstOutputAt == 0L) firstOutputAt = now
-                    lastOutputAt = now
-                    outputDone = true
                 }
 
                 "error" -> {
                     val message = event.optJSONObject("error")?.optString("message")
                         ?: "Realtime Translate API error"
                     errorRef.set(IllegalStateException(message))
+                    terminalLatch.countDown()
                     log("Realtime Translate API error: $message")
                 }
 
-                else -> if (type == "session.closed") {
+                "session.closed" -> {
+                    sessionClosed = true
                     open = false
+                    acceptingTurn = false
+                    terminalLatch.countDown()
                 }
+
+                else -> Unit
             }
         }.onFailure {
             log("Realtime Translate event parse skipped: ${text.take(120)}")
         }
-    }
-
-    private companion object {
-        const val RealtimeTranslationFlushSilenceBytes = 14_400
     }
 }

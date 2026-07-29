@@ -228,7 +228,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.27"
+private const val AppDisplayVersion = "0.3.28"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -239,13 +239,13 @@ private const val LocalDirectionKoToPatient = "ko_to_patient"
 private const val LocalDirectionPatientToKo = "patient_to_ko"
 private const val RealtimePcmSampleRate = 24000
 private const val RealtimeTurnWaitMs = 5500L
-private const val RealtimeOutputQuietMs = 300L
+private const val RealtimeOutputQuietMs = 600L
 private const val RealtimeInstantTemplateProbeMs = 240L
 private const val RealtimeInputTranscriptFastWaitMs = 250L
 private const val RealtimeInputTranscriptNumericWaitMs = 650L
 private const val RealtimeInputTranscriptRepairWaitMs = 2400L
 private const val ExperimentalRealtimeTurnWaitMs = 5000L
-private const val ExperimentalRealtimeOutputQuietMs = 220L
+private const val ExperimentalRealtimeOutputQuietMs = 500L
 private const val ExperimentalRealtimeInstantTemplateProbeMs = 220L
 private const val ExperimentalRealtimeInputTranscriptFastWaitMs = 250L
 private const val ExperimentalRealtimeInputTranscriptNumericWaitMs = 650L
@@ -266,8 +266,7 @@ private const val LocalValidationMaxSourceChars = 18
 private const val HybridTranslationModeOff = "off"
 private const val HybridTranslationModeShadow = "shadow"
 private const val HybridTranslationModeLowRiskMain = "low_risk_main"
-private const val HybridTranslationDecisionWaitMs = 350L
-private const val HybridTranslationOutputQuietMs = 180L
+private const val HybridTranslationDecisionWaitMs = 1200L
 private const val HybridTranslationPolicyRefreshMs = 30_000L
 private const val LocalValidationMaxTranslatedChars = 36
 private const val LocalValidationMaxSourceWords = 3
@@ -822,8 +821,6 @@ private class AndroidRealtimeTurnClient(
                         outputText.clear()
                         outputText.append(finalText)
                     }
-                    responseDone = true
-                    turnDoneLatch.countDown()
                 }
 
                 "response.output_item.done" -> {
@@ -833,8 +830,6 @@ private class AndroidRealtimeTurnClient(
                         outputText.clear()
                         outputText.append(finalText)
                     }
-                    responseDone = true
-                    turnDoneLatch.countDown()
                 }
 
                 "conversation.item.input_audio_transcription.delta" -> {
@@ -1247,6 +1242,7 @@ class MainActivity : ComponentActivity() {
     private val localRealtimePreparingKeys = mutableSetOf<String>()
     private val localRealtimeFailedKeys = mutableSetOf<String>()
     private val localHybridTranslationClients = mutableMapOf<String, AndroidRealtimeTranslationClient>()
+    private val localHybridTranslationTokens = mutableMapOf<String, AndroidRealtimeTranslationToken>()
     private val localHybridTranslationPreparingKeys = mutableSetOf<String>()
     private val localHybridTranslationFailedKeys = mutableSetOf<String>()
     @Volatile
@@ -1280,6 +1276,7 @@ class MainActivity : ComponentActivity() {
     private val realtimeExecutor: ExecutorService = Executors.newFixedThreadPool(2)
     private val pollExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val hybridTranslationExecutor: ExecutorService = Executors.newFixedThreadPool(2)
+    private val hybridTranslationPrepareExecutor: ExecutorService = Executors.newFixedThreadPool(2)
     private val hybridPolicyExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val messageExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var messageCursor: String? = null
@@ -1454,6 +1451,7 @@ class MainActivity : ComponentActivity() {
         realtimeExecutor.shutdownNow()
         pollExecutor.shutdownNow()
         hybridTranslationExecutor.shutdownNow()
+        hybridTranslationPrepareExecutor.shutdownNow()
         hybridPolicyExecutor.shutdownNow()
         messageExecutor.shutdownNow()
         sessionExecutor.shutdownNow()
@@ -2353,6 +2351,7 @@ class MainActivity : ComponentActivity() {
             localRealtimePreparingKeys.clear()
             localRealtimeFailedKeys.clear()
             localHybridTranslationClients.clear()
+            localHybridTranslationTokens.clear()
             localHybridTranslationPreparingKeys.clear()
             localHybridTranslationFailedKeys.clear()
             localHybridTranslationMode = HybridTranslationModeOff
@@ -2645,6 +2644,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 val values = localHybridTranslationClients.values.toList()
                 localHybridTranslationClients.clear()
+                localHybridTranslationTokens.clear()
                 localHybridTranslationPreparingKeys.clear()
                 localHybridTranslationFailedKeys.clear()
                 activeHybridTranslationClient = null
@@ -2659,6 +2659,19 @@ class MainActivity : ComponentActivity() {
         patientLanguage: String,
         direction: String
     ): AndroidRealtimeTranslationToken? {
+        val key = localHybridTranslationKey(patientLanguage, direction)
+        val nowEpochSeconds = System.currentTimeMillis() / 1000L
+        val cached = synchronized(localRealtimeLock) {
+            val currentMode = localHybridTranslationMode
+            localHybridTranslationTokens[key]
+                ?.takeIf { currentMode != HybridTranslationModeOff && it.isReusable(nowEpochSeconds) }
+                ?.copy(mode = currentMode)
+        }
+        if (cached != null) {
+            appendLog("Hybrid translation token cache hit")
+            return cached
+        }
+
         val backend = normalizedBackendUrl(uiState.value.backendUrl)
         val payload = JSONObject()
             .put("patientLanguage", patientLanguage)
@@ -2668,18 +2681,28 @@ class MainActivity : ComponentActivity() {
         val data = postJson("$backend/api/realtime/local-translation-session-token", payload)
         val policy = data.optJSONObject("policy") ?: JSONObject()
         val mode = policy.optString("mode", HybridTranslationModeOff)
-        if (mode == HybridTranslationModeOff || data.isNull("token")) return null
+        if (mode == HybridTranslationModeOff || data.isNull("token")) {
+            synchronized(localRealtimeLock) { localHybridTranslationTokens.remove(key) }
+            return null
+        }
         val token = data.getJSONObject("token")
         val value = token.optString("value").ifBlank {
             error("Realtime Translate token response was missing a client secret")
         }
         appendLog("Hybrid translation token ${SystemClock.elapsedRealtime() - startedAt}ms")
-        return AndroidRealtimeTranslationToken(
+        val parsedToken = AndroidRealtimeTranslationToken(
             value = value,
             model = token.optString("realtimeModel", "gpt-realtime-translate")
                 .ifBlank { "gpt-realtime-translate" },
-            mode = mode
+            mode = mode,
+            expiresAtEpochSeconds = token.optLong("expires_at", 0L).takeIf { it > 0L }
         )
+        synchronized(localRealtimeLock) {
+            if (localHybridTranslationMode != HybridTranslationModeOff) {
+                localHybridTranslationTokens[key] = parsedToken
+            }
+        }
+        return parsedToken
     }
 
     private fun prepareLocalHybridTranslationClientsAsync(
@@ -2772,7 +2795,7 @@ class MainActivity : ComponentActivity() {
                 appendLog("Hybrid translation prepare failed: ${caught.message}")
             }
         }
-        runCatching { hybridTranslationExecutor.execute(task) }.onFailure { caught ->
+        runCatching { hybridTranslationPrepareExecutor.execute(task) }.onFailure { caught ->
             synchronized(localRealtimeLock) {
                 if (generation == localRealtimeGeneration) {
                     localHybridTranslationPreparingKeys.remove(key)
@@ -3397,6 +3420,35 @@ class MainActivity : ComponentActivity() {
         }.getOrDefault(false)
     }
 
+    private fun retireLocalHybridTranslationClient(
+        patientLanguage: String,
+        direction: String,
+        generation: Long,
+        expectedClient: AndroidRealtimeTranslationClient
+    ) {
+        val key = localHybridTranslationKey(patientLanguage, direction)
+        val retiredClient = synchronized(localRealtimeLock) {
+            if (
+                generation != localRealtimeGeneration ||
+                localHybridTranslationClients[key] !== expectedClient
+            ) {
+                null
+            } else {
+                localHybridTranslationPreparingKeys.remove(key)
+                localHybridTranslationFailedKeys.remove(key)
+                localHybridTranslationClients.remove(key)
+            }
+        }
+        if (retiredClient != null) {
+            if (activeHybridTranslationClient === retiredClient) {
+                activeHybridTranslationClient = null
+            }
+            hybridTranslationTurnActive = false
+            runCatching { retiredClient.close() }
+            appendLog("Hybrid translation session retired after completed turn")
+        }
+    }
+
     private fun markLocalHybridTranslationDirectionFailed(
         patientLanguage: String,
         direction: String,
@@ -3958,8 +4010,7 @@ class MainActivity : ComponentActivity() {
         val hybridResult = if (hybridClient != null) {
             runCatching {
                 hybridClient.finishTurn(
-                    maxWaitMs = HybridTranslationDecisionWaitMs,
-                    quietMs = HybridTranslationOutputQuietMs
+                    maxWaitMs = HybridTranslationDecisionWaitMs
                 )
             }.onFailure { caught ->
                 hybridFailure = caught
@@ -3973,12 +4024,10 @@ class MainActivity : ComponentActivity() {
         } else {
             null
         }
-        if (
-            hybridResult != null &&
-            (!hybridResult.sourceTranscriptComplete || !hybridResult.outputTranscriptComplete)
-        ) {
-            appendLog("Hybrid translation session retired after incomplete turn")
-            markLocalHybridTranslationDirectionFailed(patientLanguage, direction, generation)
+        if (hybridClient != null) {
+            if (hybridResult != null) {
+                retireLocalHybridTranslationClient(patientLanguage, direction, generation, hybridClient)
+            }
             prepareLocalHybridTranslationClientAsync(patientLanguage, direction, generation)
         }
         val hybridMode = synchronized(localRealtimeLock) { localHybridTranslationMode }
@@ -4004,28 +4053,33 @@ class MainActivity : ComponentActivity() {
             error = hybridFailure?.message
         )
 
-        if (selectHybrid && hybridResult != null) {
-            appendLog("Hybrid low-risk result selected in ${hybridResult.completedMs}ms")
-            if (realtime != null && primaryFuture != null) {
-                synchronized(localRealtimeLock) {
-                    if (localRealtimeTurnClients[realtimeKey] === realtime) {
-                        localRealtimeTurnClients.remove(realtimeKey)
-                    }
-                }
-                val cleanupTask = Runnable {
+        if (selectHybrid) {
+            val selectedHybridResult = checkNotNull(hybridResult)
+            appendLog("Hybrid low-risk result selected in ${selectedHybridResult.completedMs}ms")
+            if (primaryFuture != null) {
+                val comparisonTask = Runnable {
                     runCatching { primaryFuture.get() }
                         .onSuccess { appendLog("Hybrid comparison primary completed") }
-                        .onFailure { appendLog("Hybrid comparison primary failed: ${it.message}") }
-                    runCatching { realtime.close() }
+                        .onFailure { caught ->
+                            appendLog("Hybrid comparison primary failed: ${caught.message}")
+                            if (markLocalRealtimeDirectionFailed(patientLanguage, direction, generation)) {
+                                prepareLocalRealtimeTurnClientAsync(
+                                    patientLanguage,
+                                    direction,
+                                    force = true,
+                                    generation = generation
+                                )
+                            }
+                        }
                 }
-                runCatching { hybridTranslationExecutor.execute(cleanupTask) }
-                    .onFailure { runCatching { realtime.close() } }
+                runCatching { hybridTranslationExecutor.execute(comparisonTask) }
+                    .onFailure { appendLog("Hybrid comparison queue failed: ${it.message}") }
             }
             return localRealtimeVoiceTurn(
                 direction = direction,
                 patientLanguage = patientLanguage,
-                sourceText = hybridResult.sourceText,
-                translatedText = hybridResult.translatedText,
+                sourceText = selectedHybridResult.sourceText,
+                translatedText = selectedHybridResult.translatedText,
                 sourceTranscriptComplete = true,
                 audioPlayed = false,
                 modelOverride = "realtime-translate-low-risk",
@@ -4092,6 +4146,7 @@ class MainActivity : ComponentActivity() {
         if (mode == HybridTranslationModeOff && result == null && error.isNullOrBlank()) return null
         return JSONObject()
             .put("mode", mode)
+            .put("appVersion", BuildConfig.VERSION_NAME)
             .put("available", result != null)
             .put("selected", selected)
             .put("settled", result?.settled ?: false)
@@ -4099,6 +4154,8 @@ class MainActivity : ComponentActivity() {
             .put("outputTranscriptComplete", result?.outputTranscriptComplete ?: false)
             .put("firstOutputMs", result?.firstOutputMs ?: JSONObject.NULL)
             .put("completedMs", result?.completedMs ?: JSONObject.NULL)
+            .put("finalizationMs", result?.finalizationMs ?: JSONObject.NULL)
+            .put("completionReason", result?.completionReason ?: JSONObject.NULL)
             .put("sourceText", result?.sourceText.orEmpty())
             .put("translatedText", result?.translatedText.orEmpty())
             .put("lowRisk", riskDecision?.lowRisk ?: false)
