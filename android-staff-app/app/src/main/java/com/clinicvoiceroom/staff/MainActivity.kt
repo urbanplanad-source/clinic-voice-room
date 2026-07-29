@@ -254,7 +254,7 @@ private const val RecordingStopJoinMs = 250L
 private const val StaffRecordingMaxMs = 60_000L
 private const val StaffAutoStopMinRecordingMs = 1000L
 private const val StaffAutoStopMinVoiceMs = 260L
-private const val StaffAutoStopSilenceMs = 1600L
+private const val StaffAutoStopSilenceMs = 1200L
 private const val StaffAutoStopSpeechRms = 900.0
 private const val StaffAutoStopSpeechPeak = 2600
 private const val StaffModeIdleTimeoutMs = 15 * 60 * 1000L
@@ -4007,14 +4007,14 @@ class MainActivity : ComponentActivity() {
         }
 
         var hybridFailure: Throwable? = null
-        val hybridResult = if (hybridClient != null) {
+        val hybridFuture = if (hybridClient != null) {
             runCatching {
-                hybridClient.finishTurn(
-                    maxWaitMs = HybridTranslationDecisionWaitMs
-                )
+                hybridTranslationExecutor.submit<AndroidRealtimeTranslationTurnResult> {
+                    hybridClient.finishTurn(maxWaitMs = HybridTranslationDecisionWaitMs)
+                }
             }.onFailure { caught ->
                 hybridFailure = caught
-                appendLog("Hybrid translation turn failed: ${caught.message}")
+                appendLog("Hybrid translation completion queue failed: ${caught.message}")
                 markLocalHybridTranslationDirectionFailed(
                     patientLanguage,
                     direction,
@@ -4024,37 +4024,85 @@ class MainActivity : ComponentActivity() {
         } else {
             null
         }
-        if (hybridClient != null) {
-            if (hybridResult != null) {
-                retireLocalHybridTranslationClient(patientLanguage, direction, generation, hybridClient)
-            }
+        val hybridMode = synchronized(localRealtimeLock) { localHybridTranslationMode }
+        var hybridResult: AndroidRealtimeTranslationTurnResult? = null
+        var hybridHandled = hybridFuture == null
+        var hybridRetired = hybridClient == null
+        var primaryResult: RealtimeTurnResult? = null
+        var primaryHandled = primaryFuture == null
+
+        fun retireHybridAndPrepare() {
+            if (hybridRetired || hybridClient == null) return
+            hybridRetired = true
+            retireLocalHybridTranslationClient(patientLanguage, direction, generation, hybridClient)
             prepareLocalHybridTranslationClientAsync(patientLanguage, direction, generation)
         }
-        val hybridMode = synchronized(localRealtimeLock) { localHybridTranslationMode }
-        val riskDecision = hybridResult?.let {
+
+        fun collectHybridResultIfReady() {
+            if (hybridHandled || hybridFuture == null || !hybridFuture.isDone) return
+            hybridHandled = true
+            hybridResult = runCatching { hybridFuture.get() }
+                .onFailure { caught ->
+                    hybridFailure = caught
+                    appendLog("Hybrid translation turn failed: ${caught.message}")
+                    markLocalHybridTranslationDirectionFailed(
+                        patientLanguage,
+                        direction,
+                        generation
+                    )
+                }
+                .getOrNull()
+            if (hybridResult != null) retireHybridAndPrepare()
+        }
+
+        fun collectPrimaryResult(blocking: Boolean) {
+            if (primaryHandled || primaryFuture == null || (!blocking && !primaryFuture.isDone)) return
+            primaryHandled = true
+            primaryResult = runCatching { primaryFuture.get() }
+                .onFailure { caught ->
+                    appendLog("Local Realtime failed, falling back to upload: ${caught.message}")
+                    if (markLocalRealtimeDirectionFailed(patientLanguage, direction, generation)) {
+                        prepareLocalRealtimeTurnClientAsync(
+                            patientLanguage,
+                            direction,
+                            force = true,
+                            generation = generation
+                        )
+                    }
+                }
+                .getOrNull()
+        }
+
+        fun hybridRiskDecision(): HybridTranslationRiskDecision? = hybridResult?.let {
             classifyHybridTranslationRisk(
                 sourceText = it.sourceText,
                 translatedText = it.translatedText,
                 sourceTranscriptComplete = it.sourceTranscriptComplete
             )
         }
-        val selectHybrid = hybridMode == HybridTranslationModeLowRiskMain &&
-            hybridResult?.settled == true &&
-            hybridResult.outputTranscriptComplete &&
-            hybridResult.sourceTranscriptComplete &&
-            hybridResult.sourceText.isNotBlank() &&
-            hybridResult.translatedText.isNotBlank() &&
-            riskDecision?.lowRisk == true
-        val hybridObservation = hybridTranslationObservation(
-            mode = hybridMode,
-            result = hybridResult,
-            riskDecision = riskDecision,
-            selected = selectHybrid,
-            error = hybridFailure?.message
-        )
 
-        if (selectHybrid) {
-            val selectedHybridResult = checkNotNull(hybridResult)
+        fun hybridCanBeSelected(riskDecision: HybridTranslationRiskDecision?): Boolean {
+            val result = hybridResult ?: return false
+            return hybridMode == HybridTranslationModeLowRiskMain &&
+                result.settled &&
+                result.outputTranscriptComplete &&
+                result.sourceTranscriptComplete &&
+                result.sourceText.isNotBlank() &&
+                result.translatedText.isNotBlank() &&
+                riskDecision?.lowRisk == true
+        }
+
+        fun selectedHybridTurnOrNull(): JSONObject? {
+            val selectedHybridResult = hybridResult ?: return null
+            val riskDecision = hybridRiskDecision()
+            if (!hybridCanBeSelected(riskDecision)) return null
+            val hybridObservation = hybridTranslationObservation(
+                mode = hybridMode,
+                result = selectedHybridResult,
+                riskDecision = riskDecision,
+                selected = true,
+                error = hybridFailure?.message
+            )
             appendLog("Hybrid low-risk result selected in ${selectedHybridResult.completedMs}ms")
             if (primaryFuture != null) {
                 val comparisonTask = Runnable {
@@ -4087,38 +4135,68 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        if (primaryFuture != null && realtime != null) {
-            val result = runCatching { primaryFuture.get() }
-                .onFailure { caught ->
-                    appendLog("Local Realtime failed, falling back to upload: ${caught.message}")
-                    if (markLocalRealtimeDirectionFailed(patientLanguage, direction, generation)) {
-                        prepareLocalRealtimeTurnClientAsync(
-                            patientLanguage,
-                            direction,
-                            force = true,
-                            generation = generation
-                        )
-                    }
-                }
-                .getOrNull()
-            if (result != null) {
-                val currentForDirection = synchronized(localRealtimeLock) {
-                    localRealtimeTurnClients[realtimeKey]
-                }
-                if (currentForDirection !== realtime) runCatching { realtime.close() }
-                return localRealtimeVoiceTurn(
-                    direction = direction,
-                    patientLanguage = patientLanguage,
-                    sourceText = result.sourceText,
-                    translatedText = result.translatedText,
-                    sourceTranscriptComplete = result.sourceTranscriptComplete,
-                    audioPlayed = result.audioPlayed,
-                    instantTemplateId = result.instantTemplateId,
-                    hybridObservation = hybridObservation
-                )
+        fun primaryTurnOrNull(primaryCompletedFirst: Boolean): JSONObject? {
+            val result = primaryResult ?: return null
+            val riskDecision = hybridRiskDecision()
+            val observationError = hybridFailure?.message ?: if (primaryCompletedFirst) "primary_completed_first" else null
+            val hybridObservation = hybridTranslationObservation(
+                mode = hybridMode,
+                result = hybridResult,
+                riskDecision = riskDecision,
+                selected = false,
+                error = observationError
+            )
+            if (primaryCompletedFirst) {
+                appendLog("Primary Realtime completed before hybrid decision")
+                retireHybridAndPrepare()
             }
+            val currentForDirection = synchronized(localRealtimeLock) {
+                localRealtimeTurnClients[realtimeKey]
+            }
+            if (currentForDirection !== realtime) runCatching { realtime?.close() }
+            return localRealtimeVoiceTurn(
+                direction = direction,
+                patientLanguage = patientLanguage,
+                sourceText = result.sourceText,
+                translatedText = result.translatedText,
+                sourceTranscriptComplete = result.sourceTranscriptComplete,
+                audioPlayed = result.audioPlayed,
+                instantTemplateId = result.instantTemplateId,
+                hybridObservation = hybridObservation
+            )
         }
 
+        val decisionDeadlineAt = SystemClock.elapsedRealtime() + HybridTranslationDecisionWaitMs
+        while (SystemClock.elapsedRealtime() < decisionDeadlineAt) {
+            collectHybridResultIfReady()
+            selectedHybridTurnOrNull()?.let { return it }
+
+            collectPrimaryResult(blocking = false)
+            primaryTurnOrNull(primaryCompletedFirst = !hybridHandled)?.let { return it }
+
+            if (hybridHandled) break
+            Thread.sleep(10)
+        }
+
+        collectHybridResultIfReady()
+        selectedHybridTurnOrNull()?.let { return it }
+        collectPrimaryResult(blocking = false)
+        primaryTurnOrNull(primaryCompletedFirst = !hybridHandled)?.let { return it }
+
+        if (!hybridHandled) {
+            hybridFailure = hybridFailure ?: IllegalStateException("hybrid_decision_timeout")
+            retireHybridAndPrepare()
+        }
+        collectPrimaryResult(blocking = true)
+        primaryTurnOrNull(primaryCompletedFirst = false)?.let { return it }
+
+        val hybridObservation = hybridTranslationObservation(
+            mode = hybridMode,
+            result = hybridResult,
+            riskDecision = hybridRiskDecision(),
+            selected = false,
+            error = hybridFailure?.message
+        )
         translateLocalPcmWithPreparedRealtime(
             direction,
             patientLanguage,
