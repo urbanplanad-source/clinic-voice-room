@@ -18,6 +18,24 @@ enum HospitalStatus {
   suspended
 }
 
+enum SubscriptionTier {
+  standard
+  business
+}
+
+enum SubscriptionStatus {
+  inactive
+  pending
+  active
+  in_grace_period
+  canceled
+  on_hold
+  paused
+  expired
+  revoked
+  grandfathered
+}
+
 enum HospitalSpecialty {
   dermatology
   plastic_surgery
@@ -121,6 +139,29 @@ model Hospital {
   quickPhrases               HospitalQuickPhrase[]
   translationFeedback        TranslationFeedback[]
   translationSamples         TranslationSample[]
+  subscription               HospitalSubscription?
+}
+
+model HospitalSubscription {
+  id                     String             @id @default(cuid())
+  hospitalId             String             @unique
+  hospital               Hospital           @relation(fields: [hospitalId], references: [id])
+  trialStartedAt         DateTime?          @db.Timestamptz(3)
+  trialEndsAt            DateTime?          @db.Timestamptz(3)
+  currentTier            SubscriptionTier?
+  pendingTier            SubscriptionTier?
+  pendingTierEffectiveAt DateTime?          @db.Timestamptz(3)
+  status                 SubscriptionStatus @default(inactive)
+  entitlementExpiresAt   DateTime?          @db.Timestamptz(3)
+  maxActiveDevices       Int?
+  obfuscatedAccountId    String?            @unique
+  entitlementVersion     Int                @default(1)
+  createdAt              DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@index([status, entitlementExpiresAt])
+  @@index([trialEndsAt])
+  @@index([pendingTierEffectiveAt])
 }
 
 model GlossaryEntry {

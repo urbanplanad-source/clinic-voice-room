@@ -6,6 +6,7 @@ node_modules
 .env.local
 dist
 coverage
+*.tsbuildinfo
 prisma/dev.db
 github-upload/
 .idea/
