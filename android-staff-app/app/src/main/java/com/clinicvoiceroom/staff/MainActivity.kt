@@ -228,7 +228,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.33"
+private const val AppDisplayVersion = "0.3.34"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -3437,11 +3437,24 @@ class MainActivity : ComponentActivity() {
 
                 val targetLanguageMismatch = direction == LocalDirectionPatientToKo &&
                     hasClearKoreanTargetMismatch(source, translated)
+                val requirePatientToKoreanValidation = requiresPatientToKoreanPreOutputValidation(
+                    direction = direction,
+                    isInstantTemplate = isInstantTemplate,
+                    sourceTranscriptComplete = sourceTranscriptComplete
+                )
                 val validationCandidate = !isInstantTemplate &&
                     sourceTranscriptComplete &&
-                    (targetLanguageMismatch || shouldValidateLocalTranslation(source, translated))
+                    (
+                        requirePatientToKoreanValidation ||
+                            targetLanguageMismatch ||
+                            shouldValidateLocalTranslation(source, translated)
+                    )
                 val validationRequired = validationCandidate &&
-                    (targetLanguageMismatch || shouldSynchronouslyValidateLocalTranslation(source, translated))
+                    (
+                        requirePatientToKoreanValidation ||
+                            targetLanguageMismatch ||
+                            shouldSynchronouslyValidateLocalTranslation(source, translated)
+                    )
                 val validation = when {
                     targetLanguageMismatch && !sourceTranscriptComplete -> LocalTranslationValidation(
                         checked = true,
@@ -3453,8 +3466,12 @@ class MainActivity : ComponentActivity() {
                         patientLanguage,
                         source,
                         translated,
-                        force = targetLanguageMismatch,
-                        forceReason = if (targetLanguageMismatch) "target_language_mismatch" else ""
+                        force = requirePatientToKoreanValidation || targetLanguageMismatch,
+                        forceReason = when {
+                            targetLanguageMismatch -> "target_language_mismatch"
+                            requirePatientToKoreanValidation -> "patient_to_ko_pre_output"
+                            else -> ""
+                        }
                     ).let { candidate ->
                         val usableKoreanRepair = hasUsableKoreanTargetRepair(
                             source,
@@ -3487,9 +3504,15 @@ class MainActivity : ComponentActivity() {
                     appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 의미 불일치 자동 교정")
                 }
 
-                if (validation.checked && !validation.ok && !validation.repaired) {
+                val requiredValidationUnavailable = requirePatientToKoreanValidation && !validation.checked
+                if (requiredValidationUnavailable || (validation.checked && !validation.ok && !validation.repaired)) {
                     val retryKorean = localRetryPromptKorean()
                     val retryPatient = localRetryPromptForPatientLanguage(patientLanguage)
+                    val validationFailureStatus = if (requiredValidationUnavailable) {
+                        "번역 정확성을 확인하지 못했습니다. 다시 말씀해주세요."
+                    } else {
+                        "번역 내용이 서로 맞지 않아 다시 말씀해주세요."
+                    }
                     updateState {
                         it.copy(
                             busy = false,
@@ -3500,10 +3523,16 @@ class MainActivity : ComponentActivity() {
                             localTurnDirection = direction,
                             localEngineStatus = if (experimentalMode) "검증 보류" else "",
                             localResultBadge = if (experimentalMode) "보류됨" else "",
-                            status = "번역 내용이 서로 맞지 않아 다시 말해주세요."
+                            status = validationFailureStatus
                         )
                     }
-                    appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 의미 불일치: 다시 말하기 요청")
+                    appendLog(
+                        if (requiredValidationUnavailable) {
+                            "${localModeDisplayName(snapshot.selectedRoomMode)} 필수 의미 검증 실패로 출력 보류"
+                        } else {
+                            "${localModeDisplayName(snapshot.selectedRoomMode)} 의미 불일치: 다시 말하기 요청"
+                        }
+                    )
                     return@runCatching
                 }
 

@@ -16,6 +16,55 @@ class LocalTranslationValidationPolicyTest {
     }
 
     @Test
+    fun everyCompletePatientToKoreanRealtimeTurnIsValidatedBeforeOutput() {
+        val wrongButFluentKoreanCandidates = listOf(
+            "조금 더 젊게 보이게 해주세요.",
+            "시작할게요.",
+            "힘 빼주세요."
+        )
+
+        wrongButFluentKoreanCandidates.forEach { candidate ->
+            assertFalse(
+                "Regression case should bypass the older heuristic: $candidate",
+                shouldSynchronouslyValidateLocalTranslation("目を開けてください。", candidate)
+            )
+            assertTrue(
+                "Expected pre-output validation for 目を開けてください。 -> $candidate",
+                requiresPatientToKoreanPreOutputValidation(
+                    direction = "patient_to_ko",
+                    isInstantTemplate = false,
+                    sourceTranscriptComplete = true
+                )
+            )
+        }
+    }
+
+    @Test
+    fun staffTurnsAndIncompleteTranscriptsDoNotEnableTheGlobalPatientGuard() {
+        assertFalse(
+            requiresPatientToKoreanPreOutputValidation(
+                direction = "ko_to_patient",
+                isInstantTemplate = false,
+                sourceTranscriptComplete = true
+            )
+        )
+        assertFalse(
+            requiresPatientToKoreanPreOutputValidation(
+                direction = "patient_to_ko",
+                isInstantTemplate = false,
+                sourceTranscriptComplete = false
+            )
+        )
+        assertFalse(
+            requiresPatientToKoreanPreOutputValidation(
+                direction = "patient_to_ko",
+                isInstantTemplate = true,
+                sourceTranscriptComplete = true
+            )
+        )
+    }
+
+    @Test
     fun numericTurnKeepsSynchronousValidation() {
         assertTrue(
             shouldSynchronouslyValidateLocalTranslation(

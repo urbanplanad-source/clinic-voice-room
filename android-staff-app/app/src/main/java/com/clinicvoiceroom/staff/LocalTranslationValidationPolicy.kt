@@ -109,6 +109,16 @@ internal fun hasUsableKoreanTargetRepair(
         !hasClearKoreanTargetMismatch(sourceText, correctedTranslation)
 }
 
+internal fun requiresPatientToKoreanPreOutputValidation(
+    direction: String,
+    isInstantTemplate: Boolean,
+    sourceTranscriptComplete: Boolean
+): Boolean {
+    return direction == "patient_to_ko" &&
+        !isInstantTemplate &&
+        sourceTranscriptComplete
+}
+
 internal fun shouldSynchronouslyValidateLocalTranslation(
     sourceText: String,
     translatedText: String

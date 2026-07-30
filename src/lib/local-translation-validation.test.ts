@@ -65,6 +65,9 @@ describe("local translation validation", () => {
 
     expect(instructions).toContain("questions must remain questions");
     expect(instructions).toContain("Never answer the source speaker");
+    expect(instructions).toContain("fluent, plausible clinic sentence");
+    expect(instructions).toContain("目を開けてください。");
+    expect(instructions).toContain("눈을 떠 주세요.");
     expect(instructions).toContain("correctedTranslation");
   });
 });
