@@ -10,6 +10,7 @@ import { recordTranslationSample } from "@/lib/translation-samples";
 import { normalizedTranscriptionModel } from "@/lib/openai-models";
 import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
+import { isClearlyNotKoreanTranslation } from "@/lib/translation-language-guard";
 
 type LocalDirection = "ko_to_patient" | "patient_to_ko";
 type TargetLanguage = PatientLanguage | "ko";
@@ -219,6 +220,14 @@ export async function POST(request: Request) {
     normalizedTranslatedText = normalizeClinicTranslation(translation.translatedText, targetLanguage, glossaryData);
     model = translation.model;
     guardFlags = translation.guardFlags ?? null;
+  }
+
+  if (targetLanguage === "ko" && isClearlyNotKoreanTranslation(sourceText, normalizedTranslatedText)) {
+    console.error(
+      "[local-voice-turns translation] rejected non-Korean target",
+      JSON.stringify({ staffId: staff.id, clientTurnId, direction })
+    );
+    return NextResponse.json({ error: "Korean translation validation failed" }, { status: 502 });
   }
 
   await recordLocalInterpreterUsageTurn({

@@ -91,6 +91,8 @@ function buildRealtimeTranslationInstructions(inputLanguage: PatientLanguage | "
   ].filter(Boolean).join(" ");
 }
 
+export { buildRealtimeTranslationInstructions };
+
 function isPromptCompatibilityError(detail: string) {
   return /(?:audio\.input\.transcription\.prompt|transcription\.prompt|prompt.*(?:unknown|unsupported|invalid|unrecognized)|(?:unknown|unsupported|invalid|unrecognized).*prompt)/i.test(detail);
 }
@@ -169,6 +171,7 @@ export async function createRealtimeSessionToken(params: {
     params.glossaryData?.transcriptionHints,
     params.glossaryData?.transcriptionHintMappings
   );
+  const translationInstructions = buildRealtimeTranslationInstructions(inputLanguage, outputLanguage, params.glossaryData);
   const transcriptionPromptHash = createHash("sha256").update(transcriptionPrompt).digest("hex").slice(0, 12);
   const model = normalizedRealtimeModelName(process.env.OPENAI_REALTIME_MODEL);
   const transcriptionModel = normalizedRealtimeTranscriptionModelName(process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL);
@@ -197,7 +200,7 @@ export async function createRealtimeSessionToken(params: {
           type: "realtime",
           model,
           output_modalities: outputAudio ? ["audio"] : ["text"],
-          instructions: buildRealtimeTranslationInstructions(inputLanguage, outputLanguage, params.glossaryData),
+          instructions: translationInstructions,
           audio: {
             input: {
               format: manualTurnForRequest ? { type: "audio/pcm", rate: 24000 } : undefined,
@@ -288,6 +291,7 @@ export async function createRealtimeSessionToken(params: {
     realtimeModel: model,
     realtimeTranscriptionModel: transcriptionModel,
     realtimeOutputAudio: outputAudioEnabled,
+    realtimeTurnInstructions: translationInstructions,
     realtimeTranscriptionPrompt: transcriptionPromptMeta
   };
 }

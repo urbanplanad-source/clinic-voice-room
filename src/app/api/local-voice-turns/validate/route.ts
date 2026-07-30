@@ -14,6 +14,7 @@ import { normalizedTextTranslationModel } from "@/lib/openai-models";
 import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { recordTranslationSample, stableTranslationSampleMessageId } from "@/lib/translation-samples";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
+import { isClearlyNotKoreanTranslation } from "@/lib/translation-language-guard";
 
 type ResponsesApiContent = {
   type?: string;
@@ -34,7 +35,9 @@ const schema = z.object({
   patientLanguage: z.custom<PatientLanguage>((value) => isPatientLanguage(value)),
   direction: z.enum(["ko_to_patient", "patient_to_ko"]),
   sourceText: z.string().trim().min(1).max(500),
-  translatedText: z.string().trim().min(1).max(500)
+  translatedText: z.string().trim().min(1).max(500),
+  force: z.boolean().optional().default(false),
+  forceReason: z.string().trim().max(80).optional().default("")
 });
 
 const validationRequestBudgetMs = 4_300;
@@ -146,12 +149,31 @@ export async function POST(request: Request) {
   }
 
   const { patientLanguage, direction, sourceText, translatedText } = parsed.data;
-  if (!shouldCheckShortTurn(sourceText, translatedText)) {
+  const targetLanguageMismatch = direction === "patient_to_ko" &&
+    isClearlyNotKoreanTranslation(sourceText, translatedText);
+  const forcedCheck = parsed.data.force || targetLanguageMismatch;
+  if (!forcedCheck && !shouldCheckShortTurn(sourceText, translatedText)) {
     return NextResponse.json({ checked: false, ok: true });
+  }
+  if (forcedCheck) {
+    console.info("[local-voice-turns validate] forced", JSON.stringify({
+      staffId: staff.id,
+      direction,
+      reason: targetLanguageMismatch ? "target_language_mismatch" : parsed.data.forceReason || "client_force"
+    }));
   }
 
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
+    if (targetLanguageMismatch) {
+      return NextResponse.json({
+        checked: true,
+        ok: false,
+        reason: "Korean target received foreign output and repair is unavailable",
+        repaired: false,
+        correctedTranslation: ""
+      });
+    }
     return NextResponse.json({ checked: false, ok: true, reason: "OPENAI_API_KEY is not configured" });
   }
 
@@ -163,6 +185,76 @@ export async function POST(request: Request) {
   const canonicalSourceText = direction === "ko_to_patient"
     ? normalizeClinicSourceText(sourceText, glossaryData)
     : sourceText;
+  const attemptStrictRepair = async () => {
+    const verifiedMatch = matchVerifiedSentence(canonicalSourceText, targetLanguageCode, glossaryData);
+    if (verifiedMatch) {
+      return normalizeClinicTranslation(verifiedMatch.translatedText, targetLanguageCode, glossaryData);
+    }
+
+    const directionPrompt = sourceTargetFor(role, patientLanguage);
+    const repairInstructions = [
+      "You are a professional medical interpreter for a Korean dermatology and plastic-surgery clinic.",
+      `Source language: ${sourceLanguage}.`,
+      `Target language: ${targetLanguage}.`,
+      directionPrompt.instructions,
+      "Preserve the speech act exactly: questions must remain questions, requests must remain requests, and statements must remain statements.",
+      "Never answer the speaker, predict the other participant's reply, or continue the conversation.",
+      "Preserve clinical meaning, numbers, body parts, brands, and safety instructions.",
+      "Return only the faithful translated text, with no label, quote, explanation, or commentary.",
+      buildClinicGlossaryInstructions(patientLanguage, glossaryData)
+    ].join("\n");
+    const repairTimeoutMs = deadlineAt - Date.now();
+    if (repairTimeoutMs < 500) return "";
+
+    try {
+      const repaired = await translateWithOpenAITextSafety({
+        apiKey,
+        safetyIdentifier: `clinic-voice-room-local-repair-${staff.hospitalId}-${staff.id}-${direction}`,
+        sourceText: canonicalSourceText,
+        instructions: repairInstructions,
+        glossaryData,
+        errorLabel: "[local-voice-turns repair]",
+        context: "local-voice-turns-repair",
+        forceStandard: true,
+        timeoutMs: repairTimeoutMs
+      });
+      return normalizeClinicTranslation(repaired.translatedText, targetLanguageCode, glossaryData);
+    } catch (caught) {
+      console.error("[local-voice-turns repair]", caught);
+      return "";
+    }
+  };
+
+  if (targetLanguageMismatch) {
+    const correctedTranslation = await attemptStrictRepair();
+    const repairSucceeded = Boolean(correctedTranslation) &&
+      !isClearlyNotKoreanTranslation(canonicalSourceText, correctedTranslation);
+    const reason = repairSucceeded
+      ? "Korean target received foreign output and was repaired"
+      : "Korean target received foreign output and repair failed";
+
+    if (repairSucceeded) {
+      await recordValidatedLocalSample({
+        staff,
+        patientLanguage,
+        direction,
+        sourceText,
+        canonicalSourceText,
+        translatedText: correctedTranslation,
+        validation: { checked: true, ok: false, reason, repaired: true }
+      });
+    }
+
+    return NextResponse.json({
+      checked: true,
+      ok: false,
+      reason,
+      repaired: repairSucceeded,
+      correctedTranslation: repairSucceeded ? correctedTranslation : "",
+      canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : ""
+    });
+  }
+
   const model = normalizedTextTranslationModel(process.env.OPENAI_TEXT_TRANSLATION_MODEL);
   const instructions = buildLocalTranslationValidationInstructions({
     sourceLanguage,
@@ -241,48 +333,12 @@ export async function POST(request: Request) {
 
   let resolved = resolveLocalTranslation(translatedText, result);
   if (!result.ok && !resolved.repaired) {
-    const verifiedMatch = matchVerifiedSentence(canonicalSourceText, targetLanguageCode, glossaryData);
-    if (verifiedMatch) {
+    const repairedTranslation = await attemptStrictRepair();
+    if (repairedTranslation) {
       resolved = {
-        translatedText: normalizeClinicTranslation(verifiedMatch.translatedText, targetLanguageCode, glossaryData),
+        translatedText: repairedTranslation,
         repaired: true
       };
-    } else {
-      const directionPrompt = sourceTargetFor(role, patientLanguage);
-      const repairInstructions = [
-        "You are a professional medical interpreter for a Korean dermatology and plastic-surgery clinic.",
-        `Source language: ${sourceLanguage}.`,
-        `Target language: ${targetLanguage}.`,
-        directionPrompt.instructions,
-        "Preserve the speech act exactly: questions must remain questions, requests must remain requests, and statements must remain statements.",
-        "Never answer the speaker, predict the other participant's reply, or continue the conversation.",
-        "Preserve clinical meaning, numbers, body parts, brands, and safety instructions.",
-        "Return only the faithful translated text, with no label, quote, explanation, or commentary.",
-        buildClinicGlossaryInstructions(patientLanguage, glossaryData)
-      ].join("\n");
-      const repairTimeoutMs = deadlineAt - Date.now();
-
-      if (repairTimeoutMs >= 500) {
-        try {
-          const repaired = await translateWithOpenAITextSafety({
-            apiKey,
-            safetyIdentifier: `clinic-voice-room-local-repair-${staff.hospitalId}-${staff.id}-${direction}`,
-            sourceText: canonicalSourceText,
-            instructions: repairInstructions,
-            glossaryData,
-            errorLabel: "[local-voice-turns repair]",
-            context: "local-voice-turns-repair",
-            forceStandard: true,
-            timeoutMs: repairTimeoutMs
-          });
-          resolved = {
-            translatedText: normalizeClinicTranslation(repaired.translatedText, targetLanguageCode, glossaryData),
-            repaired: true
-          };
-        } catch (caught) {
-          console.error("[local-voice-turns repair]", caught);
-        }
-      }
     }
   } else if (resolved.repaired) {
     resolved = {

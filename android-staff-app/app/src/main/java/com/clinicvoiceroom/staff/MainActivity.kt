@@ -228,7 +228,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.32"
+private const val AppDisplayVersion = "0.3.33"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -244,6 +244,7 @@ private const val RealtimeInstantTemplateProbeMs = 240L
 private const val RealtimeInputTranscriptFastWaitMs = 250L
 private const val RealtimeInputTranscriptNumericWaitMs = 650L
 private const val RealtimeInputTranscriptRepairWaitMs = 2400L
+private const val RealtimeCommittedItemWaitMs = 750L
 private const val ExperimentalRealtimeTurnWaitMs = 5000L
 private const val ExperimentalRealtimeOutputQuietMs = 500L
 private const val ExperimentalRealtimeInstantTemplateProbeMs = 220L
@@ -268,6 +269,7 @@ private const val LocalValidationMaxSourceWords = 3
 private const val LocalSummaryMaxTurns = 80
 private const val TtsSpeechUtterancePrefix = "cvr-speak"
 private const val TtsWarmUtterancePrefix = "cvr-warm"
+private const val DefaultRealtimeTurnInstructions = "Translate only the current committed audio into the session's configured target language. Output only the faithful translation. Preserve whether it is a question, request, or statement. Never answer the speaker, predict the other participant's reply, or continue the conversation."
 private val DirectFootpadKeyCodes = setOf(
     KeyEvent.KEYCODE_SPACE,
     KeyEvent.KEYCODE_ENTER,
@@ -494,7 +496,8 @@ private class PersistentCookieJar(private val preferences: SharedPreferences) : 
 private data class RealtimeToken(
     val value: String,
     val model: String,
-    val outputAudio: Boolean = false
+    val outputAudio: Boolean = false,
+    val turnInstructions: String = DefaultRealtimeTurnInstructions
 )
 
 private data class RealtimeTurnResult(
@@ -557,6 +560,7 @@ private class AndroidRealtimeTurnClient(
     private var webSocket: WebSocket? = null
     private var openLatch = CountDownLatch(1)
     private var turnDoneLatch = CountDownLatch(1)
+    private var committedInputLatch = CountDownLatch(1)
     private val errorRef = AtomicReference<Throwable?>(null)
     private val outputText = StringBuilder()
     private val inputText = StringBuilder()
@@ -572,7 +576,14 @@ private class AndroidRealtimeTurnClient(
     private var inputTranscriptItemId: String? = null
     @Volatile
     private var committedInputItemId: String? = null
+    @Volatile
+    private var commitRequested = false
     private val retiredInputItemIds = linkedSetOf<String>()
+    private val turnSequence = AtomicInteger(0)
+    @Volatile
+    private var currentTurnId = ""
+    @Volatile
+    private var activeResponseId: String? = null
     @Volatile
     private var responseRequestedAt = 0L
     @Volatile
@@ -634,12 +645,26 @@ private class AndroidRealtimeTurnClient(
     fun startTurn() {
         connect()
         releaseOutputAudioTrack()
+        val previousTurnId = currentTurnId
+        activeResponseId?.takeIf { it.isNotBlank() }?.let { responseId ->
+            send(
+                JSONObject()
+                    .put("event_id", "response-cancel-$previousTurnId")
+                    .put("type", "response.cancel")
+                    .put("response_id", responseId)
+            )
+        }
+        committedInputItemId?.let(::retireInputItem)
         synchronized(this) {
             outputText.clear()
             inputText.clear()
             inputTranscriptItemId = null
             committedInputItemId = null
         }
+        committedInputLatch = CountDownLatch(1)
+        commitRequested = false
+        currentTurnId = "android-${SystemClock.elapsedRealtime()}-${turnSequence.incrementAndGet()}"
+        activeResponseId = null
         responseDone = false
         inputTranscriptDone = false
         responseRequestedAt = 0L
@@ -670,9 +695,20 @@ private class AndroidRealtimeTurnClient(
 
         val useDirectAudio = token.outputAudio
         if (useDirectAudio && shouldPlayDirectAudio()) ensureOutputAudioTrack()
-        send(JSONObject().put("type", "input_audio_buffer.commit"))
+        commitRequested = true
+        send(
+            JSONObject()
+                .put("event_id", "input-commit-$currentTurnId")
+                .put("type", "input_audio_buffer.commit")
+        )
         waitForInstantTemplateMatch(instantTemplateResolver, timing.instantTemplateProbeMs)?.let { match ->
-            deleteCommittedInputItemForInstantTemplate()
+            val itemId = waitForCommittedInputItem(RealtimeCommittedItemWaitMs)
+            if (itemId == null) {
+                log("Local instant template input item delete skipped: missing item id")
+            } else {
+                retireInputItem(itemId)
+            }
+            currentTurnId = ""
             log("Local instant template matched: ${match.templateId}")
             return RealtimeTurnResult(
                 sourceText = match.sourceText,
@@ -682,65 +718,97 @@ private class AndroidRealtimeTurnClient(
                 instantTemplateId = match.templateId
             )
         }
+        val committedItemId = waitForCommittedInputItem(RealtimeCommittedItemWaitMs)
+            ?: run {
+                currentTurnId = ""
+                error("Realtime input commit was not acknowledged")
+            }
+        val turnId = currentTurnId
+        val responsePayload = JSONObject()
+            .put("conversation", "none")
+            .put("metadata", JSONObject().put("client_turn_id", turnId))
+            .put("output_modalities", JSONArray().put(if (useDirectAudio) "audio" else "text"))
+            .put("instructions", token.turnInstructions.ifBlank { DefaultRealtimeTurnInstructions })
+            .put(
+                "input",
+                JSONArray().put(
+                    JSONObject()
+                        .put("type", "item_reference")
+                        .put("id", committedItemId)
+                )
+            )
+        markResponseStarted()
         send(
             JSONObject()
+                .put("event_id", "response-create-$turnId")
                 .put("type", "response.create")
-                .put(
-                    "response",
-                    JSONObject().put("output_modalities", JSONArray().put(if (useDirectAudio) "audio" else "text"))
-                )
+                .put("response", responsePayload)
         )
-        markResponseStarted()
 
-        val deadlineAt = System.currentTimeMillis() + timing.timeoutMs
-        val doneLatch = turnDoneLatch
-        var lastLength = -1
-        var stableSince = 0L
-        while (System.currentTimeMillis() < deadlineAt) {
-            errorRef.get()?.let { throw it }
-            val length = synchronized(this) { outputText.length }
-            val now = System.currentTimeMillis()
-            var shouldFinish = false
-            if (length > 0) {
-                if (length != lastLength) {
-                    lastLength = length
-                    stableSince = now
+        try {
+            val deadlineAt = System.currentTimeMillis() + timing.timeoutMs
+            val doneLatch = turnDoneLatch
+            var lastLength = -1
+            var stableSince = 0L
+            while (System.currentTimeMillis() < deadlineAt) {
+                errorRef.get()?.let { throw it }
+                val length = synchronized(this) { outputText.length }
+                val now = System.currentTimeMillis()
+                var shouldFinish = false
+                if (length > 0) {
+                    if (length != lastLength) {
+                        lastLength = length
+                        stableSince = now
+                    }
+                    shouldFinish = responseDone || now - stableSince >= timing.outputQuietMs
+                } else if (responseDone) {
+                    shouldFinish = true
                 }
-                shouldFinish = responseDone || now - stableSince >= timing.outputQuietMs
-            } else if (responseDone) {
-                shouldFinish = true
-            }
-            if (shouldFinish) break
+                if (shouldFinish) break
 
-            val waitMs = if (length > 0 && stableSince > 0L) {
-                (timing.outputQuietMs - (now - stableSince)).coerceIn(1L, 50L)
-            } else {
-                (deadlineAt - now).coerceIn(1L, 50L)
+                val waitMs = if (length > 0 && stableSince > 0L) {
+                    (timing.outputQuietMs - (now - stableSince)).coerceIn(1L, 50L)
+                } else {
+                    (deadlineAt - now).coerceIn(1L, 50L)
+                }
+                doneLatch.await(waitMs, TimeUnit.MILLISECONDS)
             }
-            doneLatch.await(waitMs, TimeUnit.MILLISECONDS)
+            errorRef.get()?.let { throw it }
+            val translated = synchronized(this) { outputText.toString().trim() }
+            if (translated.isBlank()) error("Realtime returned no translated text")
+            val sourceTranscriptComplete = waitForInputTranscriptIfNeeded(
+                timing.inputTranscriptFastWaitMs,
+                timing.inputTranscriptNumericWaitMs,
+                timing.inputTranscriptRepairWaitMs,
+                translated
+            )
+            val rawSourceText = synchronized(this) { inputText.toString().trim() }
+            val cleanedSourceText = hideUnsafeReplacementCharacters(repairKoreanClinicTextArtifacts(rawSourceText))
+                .replace(Regex("\\s{2,}"), " ")
+                .trim()
+            val responseAnchor = if (responseRequestedAt > 0L) responseRequestedAt else turnStartedAt
+            log("Realtime local result ${SystemClock.elapsedRealtime() - responseAnchor}ms")
+
+            return RealtimeTurnResult(
+                sourceText = cleanedSourceText.ifBlank { rawSourceText },
+                translatedText = translated,
+                sourceTranscriptComplete = sourceTranscriptComplete && !cleanedSourceText.contains('\uFFFD'),
+                audioPlayed = outputAudioPlayed
+            )
+        } finally {
+            val responseId = activeResponseId
+            if (!responseDone && !responseId.isNullOrBlank()) {
+                send(
+                    JSONObject()
+                        .put("event_id", "response-cancel-$turnId")
+                        .put("type", "response.cancel")
+                        .put("response_id", responseId)
+                )
+            }
+            retireInputItem(committedItemId)
+            activeResponseId = null
+            currentTurnId = ""
         }
-        errorRef.get()?.let { throw it }
-        val translated = synchronized(this) { outputText.toString().trim() }
-        if (translated.isBlank()) error("Realtime returned no translated text")
-        val sourceTranscriptComplete = waitForInputTranscriptIfNeeded(
-            timing.inputTranscriptFastWaitMs,
-            timing.inputTranscriptNumericWaitMs,
-            timing.inputTranscriptRepairWaitMs,
-            translated
-        )
-        val rawSourceText = synchronized(this) { inputText.toString().trim() }
-        val cleanedSourceText = hideUnsafeReplacementCharacters(repairKoreanClinicTextArtifacts(rawSourceText))
-            .replace(Regex("\\s{2,}"), " ")
-            .trim()
-        val responseAnchor = if (responseRequestedAt > 0L) responseRequestedAt else turnStartedAt
-        log("Realtime local result ${SystemClock.elapsedRealtime() - responseAnchor}ms")
-
-        return RealtimeTurnResult(
-            sourceText = cleanedSourceText.ifBlank { rawSourceText },
-            translatedText = translated,
-            sourceTranscriptComplete = sourceTranscriptComplete && !cleanedSourceText.contains('\uFFFD'),
-            audioPlayed = outputAudioPlayed
-        )
     }
 
     fun close() {
@@ -760,12 +828,14 @@ private class AndroidRealtimeTurnClient(
             val event = JSONObject(text)
             when (val type = event.optString("type")) {
                 "response.created" -> {
+                    if (!acceptResponseCreated(event)) return@runCatching
                     markResponseStarted()
                 }
 
                 "session.output_transcript.delta",
                 "response.output_audio_transcript.delta",
                 "response.output_text.delta" -> {
+                    if (!shouldAcceptResponseEvent(event)) return@runCatching
                     markResponseStarted()
                     if (type == "response.output_audio_transcript.delta" && !firstOutputLogged) {
                         log("Realtime audio transcript event received")
@@ -785,11 +855,13 @@ private class AndroidRealtimeTurnClient(
                 }
 
                 "response.output_audio.delta" -> {
+                    if (!shouldAcceptResponseEvent(event)) return@runCatching
                     markResponseStarted()
                     playOutputAudioDelta(event.optString("delta"))
                 }
 
                 "response.output_audio.done" -> {
+                    if (!shouldAcceptResponseEvent(event)) return@runCatching
                     markResponseStarted()
                     log("Realtime output audio done")
                 }
@@ -797,6 +869,7 @@ private class AndroidRealtimeTurnClient(
                 "session.output_transcript.done",
                 "response.output_audio_transcript.done",
                 "response.output_text.done" -> {
+                    if (!shouldAcceptResponseEvent(event)) return@runCatching
                     markResponseStarted()
                     if (type == "response.output_audio_transcript.done") {
                         log("Realtime audio transcript done received")
@@ -811,6 +884,7 @@ private class AndroidRealtimeTurnClient(
                 }
 
                 "response.content_part.done" -> {
+                    if (!shouldAcceptResponseEvent(event)) return@runCatching
                     markResponseStarted()
                     val finalText = event.optJSONObject("part")?.optString("text").orEmpty()
                     if (finalText.isNotBlank()) synchronized(this) {
@@ -820,6 +894,7 @@ private class AndroidRealtimeTurnClient(
                 }
 
                 "response.output_item.done" -> {
+                    if (!shouldAcceptResponseEvent(event)) return@runCatching
                     markResponseStarted()
                     val finalText = collectRealtimeItemText(event.optJSONObject("item"))
                     if (finalText.isNotBlank()) synchronized(this) {
@@ -845,13 +920,24 @@ private class AndroidRealtimeTurnClient(
                 }
 
                 "response.done" -> {
+                    if (!shouldAcceptResponseEvent(event)) return@runCatching
                     markResponseStarted()
                     responseDone = true
                     turnDoneLatch.countDown()
                 }
 
                 "error" -> {
-                    val message = event.optJSONObject("error")?.optString("message")
+                    val error = event.optJSONObject("error")
+                    val clientEventId = error?.optString("event_id").orEmpty()
+                    if (
+                        clientEventId.isNotBlank() &&
+                        currentTurnId.isNotBlank() &&
+                        !clientEventId.contains(currentTurnId)
+                    ) {
+                        log("Realtime stale error ignored: $clientEventId")
+                        return@runCatching
+                    }
+                    val message = error?.optString("message")
                         ?: "Realtime API error"
                     errorRef.set(IllegalStateException(message))
                     turnDoneLatch.countDown()
@@ -859,7 +945,14 @@ private class AndroidRealtimeTurnClient(
                 }
 
                 "input_audio_buffer.committed" -> {
-                    committedInputItemId = event.optString("item_id").takeIf { it.isNotBlank() }
+                    val itemId = event.optString("item_id").takeIf { it.isNotBlank() }
+                    if (currentTurnId.isNotBlank() && commitRequested && committedInputItemId == null && itemId != null) {
+                        committedInputItemId = itemId
+                        commitRequested = false
+                        committedInputLatch.countDown()
+                    } else if (itemId != null) {
+                        retireInputItem(itemId)
+                    }
                     log("Realtime event: $type")
                 }
 
@@ -872,10 +965,30 @@ private class AndroidRealtimeTurnClient(
         }
     }
 
+    private fun acceptResponseCreated(event: JSONObject): Boolean {
+        val response = event.optJSONObject("response") ?: return false
+        val eventTurnId = response.optJSONObject("metadata")?.optString("client_turn_id").orEmpty()
+        if (currentTurnId.isBlank() || eventTurnId != currentTurnId) {
+            log("Realtime stale response.created ignored: ${response.optString("id")}")
+            return false
+        }
+
+        val responseId = response.optString("id")
+        if (responseId.isBlank()) return false
+        activeResponseId = responseId
+        return true
+    }
+
+    private fun shouldAcceptResponseEvent(event: JSONObject): Boolean {
+        val eventResponseId = event.optString("response_id")
+            .ifBlank { event.optJSONObject("response")?.optString("id").orEmpty() }
+        return matchesRealtimeResponseId(activeResponseId, eventResponseId)
+    }
+
     private fun shouldAcceptInputTranscriptEvent(event: JSONObject): Boolean {
         val itemId = event.optString("item_id")
             .ifBlank { event.optJSONObject("item")?.optString("id").orEmpty() }
-        if (itemId.isBlank()) return true
+        if (itemId.isBlank()) return false
         synchronized(this) {
             if (retiredInputItemIds.contains(itemId)) return false
             val currentItemId = inputTranscriptItemId
@@ -1012,12 +1125,15 @@ private class AndroidRealtimeTurnClient(
         return null
     }
 
-    private fun deleteCommittedInputItemForInstantTemplate() {
-        val itemId = synchronized(this) { committedInputItemId ?: inputTranscriptItemId }.orEmpty()
-        if (itemId.isBlank()) {
-            log("Local instant template input item delete skipped: missing item id")
-            return
+    private fun waitForCommittedInputItem(timeoutMs: Long): String? {
+        committedInputItemId?.let { return it }
+        committedInputLatch.await(timeoutMs, TimeUnit.MILLISECONDS)
+        return committedInputItemId.also {
+            if (it == null) commitRequested = false
         }
+    }
+
+    private fun retireInputItem(itemId: String) {
         synchronized(this) {
             retiredInputItemIds.add(itemId)
             while (retiredInputItemIds.size > 8) {
@@ -1027,6 +1143,7 @@ private class AndroidRealtimeTurnClient(
         }
         send(
             JSONObject()
+                .put("event_id", "conversation-delete-$currentTurnId")
                 .put("type", "conversation.item.delete")
                 .put("item_id", itemId)
         )
@@ -2900,7 +3017,9 @@ class MainActivity : ComponentActivity() {
         return RealtimeToken(
             value = value,
             model = token.optString("realtimeModel", "gpt-realtime").ifBlank { "gpt-realtime" },
-            outputAudio = token.optBoolean("realtimeOutputAudio", false)
+            outputAudio = token.optBoolean("realtimeOutputAudio", false),
+            turnInstructions = token.optString("realtimeTurnInstructions")
+                .ifBlank { DefaultRealtimeTurnInstructions }
         )
     }
 
@@ -3316,15 +3435,45 @@ class MainActivity : ComponentActivity() {
                 val speaker = if (direction == LocalDirectionKoToPatient) "staff" else "patient"
                 prepareLocalRealtimeTurnClientsAsync(patientLanguage)
 
+                val targetLanguageMismatch = direction == LocalDirectionPatientToKo &&
+                    hasClearKoreanTargetMismatch(source, translated)
                 val validationCandidate = !isInstantTemplate &&
                     sourceTranscriptComplete &&
-                    shouldValidateLocalTranslation(source, translated)
+                    (targetLanguageMismatch || shouldValidateLocalTranslation(source, translated))
                 val validationRequired = validationCandidate &&
-                    shouldSynchronouslyValidateLocalTranslation(source, translated)
-                val validation = if (validationRequired) {
-                    validateLocalTranslation(direction, patientLanguage, source, translated)
-                } else {
-                    LocalTranslationValidation()
+                    (targetLanguageMismatch || shouldSynchronouslyValidateLocalTranslation(source, translated))
+                val validation = when {
+                    targetLanguageMismatch && !sourceTranscriptComplete -> LocalTranslationValidation(
+                        checked = true,
+                        ok = false,
+                        reason = "Korean target received foreign output with an incomplete source transcript"
+                    )
+                    validationRequired -> validateLocalTranslation(
+                        direction,
+                        patientLanguage,
+                        source,
+                        translated,
+                        force = targetLanguageMismatch,
+                        forceReason = if (targetLanguageMismatch) "target_language_mismatch" else ""
+                    ).let { candidate ->
+                        val usableKoreanRepair = hasUsableKoreanTargetRepair(
+                            source,
+                            candidate.repaired,
+                            candidate.correctedTranslation
+                        )
+                        if (targetLanguageMismatch && !usableKoreanRepair) {
+                            LocalTranslationValidation(
+                                checked = true,
+                                ok = false,
+                                reason = candidate.reason.ifBlank {
+                                    "Korean target received foreign output and repair did not complete"
+                                }
+                            )
+                        } else {
+                            candidate
+                        }
+                    }
+                    else -> LocalTranslationValidation()
                 }
                 if (sourceLanguage == "ko" && validation.canonicalSourceText.isNotBlank()) {
                     val canonicalSource = normalizeKoreanSourceText(validation.canonicalSourceText)
@@ -3466,9 +3615,11 @@ class MainActivity : ComponentActivity() {
         direction: String,
         patientLanguage: String,
         sourceText: String,
-        translatedText: String
+        translatedText: String,
+        force: Boolean = false,
+        forceReason: String = ""
     ): LocalTranslationValidation {
-        if (!shouldValidateLocalTranslation(sourceText, translatedText)) return LocalTranslationValidation()
+        if (!force && !shouldValidateLocalTranslation(sourceText, translatedText)) return LocalTranslationValidation()
 
         return runCatching {
             val backend = normalizedBackendUrl(uiState.value.backendUrl)
@@ -3477,6 +3628,8 @@ class MainActivity : ComponentActivity() {
                 .put("patientLanguage", patientLanguage)
                 .put("sourceText", sourceText)
                 .put("translatedText", translatedText)
+                .put("force", force)
+                .put("forceReason", forceReason)
                 .toString()
             val data = postJsonWithTimeout("$backend/api/local-voice-turns/validate", payload, LocalValidationTimeoutMs)
             val checked = data.optBoolean("checked", false)

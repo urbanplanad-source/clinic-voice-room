@@ -16,6 +16,7 @@ import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
 import { broadcastServerTranslationMessage } from "@/lib/supabase-realtime-server";
 import { recordTranslationSample } from "@/lib/translation-samples";
+import { isClearlyNotKoreanTranslation } from "@/lib/translation-language-guard";
 
 type TargetLanguage = PatientLanguage | "ko";
 
@@ -156,6 +157,8 @@ async function translateSourceText(params: {
     "Translate the user's spoken consultation message accurately and naturally.",
     `Target language: ${targetLabel}.`,
     direction.instructions,
+    "Preserve the speech act exactly: questions must remain questions, requests must remain requests, and statements must remain statements.",
+    "Never answer the speaker, predict the other participant's reply, or continue the conversation.",
     "Preserve the original clinical meaning. Do not add advice, diagnosis, consent language, or extra explanation.",
     "If the source text is ambiguous, keep the translation concise and neutral rather than guessing.",
     "Return only the translated text. No labels, quotes, markdown, or commentary.",
@@ -185,6 +188,13 @@ async function translateSourceText(params: {
   }
 
   const translatedText = normalizeClinicTranslation(translation.translatedText, targetLanguage, params.glossaryData);
+  if (targetLanguage === "ko" && isClearlyNotKoreanTranslation(params.sourceText, translatedText)) {
+    console.error(
+      "[consultation-voice-turns translation] rejected non-Korean target",
+      JSON.stringify({ roomId: params.roomId, role: params.role })
+    );
+    return { response: NextResponse.json({ error: "Korean translation validation failed" }, { status: 502 }) };
+  }
   const guardFlags = mergeGuardFlags(
     translation.guardFlags,
     pendingBackTranslationGuard({
@@ -226,8 +236,45 @@ async function handleRealtimeStaffMessage(request: Request) {
   let model = "realtime";
   let translationSource: "realtime" | "llm" | "verified" = "realtime";
   let guardFlags: GuardFlags | undefined;
+  let repairedTargetLanguage = false;
 
-  if (numberGuardEnabled() && parsed.data.sourceText && parsed.data.sourceTranscriptComplete) {
+  const targetLanguageMismatch =
+    parsed.data.role === "patient" &&
+    isClearlyNotKoreanTranslation(parsed.data.sourceText, normalizedText);
+
+  if (targetLanguageMismatch) {
+    if (!parsed.data.sourceText || !parsed.data.sourceTranscriptComplete) {
+      console.warn(
+        "[consultation-voice-turns realtime target-language] blocked without complete source transcript",
+        JSON.stringify({ roomId: parsed.data.roomId, messageId: parsed.data.messageId })
+      );
+      return NextResponse.json(
+        { error: "Complete source transcript is required to repair the Korean translation" },
+        { status: 422 }
+      );
+    }
+
+    const retry = await translateSourceText({
+      roomId: parsed.data.roomId,
+      role: parsed.data.role,
+      patientLanguage: parsed.data.patientLanguage,
+      sourceText: parsed.data.sourceText,
+      glossaryData
+    });
+    if (retry.response) return retry.response;
+
+    normalizedText = retry.translatedText;
+    model = retry.model;
+    guardFlags = retry.guardFlags;
+    translationSource = retry.translationSource;
+    repairedTargetLanguage = true;
+    console.warn(
+      "[consultation-voice-turns realtime target-language] repaired before persist",
+      JSON.stringify({ roomId: parsed.data.roomId, messageId: parsed.data.messageId, model })
+    );
+  }
+
+  if (!repairedTargetLanguage && numberGuardEnabled() && parsed.data.sourceText && parsed.data.sourceTranscriptComplete) {
     try {
       const comparison = compareNumericSignatures(parsed.data.sourceText, parsed.data.translatedText);
       if (!comparison.ok) {

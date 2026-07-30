@@ -6,6 +6,7 @@ import { AlertTriangle, CheckCircle2, Loader2, Mic, PhoneOff } from "lucide-reac
 import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
 import { normalizeClinicTranslation } from "@/lib/clinic-glossary";
+import { isClearlyNotKoreanTranslation } from "@/lib/translation-language-guard";
 import type { GuardFlags } from "@/lib/guard-flags";
 import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
 import { speechLanguageByPatientLanguage } from "@/lib/speech";
@@ -874,7 +875,13 @@ function ProcedureVoiceRoom({
       }, {
         onStatus: setRealtimeStatus,
         onTranscriptDelta: (text) => {
-          setTranslationDraft(normalizeClinicTranslation(text, role === "staff" ? room.patientLanguage : "ko"));
+          const targetLanguage = role === "staff" ? room.patientLanguage : "ko";
+          const normalizedText = normalizeClinicTranslation(text, targetLanguage);
+          setTranslationDraft(
+            targetLanguage === "ko" && isClearlyNotKoreanTranslation("", normalizedText)
+              ? ""
+              : normalizedText
+          );
         },
         onInputTranscriptDelta: setInputTranscriptDraft,
         onFirstOutputDelta: () => {
