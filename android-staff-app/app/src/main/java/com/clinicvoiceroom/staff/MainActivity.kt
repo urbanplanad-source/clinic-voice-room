@@ -228,7 +228,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.30"
+private const val AppDisplayVersion = "0.3.31"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -545,7 +545,7 @@ private val RealtimeNumericCuePattern = Regex(
     setOf(RegexOption.IGNORE_CASE)
 )
 
-private fun translatedTextContainsNumericCue(text: String): Boolean = RealtimeNumericCuePattern.containsMatchIn(text)
+internal fun translatedTextContainsNumericCue(text: String): Boolean = RealtimeNumericCuePattern.containsMatchIn(text)
 
 private class AndroidRealtimeTurnClient(
     private val http: OkHttpClient,
@@ -3315,9 +3315,11 @@ class MainActivity : ComponentActivity() {
                 val speaker = if (direction == LocalDirectionKoToPatient) "staff" else "patient"
                 prepareLocalRealtimeTurnClientsAsync(patientLanguage)
 
-                val validationRequired = !isInstantTemplate &&
+                val validationCandidate = !isInstantTemplate &&
                     sourceTranscriptComplete &&
                     shouldValidateLocalTranslation(source, translated)
+                val validationRequired = validationCandidate &&
+                    shouldSynchronouslyValidateLocalTranslation(source, translated)
                 val validation = if (validationRequired) {
                     validateLocalTranslation(direction, patientLanguage, source, translated)
                 } else {
@@ -3360,7 +3362,7 @@ class MainActivity : ComponentActivity() {
                         sourceText = source,
                         translatedText = translated,
                         sourceTranscriptComplete = sourceTranscriptComplete,
-                        recordSample = !validationRequired || validation.checked,
+                        recordSample = !validationCandidate || validation.checked,
                         model = finalModel
                     )
                 }
@@ -3417,6 +3419,9 @@ class MainActivity : ComponentActivity() {
                     } else {
                         speakKoreanText(translated)
                     }
+                }
+                if (validationCandidate && !validationRequired) {
+                    validateLocalTranslationAsync(direction, patientLanguage, source, translated)
                 }
                 appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 완료")
             }.onFailure { caught ->
@@ -3485,6 +3490,21 @@ class MainActivity : ComponentActivity() {
         }.onFailure {
             appendLog("Local consistency skipped: ${it.message}")
         }.getOrDefault(LocalTranslationValidation())
+    }
+
+    private fun validateLocalTranslationAsync(
+        direction: String,
+        patientLanguage: String,
+        sourceText: String,
+        translatedText: String
+    ) {
+        sessionExecutor.execute {
+            val validation = validateLocalTranslation(direction, patientLanguage, sourceText, translatedText)
+            if (validation.checked) {
+                val result = if (validation.ok) "ok" else if (validation.repaired) "repair-candidate" else "unresolved"
+                appendLog("Local background consistency $result")
+            }
+        }
     }
 
     private fun shouldValidateLocalTranslation(sourceText: String, translatedText: String): Boolean {
