@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
-import { clearGlossaryCache } from "@/lib/glossary-service";
+import { clearGlossaryCache, findGlossaryAliasConflict } from "@/lib/glossary-service";
 import { hospitalSpecialties } from "@/lib/hospital-specialty";
 
 const glossaryScopes = ["global", "specialty", "hospital"] as const;
@@ -182,9 +182,9 @@ function entryToCsvRow(entry: {
   }).join(",");
 }
 
-async function upsertCsvEntry(payload: GlossaryPayload, admin: GlossaryAdmin) {
+async function upsertCsvEntry(database: Prisma.TransactionClient, payload: GlossaryPayload, admin: GlossaryAdmin) {
   const data = normalizePayloadForRole(payload, admin);
-  const existing = await prisma.glossaryEntry.findFirst({
+  const existing = await database.glossaryEntry.findFirst({
     where: {
       scope: data.scope,
       entryType: data.entryType,
@@ -195,13 +195,20 @@ async function upsertCsvEntry(payload: GlossaryPayload, admin: GlossaryAdmin) {
     },
     select: { id: true }
   });
+  const conflict = await findGlossaryAliasConflict({
+    entryType: data.entryType,
+    standardKo: data.standardKo,
+    spokenForms: data.spokenForms,
+    excludeId: existing?.id
+  }, database);
+  if (conflict) throw new Error(`${conflict.spokenForm} is already mapped to ${conflict.standardKo}`);
 
   if (existing) {
-    await prisma.glossaryEntry.update({ where: { id: existing.id }, data });
+    await database.glossaryEntry.update({ where: { id: existing.id }, data });
     return "updated" as const;
   }
 
-  await prisma.glossaryEntry.create({ data });
+  await database.glossaryEntry.create({ data });
   return "created" as const;
 }
 
@@ -245,14 +252,29 @@ export async function POST(request: Request) {
     const rows = parseCsv(await request.text());
     const [headers, ...bodyRows] = rows;
     if (!headers?.length) return NextResponse.json({ error: "Invalid CSV" }, { status: 400 });
-
-    const stats = { created: 0, updated: 0 };
-    for (const row of bodyRows) {
-      const result = await upsertCsvEntry(payloadFromCsvRow(headers, row), admin);
-      stats[result] += 1;
+    const normalizedHeaders = headers.map((header, index) => (index === 0 ? header.replace(/^\uFEFF/, "") : header).trim());
+    const nonEmptyRows = bodyRows.filter((row) => row.some((value) => value.trim().length > 0));
+    if (nonEmptyRows.length > 500) {
+      return NextResponse.json({ error: "CSV imports are limited to 500 rows" }, { status: 400 });
     }
-    clearGlossaryCache();
-    return NextResponse.json({ imported: bodyRows.length, ...stats });
+
+    try {
+      const payloads = nonEmptyRows.map((row) => payloadFromCsvRow(normalizedHeaders, row));
+      const stats = await prisma.$transaction(async (transaction) => {
+        const resultStats = { created: 0, updated: 0 };
+        for (const payload of payloads) {
+          const result = await upsertCsvEntry(transaction, payload, admin);
+          resultStats[result] += 1;
+        }
+        return resultStats;
+      }, { timeout: 30_000 });
+      clearGlossaryCache();
+      return NextResponse.json({ imported: payloads.length, ...stats });
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "CSV glossary conflict";
+      const status = message.includes("already mapped") ? 409 : 400;
+      return NextResponse.json({ error: message }, { status });
+    }
   }
 
   const parsed = glossaryPayloadSchema.safeParse(await request.json().catch(() => null));
@@ -263,6 +285,17 @@ export async function POST(request: Request) {
   const data = normalizePayloadForRole(parsed.data, admin);
   if (data.scope === "hospital" && !data.hospitalId) {
     return NextResponse.json({ error: "hospitalId is required for hospital scope" }, { status: 400 });
+  }
+  const conflict = await findGlossaryAliasConflict({
+    entryType: data.entryType,
+    standardKo: data.standardKo,
+    spokenForms: data.spokenForms
+  });
+  if (conflict) {
+    return NextResponse.json({
+      error: `${conflict.spokenForm} is already mapped to ${conflict.standardKo}`,
+      conflict
+    }, { status: 409 });
   }
 
   const entry = await prisma.glossaryEntry.create({ data });

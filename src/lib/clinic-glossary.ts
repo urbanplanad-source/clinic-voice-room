@@ -1,4 +1,14 @@
 import type { PatientLanguage } from "./languages";
+import {
+  buildKoreanClinicTranscriptionPrompt,
+  defaultClinicTranscriptionPromptMaxChars,
+  normalizeClinicSourceTranscript as normalizeSourceTranscript,
+  transcriptionMappingsFromTerms,
+  type ClinicTranscriptionHintMapping,
+  type ClinicTranscriptionPromptDetails
+} from "./clinic-transcription";
+
+export type { ClinicTranscriptionConflict, ClinicTranscriptionHintMapping } from "./clinic-transcription";
 
 export type GlossaryTargetLanguage = PatientLanguage | "ko";
 export type CriticalShortPhrase = {
@@ -32,6 +42,7 @@ export type ClinicGlossaryData = {
   terms: ClinicGlossaryEntry[];
   criticalPhrases: CriticalShortPhrase[];
   transcriptionHints: string[];
+  transcriptionHintMappings?: ClinicTranscriptionHintMapping[];
   verifiedSentences: VerifiedSentenceEntry[];
 };
 
@@ -64,6 +75,7 @@ export const realtimeKoreanTranscriptionHints = [
   "울쎄라",
   "울쎄라 프라임",
   "울쎄라피 프라임",
+  "켈로이드",
   "써마지",
   "써마지 FLX",
   "세르프",
@@ -308,8 +320,8 @@ const rawClinicGlossary = `
 오십유닛|50유닛,50유닛,五十单位,ごじゅうユニット,fifty units,пятьдесят единиц,năm mươi đơn vị,lima puluh unit,unit,보툴리눔 톡신 단위
 한바이알|1바이알,1바이알,一瓶,いちバイアル,one vial,один флакон,một lọ,satu vial,unit,바이알 수
 두바이알|2바이알,2바이알,两瓶,にバイアル,two vials,два флакона,hai lọ,dua vial,unit,바이알 수
-울쎄라|울세라|울셀라|올셀라|웃음세라|美版超声刀|美版超聲刀,울쎄라,Ultherapy,ウルセラ,Ultherapy,Ultherapy,Ultherapy,Ultherapy,device,장비명 의역 금지
-울쎄라피프라임|울쎄라 프라임|울세라피 프라임,울쎄라피 프라임,Ultherapy Prime,ウルセラピー プライム,Ultherapy Prime,Ultherapy Prime,Ultherapy Prime,Ultherapy Prime,device,장비명 의역 금지
+울쎄라|울세라|울셀라|올셀라|웃음세라|울새나|美版超声刀|美版超聲刀,울쎄라,Ultherapy,ウルセラ,Ultherapy,Ultherapy,Ultherapy,Ultherapy,device,장비명 의역 금지
+울쎄라피프라임|울쎄라 프라임|울세라피 프라임|울쎄라 핏 프라임,울쎄라피 프라임,Ultherapy Prime,ウルセラピー プライム,Ultherapy Prime,Ultherapy Prime,Ultherapy Prime,Ultherapy Prime,device,장비명 의역 금지
 써마지|서마지|서머지|써머지|热玛吉|熱瑪吉|热马吉|熱馬吉|热麻吉|熱麻吉|热妈吉|惹玛吉,써마지,Thermage,サーマクール,Thermage,Thermage,Thermage,Thermage,device,장비명
 써마지에프엘엑스|써마지 FLX|서마지 FLX|서머지 FLX|써머지 FLX,써마지 FLX,Thermage FLX,サーマクールFLX,Thermage FLX,Thermage FLX,Thermage FLX,Thermage FLX,device,장비명
 세르프|세르프리프팅|세르프 리프팅|제르프|제르프리프팅|제르프 리프팅|셀프리프팅|셀프 리프팅|셀프 시술|Self lifting|Self Lifting|Self procedure|XERF lifting|XERF lifting treatment|XERF,XERF,XERF,ザーフ,XERF,XERF,XERF,XERF,device,장비명 의역 금지
@@ -367,7 +379,8 @@ Re2O|리투오|리투오주사|리투오 주사|리투오스킨부스터|리투�
 테라클리어|Theraclear,테라클리어,Theraclear,Theraclear,Theraclear,Theraclear,Theraclear,Theraclear,device,여드름 관리 장비명
 여드름압출관리|여드름 압출 관리|痘痘针清管理,여드름 압출 관리,痘痘针清管理,ニキビ圧出管理,acne extraction care,acne extraction care,acne extraction care,acne extraction care,procedure,피부관리 시술명
 고탄력관리|고탄력 관리|BTS관리|BTS 관리|高弹力护理,고탄력 관리,高弹力护理,高弾力ケア,high-elasticity care,high-elasticity care,high-elasticity care,high-elasticity care,procedure,피부관리 시술명
-리쥬란|리주란|三文鱼针|三文魚針,리쥬란,丽珠兰,リジュラン,Rejuran,Rejuran,Rejuran,Rejuran,brand,브랜드명
+리쥬란|리주란|미주란|三文鱼针|三文魚針,리쥬란,丽珠兰,リジュラン,Rejuran,Rejuran,Rejuran,Rejuran,brand,브랜드명
+켈로이드|켄루이드,켈로이드,瘢痕疙瘩,ケロイド,keloid,келоид,sẹo lồi,keloid,medical,의학용어
 리쥬란힐러|리쥬란 힐러,리쥬란 힐러,丽珠兰 Healer,リジュランヒーラー,Rejuran Healer,Rejuran Healer,Rejuran Healer,Rejuran Healer,brand,브랜드명
 리쥬란블랙박스|리쥬란 블랙박스|리쥬란 블랙 박스|리쥬란 힐러|블랙박스|블랙 박스|黑盒|黑盒子|黑火|黑河|黑和|黑合|黑核|灰盒|灰火|헤이허|헤이훠|훼이훠|heihe|hei he|hei huo|black box|black fire,리쥬란 힐러,丽珠兰黑盒,リジュラン ブラックボックス,Rejuran Black Box,Rejuran Black Box,Rejuran Black Box,Rejuran Black Box,brand,리쥬란 제품 색상 별칭
 리쥬란레드박스|리쥬란 레드박스|리쥬란 레드 박스|리쥬란 HB|리쥬란 에이치비|레드박스|레드 박스|红盒|紅盒|红盒子|紅盒子|红火|紅火|红河|紅河|红和|紅和|红合|紅合|红货|紅貨|洪盒|宏盒|홍허|홍훠|honghe|hong he|hong huo|red box|red fire,리쥬란 HB,丽珠兰红盒,リジュラン レッドボックス,Rejuran Red Box,Rejuran Red Box,Rejuran Red Box,Rejuran Red Box,brand,리쥬란 제품 색상 별칭
@@ -1163,22 +1176,15 @@ export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage
   return joinGlossaryInstructionLines(fixedLines, termLines);
 }
 
-export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLanguage, transcriptionHints = realtimeKoreanTranscriptionHints) {
-  const koreanHints = transcriptionHints.join(", ");
+export function buildClinicTranscriptionPrompt(
+  inputLanguage: GlossaryTargetLanguage,
+  transcriptionHints = realtimeKoreanTranscriptionHints,
+  transcriptionHintMappings?: ClinicTranscriptionHintMapping[],
+  maxChars = defaultClinicTranscriptionPromptMaxChars
+) {
   if (inputLanguage === "ko") {
-    return [
-      "Korean dermatology and plastic surgery procedure room.",
-      "Common short phrases may be spoken quickly or through a mask.",
-      `Prefer these Korean phrases when acoustically plausible: ${koreanHints}.`,
-      "When the sound is close, prefer Rejuran as 리쥬란 and swelling as 부종, not 니주란 or 그종.",
-      "When the sound is close to 리투오, 리투어, 리트오, or 알이투오 in a skinbooster context, transcribe the product name as Re2O.",
-      "When the sound is close to 서마지, 서머지, or 써머지 in a lifting-device context, transcribe the product name as 써마지; preserve FLX when spoken.",
-      "When the sound is close to 울세라, 울셀라, 올셀라, or 웃음세라 in a lifting-device context, transcribe the product name as 울쎄라.",
-      "When the sound is close to 세르프 or 셀프 리프팅 in a lifting-device context, transcribe it as XERF, not Self.",
-      "Price-list procedure names may include Ultherapy Prime, Thermage FLX, XERF, Titanium Lifting, Revinas, ONDA, V-RO ADVANCE, Shurink Universe, Fraxel Dual, Miracle Spot Clinic, C+B Toning, PRP, LDM, HDA, Restylane Vital, Skinvive, Sculptra, Hyaju, Dermashine, Liztox, Dysport, Xeomin, and Allergan.",
-      "Rejuran color-box product names may be spoken as 리쥬란 블랙박스, 리쥬란 레드박스, 리쥬란 화이트박스, 리쥬란 블루박스, or 리쥬란 퍼플박스.",
-      "Do not reinterpret pain-check phrases as sleepiness, setup, or casual conversation."
-    ].join(" ");
+    const mappings = transcriptionHintMappings ?? transcriptionMappingsFromTerms(clinicGlossary);
+    return buildKoreanClinicTranscriptionPrompt(transcriptionHints, mappings, maxChars).prompt;
   }
 
   if (inputLanguage === "zh" || inputLanguage === "zh_tw" || inputLanguage === "yue") {
@@ -1200,4 +1206,20 @@ export function buildClinicTranscriptionPrompt(inputLanguage: GlossaryTargetLang
     "The speaker may answer briefly about pain, discomfort, movement, or whether they are okay.",
     "Keep medical procedure context when transcribing short phrases."
   ].join(" ");
+}
+
+export function buildClinicTranscriptionPromptDetails(
+  transcriptionHints = realtimeKoreanTranscriptionHints,
+  transcriptionHintMappings?: ClinicTranscriptionHintMapping[],
+  maxChars = defaultClinicTranscriptionPromptMaxChars
+): ClinicTranscriptionPromptDetails {
+  const mappings = transcriptionHintMappings ?? transcriptionMappingsFromTerms(clinicGlossary);
+  return buildKoreanClinicTranscriptionPrompt(transcriptionHints, mappings, maxChars);
+}
+
+export function normalizeClinicSourceText(sourceText: string, glossaryData?: ClinicGlossaryData) {
+  const terms = glossaryData?.terms ?? clinicGlossary;
+  const hints = glossaryData?.transcriptionHints ?? realtimeKoreanTranscriptionHints;
+  const mappings = glossaryData?.transcriptionHintMappings ?? transcriptionMappingsFromTerms(terms);
+  return normalizeSourceTranscript(sourceText, hints, mappings);
 }

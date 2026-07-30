@@ -1,6 +1,11 @@
 import type { ParticipantRole, PatientLanguage } from "./languages";
 import { createHash } from "crypto";
-import { buildClinicGlossaryInstructions, buildClinicTranscriptionPrompt, type ClinicGlossaryData } from "./clinic-glossary";
+import {
+  buildClinicGlossaryInstructions,
+  buildClinicTranscriptionPrompt,
+  buildClinicTranscriptionPromptDetails,
+  type ClinicGlossaryData
+} from "./clinic-glossary";
 
 export type TranslationDirection = "staff_to_patient" | "patient_to_staff";
 
@@ -153,7 +158,18 @@ export async function createRealtimeSessionToken(params: {
     : params.role === "staff"
       ? "ko"
       : params.patientLanguage;
-  const transcriptionPrompt = buildClinicTranscriptionPrompt(inputLanguage, params.glossaryData?.transcriptionHints);
+  const transcriptionPromptDetails = inputLanguage === "ko"
+    ? buildClinicTranscriptionPromptDetails(
+        params.glossaryData?.transcriptionHints,
+        params.glossaryData?.transcriptionHintMappings
+      )
+    : null;
+  const transcriptionPrompt = transcriptionPromptDetails?.prompt ?? buildClinicTranscriptionPrompt(
+    inputLanguage,
+    params.glossaryData?.transcriptionHints,
+    params.glossaryData?.transcriptionHintMappings
+  );
+  const transcriptionPromptHash = createHash("sha256").update(transcriptionPrompt).digest("hex").slice(0, 12);
   const model = normalizedRealtimeModelName(process.env.OPENAI_REALTIME_MODEL);
   const transcriptionModel = normalizedRealtimeTranscriptionModelName(process.env.OPENAI_REALTIME_TRANSCRIPTION_MODEL);
   const realtimeVoice = process.env.OPENAI_REALTIME_VOICE?.trim() || "marin";
@@ -205,6 +221,7 @@ export async function createRealtimeSessionToken(params: {
   const requestCompatibleSessionToken = async (outputAudio: boolean) => {
     let includeTranscriptionPrompt = Boolean(transcriptionPrompt);
     let includeLanguageHint = shouldSendRealtimeLanguageHint(inputLanguage);
+    let transcriptionPromptFallbackReason: string | null = null;
     let response = await requestSessionToken(includeTranscriptionPrompt, outputAudio, includeLanguageHint);
     let detail = "";
 
@@ -218,6 +235,7 @@ export async function createRealtimeSessionToken(params: {
       }
       if (includeTranscriptionPrompt && isPromptCompatibilityError(detail)) {
         includeTranscriptionPrompt = false;
+        transcriptionPromptFallbackReason = "prompt_not_supported";
         response = await requestSessionToken(includeTranscriptionPrompt, outputAudio, includeLanguageHint);
         detail = "";
         continue;
@@ -225,17 +243,19 @@ export async function createRealtimeSessionToken(params: {
       break;
     }
 
-    return { response, detail };
+    return { response, detail, includeTranscriptionPrompt, includeLanguageHint, transcriptionPromptFallbackReason };
   };
 
   let outputAudioEnabled = requestedOutputAudio;
-  let { response, detail } = await requestCompatibleSessionToken(outputAudioEnabled);
+  let compatibleToken = await requestCompatibleSessionToken(outputAudioEnabled);
+  let { response, detail } = compatibleToken;
 
   if (!response.ok && requestedOutputAudio) {
     detail ||= await response.text();
     if (isAudioOutputCompatibilityError(detail)) {
       outputAudioEnabled = false;
-      ({ response, detail } = await requestCompatibleSessionToken(false));
+      compatibleToken = await requestCompatibleSessionToken(false);
+      ({ response, detail } = compatibleToken);
     }
   }
 
@@ -245,10 +265,29 @@ export async function createRealtimeSessionToken(params: {
   }
 
   const token = await response.json();
+  const transcriptionPromptMeta = {
+    requested: Boolean(transcriptionPrompt),
+    applied: compatibleToken.includeTranscriptionPrompt,
+    fallbackReason: compatibleToken.transcriptionPromptFallbackReason,
+    hash: transcriptionPromptHash,
+    chars: transcriptionPrompt.length,
+    hintCount: transcriptionPromptDetails?.hintCount ?? null,
+    mappingCount: transcriptionPromptDetails?.mappingCount ?? null,
+    omittedHintCount: transcriptionPromptDetails?.omittedHintCount ?? null,
+    omittedMappingCount: transcriptionPromptDetails?.omittedMappingCount ?? null,
+    truncated: transcriptionPromptDetails?.truncated ?? false,
+    conflictCount: transcriptionPromptDetails?.conflicts.length ?? 0
+  };
+  console.info("[realtime transcription prompt]", JSON.stringify({
+    inputLanguage,
+    transcriptionModel,
+    ...transcriptionPromptMeta
+  }));
   return {
     ...token,
     realtimeModel: model,
     realtimeTranscriptionModel: transcriptionModel,
-    realtimeOutputAudio: outputAudioEnabled
+    realtimeOutputAudio: outputAudioEnabled,
+    realtimeTranscriptionPrompt: transcriptionPromptMeta
   };
 }

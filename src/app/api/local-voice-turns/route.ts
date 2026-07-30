@@ -120,7 +120,7 @@ export async function POST(request: Request) {
     transcriptionForm.set("language", transcriptionLanguage);
   }
   transcriptionForm.set("response_format", "json");
-  transcriptionForm.set("prompt", buildClinicTranscriptionPrompt(sourceLanguage, glossaryData.transcriptionHints));
+  transcriptionForm.set("prompt", buildClinicTranscriptionPrompt(sourceLanguage, glossaryData.transcriptionHints, glossaryData.transcriptionHintMappings));
 
   let transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",

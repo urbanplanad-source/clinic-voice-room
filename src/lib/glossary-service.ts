@@ -9,6 +9,11 @@ import {
   type GlossaryTargetLanguage,
   type VerifiedSentenceEntry
 } from "./clinic-glossary";
+import {
+  findClinicTranscriptionAliasConflict,
+  transcriptionMappingsFromTerms,
+  type ClinicTranscriptionHintMapping
+} from "./clinic-transcription";
 import { prisma } from "./prisma";
 
 type CacheEntry = {
@@ -33,6 +38,7 @@ export function getCodeGlossaryData(): ClinicGlossaryData {
     terms: clinicGlossary,
     criticalPhrases: criticalShortPhrases,
     transcriptionHints: realtimeKoreanTranscriptionHints,
+    transcriptionHintMappings: transcriptionMappingsFromTerms(clinicGlossary),
     verifiedSentences: []
   };
 }
@@ -43,11 +49,26 @@ export function clearGlossaryCache(hospitalId?: string | null, specialty?: Hospi
     return;
   }
 
-  cache.delete(cacheKey(hospitalId, specialty));
+  for (const key of cache.keys()) {
+    if (shouldInvalidateGlossaryCacheKey(key, hospitalId, specialty)) cache.delete(key);
+  }
 }
 
 function cacheKey(hospitalId?: string | null, specialty?: HospitalSpecialty | null) {
   return `${hospitalId ?? "none"}:${specialty ?? "none"}`;
+}
+
+export function shouldInvalidateGlossaryCacheKey(
+  key: string,
+  hospitalId?: string | null,
+  specialty?: HospitalSpecialty | null
+) {
+  if (!hospitalId && !specialty) return true;
+  const [cachedHospitalId, cachedSpecialty] = key.split(":");
+  return Boolean(
+    (hospitalId && cachedHospitalId === hospitalId) ||
+    (specialty && cachedSpecialty === specialty)
+  );
 }
 
 function scopeRank(entry: GlossaryDbEntry) {
@@ -163,13 +184,20 @@ function toVerifiedSentence(entry: GlossaryDbEntry): VerifiedSentenceEntry {
 
 function toGlossaryData(entries: GlossaryDbEntry[]): ClinicGlossaryData {
   const mergedEntries = sortEntries(mergeByScopePrecedence(entries));
+  const terms = mergedEntries.filter((entry) => entry.entryType === "term").map(toTerm);
+  const transcriptionEntries = mergedEntries.filter((entry) => entry.entryType === "transcription_hint");
+  const explicitMappings: ClinicTranscriptionHintMapping[] = transcriptionEntries.map((entry) => ({
+    standardKo: entry.standardKo,
+    spokenForms: entry.spokenForms,
+    category: entry.category ?? undefined,
+    priority: entry.priority,
+    source: "transcription_hint"
+  }));
   return {
-    terms: mergedEntries.filter((entry) => entry.entryType === "term").map(toTerm),
+    terms,
     criticalPhrases: mergedEntries.filter((entry) => entry.entryType === "critical_phrase").map(toCriticalPhrase),
-    transcriptionHints: mergedEntries
-      .filter((entry) => entry.entryType === "transcription_hint")
-      .map((entry) => entry.standardKo)
-      .filter(Boolean),
+    transcriptionHints: transcriptionEntries.map((entry) => entry.standardKo).filter(Boolean),
+    transcriptionHintMappings: [...explicitMappings, ...transcriptionMappingsFromTerms(terms)],
     verifiedSentences: mergedEntries.filter((entry) => entry.entryType === "verified_sentence").map(toVerifiedSentence)
   };
 }
@@ -218,4 +246,25 @@ export async function getGlossaryForHospital(hospitalId?: string | null, special
 
 export async function warmGlossaryForHospital(hospitalId?: string | null, specialty?: HospitalSpecialty | null) {
   await getGlossaryForHospital(hospitalId, specialty);
+}
+
+export async function findGlossaryAliasConflict(input: {
+  entryType: "term" | "critical_phrase" | "transcription_hint" | "verified_sentence";
+  standardKo: string;
+  spokenForms: string[];
+  excludeId?: string;
+}, database: typeof prisma | Prisma.TransactionClient = prisma) {
+  if (!(["term", "transcription_hint"] as const).includes(input.entryType as "term" | "transcription_hint")) return null;
+  const spokenForms = [...new Set(input.spokenForms.map((value) => value.trim()).filter(Boolean))];
+  if (spokenForms.length === 0) return null;
+
+  const rows = await database.glossaryEntry.findMany({
+    where: {
+      isActive: true,
+      entryType: { in: ["term", "transcription_hint"] },
+      ...(input.excludeId ? { id: { not: input.excludeId } } : {})
+    },
+    select: { id: true, standardKo: true, spokenForms: true }
+  });
+  return findClinicTranscriptionAliasConflict(input.standardKo, spokenForms, rows);
 }

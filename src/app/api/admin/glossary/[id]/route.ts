@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
-import { clearGlossaryCache } from "@/lib/glossary-service";
+import { clearGlossaryCache, findGlossaryAliasConflict } from "@/lib/glossary-service";
 import { hospitalSpecialties } from "@/lib/hospital-specialty";
 
 const glossaryScopes = ["global", "specialty", "hospital"] as const;
@@ -58,6 +58,20 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid glossary update payload" }, { status: 400 });
   }
+  if (parsed.data.isActive ?? existing.isActive) {
+    const conflict = await findGlossaryAliasConflict({
+      entryType: parsed.data.entryType ?? existing.entryType,
+      standardKo: parsed.data.standardKo ?? existing.standardKo,
+      spokenForms: parsed.data.spokenForms ?? existing.spokenForms,
+      excludeId: existing.id
+    });
+    if (conflict) {
+      return NextResponse.json({
+        error: `${conflict.spokenForm} is already mapped to ${conflict.standardKo}`,
+        conflict
+      }, { status: 409 });
+    }
+  }
 
   const data: Prisma.GlossaryEntryUpdateInput = {
     ...("entryType" in parsed.data ? { entryType: parsed.data.entryType } : {}),
@@ -75,11 +89,27 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     data.specialty = null;
     data.hospital = { connect: { id: admin.hospitalId } };
   } else {
-    if (parsed.data.scope) data.scope = parsed.data.scope;
-    if ("specialty" in parsed.data) data.specialty = parsed.data.scope === "specialty" ? parsed.data.specialty ?? "dermatology" : null;
-    if ("hospitalId" in parsed.data) {
-      data.hospital = parsed.data.hospitalId ? { connect: { id: parsed.data.hospitalId } } : { disconnect: true };
+    const nextScope = parsed.data.scope ?? existing.scope;
+    const nextSpecialty = nextScope === "specialty"
+      ? ("specialty" in parsed.data
+          ? parsed.data.specialty ?? "dermatology"
+          : existing.scope === "specialty"
+            ? existing.specialty ?? "dermatology"
+            : "dermatology")
+      : null;
+    const nextHospitalId = nextScope === "hospital"
+      ? ("hospitalId" in parsed.data
+          ? parsed.data.hospitalId
+          : existing.scope === "hospital"
+            ? existing.hospitalId
+            : null)
+      : null;
+    if (nextScope === "hospital" && !nextHospitalId) {
+      return NextResponse.json({ error: "hospitalId is required for hospital scope" }, { status: 400 });
     }
+    data.scope = nextScope;
+    data.specialty = nextSpecialty;
+    data.hospital = nextHospitalId ? { connect: { id: nextHospitalId } } : { disconnect: true };
   }
 
   const entry = await prisma.glossaryEntry.update({

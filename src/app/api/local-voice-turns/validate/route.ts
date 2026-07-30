@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
-import { buildClinicGlossaryInstructions, normalizeClinicTranslation } from "@/lib/clinic-glossary";
+import { buildClinicGlossaryInstructions, normalizeClinicSourceText, normalizeClinicTranslation } from "@/lib/clinic-glossary";
 import { getGlossaryForHospital } from "@/lib/glossary-service";
 import { isPatientLanguage, languageLabels, sourceTargetFor, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import {
@@ -74,6 +74,7 @@ async function recordValidatedLocalSample({
   patientLanguage,
   direction,
   sourceText,
+  canonicalSourceText,
   translatedText,
   validation
 }: {
@@ -81,6 +82,7 @@ async function recordValidatedLocalSample({
   patientLanguage: PatientLanguage;
   direction: "ko_to_patient" | "patient_to_ko";
   sourceText: string;
+  canonicalSourceText: string;
   translatedText: string;
   validation: { checked: boolean; ok: boolean; reason?: string; repaired?: boolean };
 }) {
@@ -109,7 +111,14 @@ async function recordValidatedLocalSample({
     sourceLanguage,
     targetLanguage,
     model: validation.repaired ? "realtime-local-repair" : "realtime-local",
-    guardFlags: { localValidation: validation }
+    guardFlags: {
+      localValidation: validation,
+      sourceCanonicalization: {
+        changed: canonicalSourceText !== sourceText,
+        observedText: canonicalSourceText !== sourceText ? sourceText : undefined,
+        canonicalText: canonicalSourceText !== sourceText ? canonicalSourceText : undefined
+      }
+    }
   }).catch((caught) => {
     console.error("[local-voice-turns validate sample]", caught);
   });
@@ -151,6 +160,9 @@ export async function POST(request: Request) {
   const targetLanguageCode = direction === "ko_to_patient" ? patientLanguage : "ko";
   const role: ParticipantRole = direction === "ko_to_patient" ? "staff" : "patient";
   const glossaryData = await getGlossaryForHospital(staff.hospitalId, staff.hospital.specialty);
+  const canonicalSourceText = direction === "ko_to_patient"
+    ? normalizeClinicSourceText(sourceText, glossaryData)
+    : sourceText;
   const model = normalizedTextTranslationModel(process.env.OPENAI_TEXT_TRANSLATION_MODEL);
   const instructions = buildLocalTranslationValidationInstructions({
     sourceLanguage,
@@ -200,7 +212,7 @@ export async function POST(request: Request) {
           content: [
             {
               type: "input_text",
-              text: `Source: ${sourceText}\nTranslation: ${translatedText}`
+              text: `Source: ${canonicalSourceText}\nTranslation: ${translatedText}`
             }
           ]
         }
@@ -229,7 +241,7 @@ export async function POST(request: Request) {
 
   let resolved = resolveLocalTranslation(translatedText, result);
   if (!result.ok && !resolved.repaired) {
-    const verifiedMatch = matchVerifiedSentence(sourceText, targetLanguageCode, glossaryData);
+    const verifiedMatch = matchVerifiedSentence(canonicalSourceText, targetLanguageCode, glossaryData);
     if (verifiedMatch) {
       resolved = {
         translatedText: normalizeClinicTranslation(verifiedMatch.translatedText, targetLanguageCode, glossaryData),
@@ -255,7 +267,7 @@ export async function POST(request: Request) {
           const repaired = await translateWithOpenAITextSafety({
             apiKey,
             safetyIdentifier: `clinic-voice-room-local-repair-${staff.hospitalId}-${staff.id}-${direction}`,
-            sourceText,
+            sourceText: canonicalSourceText,
             instructions: repairInstructions,
             glossaryData,
             errorLabel: "[local-voice-turns repair]",
@@ -285,6 +297,7 @@ export async function POST(request: Request) {
       patientLanguage,
       direction,
       sourceText,
+      canonicalSourceText,
       translatedText: resolved.translatedText,
       validation: { checked: true, ok: result.ok, reason: result.reason, repaired: resolved.repaired }
     });
@@ -295,6 +308,7 @@ export async function POST(request: Request) {
     ok: result.ok,
     reason: result.reason,
     repaired: resolved.repaired,
-    correctedTranslation: resolved.repaired ? resolved.translatedText : ""
+    correctedTranslation: resolved.repaired ? resolved.translatedText : "",
+    canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : ""
   });
 }

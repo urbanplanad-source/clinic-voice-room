@@ -228,7 +228,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.31"
+private const val AppDisplayVersion = "0.3.32"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -510,6 +510,7 @@ private data class LocalTranslationValidation(
     val ok: Boolean = true,
     val repaired: Boolean = false,
     val correctedTranslation: String = "",
+    val canonicalSourceText: String = "",
     val reason: String = ""
 )
 
@@ -3305,7 +3306,7 @@ class MainActivity : ComponentActivity() {
                 val initialModel = result.optString("model")
                 val isInstantTemplate = initialModel == "instant-template"
                 val experimentalMode = isExperimentalLocalInterpreterMode(snapshot.selectedRoomMode)
-                val source = if (sourceLanguage == "ko") {
+                var source = if (sourceLanguage == "ko") {
                     normalizeKoreanSourceText(result.optString("sourceText"))
                 } else {
                     result.optString("sourceText").trim()
@@ -3324,6 +3325,13 @@ class MainActivity : ComponentActivity() {
                     validateLocalTranslation(direction, patientLanguage, source, translated)
                 } else {
                     LocalTranslationValidation()
+                }
+                if (sourceLanguage == "ko" && validation.canonicalSourceText.isNotBlank()) {
+                    val canonicalSource = normalizeKoreanSourceText(validation.canonicalSourceText)
+                    if (canonicalSource != source) {
+                        source = canonicalSource
+                        appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 원문 용어 표준화")
+                    }
                 }
                 if (validation.repaired && validation.correctedTranslation.isNotBlank()) {
                     translated = normalizeClinicText(validation.correctedTranslation, targetLanguage)
@@ -3475,6 +3483,7 @@ class MainActivity : ComponentActivity() {
             val ok = data.optBoolean("ok", true)
             val repaired = data.optBoolean("repaired", false)
             val correctedTranslation = data.optString("correctedTranslation").trim()
+            val canonicalSourceText = data.optString("canonicalSourceText").trim()
             val reason = data.optString("reason")
             if (checked) {
                 val result = if (ok) "ok" else if (repaired) "repaired" else "unresolved"
@@ -3485,6 +3494,7 @@ class MainActivity : ComponentActivity() {
                 ok = ok,
                 repaired = repaired && correctedTranslation.isNotBlank(),
                 correctedTranslation = correctedTranslation,
+                canonicalSourceText = canonicalSourceText,
                 reason = reason
             )
         }.onFailure {

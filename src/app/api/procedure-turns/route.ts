@@ -397,7 +397,11 @@ async function handleAudioTurn(request: Request) {
     transcriptionForm.set("language", transcriptionLanguage);
   }
   transcriptionForm.set("response_format", "json");
-  transcriptionForm.set("prompt", buildClinicTranscriptionPrompt(role === "staff" ? "ko" : patientLanguage, glossaryData.transcriptionHints));
+  transcriptionForm.set("prompt", buildClinicTranscriptionPrompt(
+    role === "staff" ? "ko" : patientLanguage,
+    glossaryData.transcriptionHints,
+    glossaryData.transcriptionHintMappings
+  ));
 
   const transcriptionStartedAt = Date.now();
   let transcriptionResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {

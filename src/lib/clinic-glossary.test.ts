@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildClinicTranscriptionPrompt, normalizeClinicTranslation } from "./clinic-glossary";
+import { buildClinicTranscriptionPrompt, normalizeClinicSourceText, normalizeClinicTranslation } from "./clinic-glossary";
 
 describe("clinic glossary display normalization", () => {
   it("naturalizes Chinese shot and price phrasing for text translation", () => {
@@ -60,6 +60,15 @@ describe("clinic glossary display normalization", () => {
     expect(prompt).toContain("울쎄라 시술에 관심이 있으세요?");
   });
 
+  it("normalizes reviewed Korean acoustic near-matches to clinic terms", () => {
+    const prompt = buildClinicTranscriptionPrompt("ko");
+    expect(prompt).toContain("미주란");
+    expect(prompt).toContain("켄루이드");
+    expect(prompt).toContain("울쎄라 핏 프라임");
+    expect(normalizeClinicSourceText("미주란과 켄루이드, 울쎄라 핏 프라임 그리고 울새나"))
+      .toBe("리쥬란과 켈로이드, 울쎄라피 프라임 그리고 울쎄라");
+  });
+
   it("normalizes price-list treatment and brand names from dermatology and plastic surgery sheets", () => {
     expect(normalizeClinicTranslation("브이로어드밴스와 듀얼 프락셀", "en")).toContain("V-RO ADVANCE");
     expect(normalizeClinicTranslation("브이로어드밴스와 듀얼 프락셀", "en")).toContain("Fraxel Dual");
@@ -80,6 +89,6 @@ describe("clinic glossary display normalization", () => {
     expect(prompt).toContain("V-RO ADVANCE");
     expect(prompt).toContain("Restylane Vital");
     expect(prompt).toContain("Dysport");
-    expect(prompt).toContain("셀프 리프팅");
+    expect(prompt).toMatch(/셀프\s?리프팅/);
   });
 });

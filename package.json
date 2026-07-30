@@ -14,7 +14,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
     "glossary:import": "tsx scripts/import-glossary.ts",
+    "glossary:merge-reviewed-stt": "tsx scripts/merge-reviewed-stt-aliases.ts",
     "glossary:verify": "tsx scripts/verify-glossary-source-diff.ts",
+    "glossary:verify-stt": "tsx scripts/verify-stt-glossary.ts",
     "hospital-specialty:backfill": "tsx scripts/backfill-hospital-specialty.ts",
     "staff:create": "tsx scripts/create-staff-user.ts"
   },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, Loader2, Plus, RefreshCw, Save, Search, Upload } from "lucide-react";
+import { AlertTriangle, Download, Eye, Loader2, Plus, RefreshCw, Save, Search, Upload } from "lucide-react";
 import { hospitalSpecialties, hospitalSpecialtyLabels, type HospitalSpecialty } from "@/lib/hospital-specialty";
 
 type GlossaryScope = "global" | "specialty" | "hospital";
@@ -37,6 +37,22 @@ type FeedbackPrefill = {
   translatedText: string;
   sourceLanguage: string;
   targetLanguage: string;
+};
+
+type TranscriptionPreview = {
+  hospital: HospitalOption;
+  source: "code" | "db";
+  prompt: string;
+  promptHash: string;
+  chars: number;
+  hintCount: number;
+  mappingCount: number;
+  omittedHintCount: number;
+  omittedMappingCount: number;
+  omittedHints: string[];
+  omittedMappingStandardForms: string[];
+  truncated: boolean;
+  conflicts: Array<{ spokenForm: string; standardForms: string[] }>;
 };
 
 type Draft = {
@@ -157,6 +173,9 @@ export function AdminGlossaryManager() {
   const [edits, setEdits] = useState<Record<string, Draft>>({});
   const [draft, setDraft] = useState<Draft>(initialDraft);
   const [filters, setFilters] = useState({ q: "", scope: "", entryType: "", specialty: "", hospitalId: "" });
+  const [previewHospitalId, setPreviewHospitalId] = useState("");
+  const [preview, setPreview] = useState<TranscriptionPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -181,15 +200,36 @@ export function AdminGlossaryManager() {
     }
     const data = await response.json();
     const nextEntries = (data.entries ?? []) as GlossaryEntry[];
+    const nextHospitals = (data.hospitals ?? []) as HospitalOption[];
     setEntries(nextEntries);
-    setHospitals((data.hospitals ?? []) as HospitalOption[]);
+    setHospitals(nextHospitals);
+    setPreviewHospitalId((current) => current || nextHospitals[0]?.id || "");
     setEdits(Object.fromEntries(nextEntries.map((entry) => [entry.id, draftFromEntry(entry)])));
+  }
+
+  async function loadTranscriptionPreview() {
+    setPreviewLoading(true);
+    const params = new URLSearchParams();
+    if (previewHospitalId) params.set("hospitalId", previewHospitalId);
+    const response = await fetch(`/api/admin/glossary/preview${params.size ? `?${params}` : ""}`, { cache: "no-store" });
+    setPreviewLoading(false);
+    if (!response.ok) {
+      setPreview(null);
+      setError("STT 프롬프트 미리보기를 불러오지 못했습니다.");
+      return;
+    }
+    setPreview(await response.json() as TranscriptionPreview);
   }
 
   useEffect(() => {
     void loadEntries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryString]);
+
+  useEffect(() => {
+    void loadTranscriptionPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewHospitalId]);
 
   useEffect(() => {
     const feedbackId = new URLSearchParams(window.location.search).get("feedbackId");
@@ -249,12 +289,14 @@ export function AdminGlossaryManager() {
     });
     setBusy(false);
     if (!response.ok) {
-      setError("항목을 추가하지 못했습니다.");
+      const data = await response.json().catch(() => ({}));
+      setError(typeof data.error === "string" ? data.error : "항목을 추가하지 못했습니다.");
       return;
     }
     setNotice("글로서리 항목을 추가했습니다.");
     setDraft(initialDraft);
     await loadEntries();
+    await loadTranscriptionPreview();
   }
 
   async function saveEntry(entryId: string) {
@@ -270,11 +312,13 @@ export function AdminGlossaryManager() {
     });
     setBusy(false);
     if (!response.ok) {
-      setError("항목을 저장하지 못했습니다.");
+      const data = await response.json().catch(() => ({}));
+      setError(typeof data.error === "string" ? data.error : "항목을 저장하지 못했습니다.");
       return;
     }
     setNotice("글로서리 항목을 저장했습니다.");
     await loadEntries();
+    await loadTranscriptionPreview();
   }
 
   async function toggleActive(entry: GlossaryEntry) {
@@ -291,6 +335,7 @@ export function AdminGlossaryManager() {
       return;
     }
     await loadEntries();
+    await loadTranscriptionPreview();
   }
 
   function exportCsv() {
@@ -309,12 +354,14 @@ export function AdminGlossaryManager() {
     });
     setBusy(false);
     if (!response.ok) {
-      setError("CSV를 가져오지 못했습니다.");
+      const data = await response.json().catch(() => ({}));
+      setError(typeof data.error === "string" ? data.error : "CSV를 가져오지 못했습니다.");
       return;
     }
     const data = await response.json();
     setNotice(`CSV 가져오기 완료: ${data.imported ?? 0}개`);
     await loadEntries();
+    await loadTranscriptionPreview();
   }
 
   return (
@@ -361,6 +408,15 @@ export function AdminGlossaryManager() {
           </button>
         </div>
       </section>
+
+      <TranscriptionPreviewPanel
+        preview={preview}
+        loading={previewLoading}
+        hospitals={hospitals}
+        selectedHospitalId={previewHospitalId}
+        onHospitalChange={setPreviewHospitalId}
+        onRefresh={() => void loadTranscriptionPreview()}
+      />
 
       <form onSubmit={createEntry} className="rounded-lg bg-white p-5 shadow-soft">
         <div className="flex items-center gap-2">
@@ -450,6 +506,87 @@ export function AdminGlossaryManager() {
   );
 }
 
+function TranscriptionPreviewPanel({
+  preview,
+  loading,
+  hospitals,
+  selectedHospitalId,
+  onHospitalChange,
+  onRefresh
+}: {
+  preview: TranscriptionPreview | null;
+  loading: boolean;
+  hospitals: HospitalOption[];
+  selectedHospitalId: string;
+  onHospitalChange: (hospitalId: string) => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <section className="rounded-lg bg-white p-5 shadow-soft">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Eye size={19} className="text-trust" />
+          <div>
+            <h2 className="text-lg font-bold text-ink">실제 STT 프롬프트</h2>
+            <p className="text-xs font-semibold text-slate-500">{preview?.hospital.name ?? "병원 기준을 불러오는 중"}</p>
+          </div>
+        </div>
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+          {hospitals.length ? (
+            <Select
+              value={selectedHospitalId}
+              onChange={onHospitalChange}
+              options={hospitals.map((hospital) => [hospital.id, hospital.name])}
+            />
+          ) : null}
+          <button type="button" onClick={onRefresh} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-100 px-3 text-sm font-bold text-ink">
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            갱신
+          </button>
+        </div>
+      </div>
+
+      {preview ? (
+        <div className="mt-4 grid gap-4">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-line py-4 text-sm md:grid-cols-5">
+            <PreviewMetric label="데이터" value={preview.source === "db" ? "운영 DB" : "코드"} />
+            <PreviewMetric label="프롬프트" value={`${preview.chars.toLocaleString()}자`} />
+            <PreviewMetric label="표준 힌트" value={preview.hintCount.toLocaleString()} />
+            <PreviewMetric label="발화형 매핑" value={preview.mappingCount.toLocaleString()} />
+            <PreviewMetric label="충돌" value={preview.conflicts.length.toLocaleString()} />
+          </div>
+          {preview.conflicts.length ? (
+            <div className="rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800">
+              <div className="flex items-center gap-2 font-bold"><AlertTriangle size={16} />발화형 충돌 {preview.conflicts.length}건</div>
+              <p className="mt-1 leading-6">{preview.conflicts.slice(0, 5).map((conflict) => `${conflict.spokenForm} → ${conflict.standardForms.join(" / ")}`).join(" · ")}</p>
+            </div>
+          ) : null}
+          {preview.truncated ? (
+            <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+              <p>글자 예산으로 매핑 {preview.omittedMappingCount}개, 힌트 {preview.omittedHintCount}개가 제외됐습니다. 우선순위 숫자가 작은 항목부터 적용됩니다.</p>
+              {preview.omittedMappingStandardForms.length ? <p className="mt-1 text-xs leading-5">제외 매핑: {preview.omittedMappingStandardForms.slice(0, 12).join(" · ")}{preview.omittedMappingStandardForms.length > 12 ? " 외" : ""}</p> : null}
+              {preview.omittedHints.length ? <p className="mt-1 text-xs leading-5">제외 힌트: {preview.omittedHints.slice(0, 12).join(" · ")}{preview.omittedHints.length > 12 ? " 외" : ""}</p> : null}
+            </div>
+          ) : null}
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-slate-50 p-4 text-xs font-semibold leading-5 text-slate-700">{preview.prompt}</pre>
+          <p className="text-right text-[11px] font-semibold text-slate-400">hash {preview.promptHash} · 새 Realtime 세션부터 적용</p>
+        </div>
+      ) : (
+        <p className="mt-4 text-sm font-semibold text-slate-500">{loading ? "미리보기를 만드는 중..." : "미리보기를 불러오지 못했습니다."}</p>
+      )}
+    </section>
+  );
+}
+
+function PreviewMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[11px] font-bold text-slate-400">{label}</p>
+      <p className="mt-1 font-bold text-ink">{value}</p>
+    </div>
+  );
+}
+
 function GlossaryFields({
   draft,
   hospitals,
@@ -466,15 +603,26 @@ function GlossaryFields({
       <div className="grid gap-3 md:grid-cols-4">
         <ScopeFields draft={draft} hospitals={hospitals} onChange={onChange} />
         <Select value={draft.entryType} onChange={(value) => onChange("entryType", value as GlossaryEntryType)} options={[["term", "용어"], ["critical_phrase", "핵심문장"], ["transcription_hint", "STT 힌트"], ["verified_sentence", "검증문장"]]} />
-        <InlineInput value={draft.standardKo} onChange={(value) => onChange("standardKo", value)} placeholder="표준 한국어" />
-        <InlineInput value={draft.spokenFormsText} onChange={(value) => onChange("spokenFormsText", value)} placeholder="발화형 | 구분" />
+        <label className="grid gap-1.5">
+          <span className="text-xs font-bold text-slate-600">{draft.entryType === "transcription_hint" ? "최종 표준 표현" : "표준 한국어"}</span>
+          <InlineInput value={draft.standardKo} onChange={(value) => onChange("standardKo", value)} placeholder="써마지" />
+        </label>
+        <label className="grid gap-1.5">
+          <span className="text-xs font-bold text-slate-600">발음·오인식 형태</span>
+          <InlineInput value={draft.spokenFormsText} onChange={(value) => onChange("spokenFormsText", value)} placeholder="서마지 | 서머지 | 써머지" />
+        </label>
       </div>
+      {draft.entryType === "transcription_hint" ? (
+        <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold leading-5 text-blue-800">
+          앱에 표시할 정확한 표현은 표준 표현에 한 번만 입력하고, 실제로 잘못 들린 형태는 발음·오인식 형태에 | 로 구분해 입력합니다.
+        </p>
+      ) : null}
       {draft.entryType === "verified_sentence" ? (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-800">
           이 문장은 등록된 번역문이 글자 그대로 나갑니다. 의학적 검수를 거친 번역만 입력하세요.
         </p>
       ) : null}
-      <TranslationGrid translations={draft.translations} onChange={onTranslationChange} />
+      {draft.entryType !== "transcription_hint" ? <TranslationGrid translations={draft.translations} onChange={onTranslationChange} /> : null}
       <div className="grid gap-3 md:grid-cols-[1fr_1fr_120px]">
         <InlineInput value={draft.category} onChange={(value) => onChange("category", value)} placeholder="category" />
         <InlineInput value={draft.note} onChange={(value) => onChange("note", value)} placeholder="note" />

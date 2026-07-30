@@ -1,16 +1,40 @@
 import { NextResponse } from "next/server";
 import { ParticipantRole, Prisma, RoomMode } from "@prisma/client";
 import { z } from "zod";
+import { normalizeTranscriptionKey } from "@/lib/clinic-transcription";
+import { clearGlossaryCache, findGlossaryAliasConflict } from "@/lib/glossary-service";
 import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
 
 const statuses = ["new", "reviewed", "fixed", "dismissed"] as const;
 const sources = ["local_voice", "consultation_voice", "procedure_voice"] as const;
+const reviewKinds = ["source_correct", "stt_error", "translation_error", "noise", "uncertain"] as const;
+const promotionScopes = ["hospital", "specialty", "global"] as const;
 const sampleBackfillLimit = 500;
 
 const patchSchema = z.object({
   id: z.string().min(1),
-  status: z.enum(statuses)
+  status: z.enum(statuses).optional(),
+  reviewKind: z.enum(reviewKinds).optional(),
+  correctedSourceText: z.string().trim().max(500).optional(),
+  reviewNote: z.string().trim().max(500).optional(),
+  hintObservedForm: z.string().trim().max(200).optional(),
+  hintCanonicalForm: z.string().trim().max(200).optional(),
+  hintCategory: z.string().trim().max(120).optional(),
+  promotionScope: z.enum(promotionScopes).optional(),
+  promoteToSttHint: z.boolean().optional()
+}).superRefine((value, context) => {
+  if (!value.status && !value.reviewKind) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "status or reviewKind is required" });
+  }
+  if (value.promoteToSttHint) {
+    if (value.reviewKind !== "stt_error") {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Only an STT error can be promoted" });
+    }
+    if (!value.hintObservedForm || !value.hintCanonicalForm) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: "Observed and canonical forms are required" });
+    }
+  }
 });
 
 type SampleAdmin = NonNullable<Awaited<ReturnType<typeof getCurrentStaff>>>;
@@ -72,6 +96,112 @@ function sampleResponse(sample: {
     createdAt: sample.createdAt.toISOString(),
     reviewedAt: sample.reviewedAt?.toISOString() ?? null
   };
+}
+
+function jsonRecord(value: Prisma.JsonValue | null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, Prisma.JsonValue>;
+}
+
+function uniqueSpokenForms(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const rawValue of values) {
+    const value = rawValue.trim().replace(/\s+/g, " ");
+    const key = normalizeTranscriptionKey(value);
+    if (!value || !key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
+}
+
+function reviewStatus(reviewKind: (typeof reviewKinds)[number] | undefined, requestedStatus: (typeof statuses)[number] | undefined, promoted: boolean) {
+  if (promoted) return "fixed" as const;
+  if (requestedStatus) return requestedStatus;
+  if (reviewKind === "noise") return "dismissed" as const;
+  return reviewKind ? "reviewed" as const : "new" as const;
+}
+
+async function promoteSttHint({
+  tx,
+  admin,
+  sample,
+  observedForm,
+  canonicalForm,
+  requestedScope,
+  category
+}: {
+  tx: Prisma.TransactionClient;
+  admin: SampleAdmin;
+  sample: { id: string; hospitalId: string; sourceLanguage: string };
+  observedForm: string;
+  canonicalForm: string;
+  requestedScope: (typeof promotionScopes)[number] | undefined;
+  category: string | undefined;
+}) {
+  if (sample.sourceLanguage !== "ko") throw new Error("Only Korean source samples can be promoted to an STT hint");
+
+  const observed = observedForm.trim().replace(/\s+/g, " ");
+  const canonical = canonicalForm.trim().replace(/\s+/g, " ");
+  if (!observed || !canonical || normalizeTranscriptionKey(observed) === normalizeTranscriptionKey(canonical)) {
+    throw new Error("Observed and canonical forms must be different");
+  }
+
+  const hospital = await tx.hospital.findUnique({
+    where: { id: sample.hospitalId },
+    select: { id: true, specialty: true }
+  });
+  if (!hospital) throw new Error("Hospital not found");
+
+  const scope = admin.role === "hospital_admin" ? "hospital" : requestedScope ?? "hospital";
+  const scopeWhere = scope === "global"
+    ? { scope: "global" as const, specialty: null, hospitalId: null }
+    : scope === "specialty"
+      ? { scope: "specialty" as const, specialty: hospital.specialty, hospitalId: null }
+      : { scope: "hospital" as const, specialty: null, hospitalId: hospital.id };
+  const conflict = await findGlossaryAliasConflict({
+    entryType: "transcription_hint",
+    standardKo: canonical,
+    spokenForms: [observed]
+  }, tx);
+  if (conflict) {
+    throw new Error(`The observed form is already mapped to ${conflict.standardKo}`);
+  }
+
+  const scopedRows = await tx.glossaryEntry.findMany({
+    where: {
+      ...scopeWhere,
+      isActive: true,
+      entryType: { in: ["term", "transcription_hint"] }
+    },
+    orderBy: [{ entryType: "asc" }, { priority: "asc" }]
+  });
+  const canonicalKey = normalizeTranscriptionKey(canonical);
+  const existing = scopedRows.find((entry) => normalizeTranscriptionKey(entry.standardKo) === canonicalKey);
+
+  if (existing) {
+    const entry = await tx.glossaryEntry.update({
+      where: { id: existing.id },
+      data: { spokenForms: uniqueSpokenForms([...existing.spokenForms, observed]) }
+    });
+    return { entry, action: "merged" as const };
+  }
+
+  const entry = await tx.glossaryEntry.create({
+    data: {
+      ...scopeWhere,
+      entryType: "transcription_hint",
+      spokenForms: [observed],
+      standardKo: canonical,
+      translations: {},
+      category: category?.trim() || "sample_stt",
+      note: `Promoted from reviewed sample ${sample.id}`,
+      priority: 80,
+      isActive: true
+    }
+  });
+  return { entry, action: "created" as const };
 }
 
 function roomSampleSource(roomMode: RoomMode) {
@@ -193,7 +323,9 @@ export async function GET(request: Request) {
     samples: where.id ? (samples[0] ? sampleResponse(samples[0]) : null) : samples.map(sampleResponse),
     hospitals,
     statuses,
-    sources
+    sources,
+    reviewKinds,
+    promotionScopes
   });
 }
 
@@ -209,11 +341,65 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Sample not found" }, { status: 404 });
   }
 
-  const sample = await prisma.translationSample.update({
-    where: { id: parsed.data.id },
-    data: { status: parsed.data.status, reviewedAt: parsed.data.status === "new" ? null : new Date() },
-    include: { hospital: { select: { id: true, name: true, slug: true } }, staff: { select: { id: true, name: true, email: true } } }
-  });
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const promotion = parsed.data.promoteToSttHint
+        ? await promoteSttHint({
+            tx,
+            admin,
+            sample: existing,
+            observedForm: parsed.data.hintObservedForm ?? "",
+            canonicalForm: parsed.data.hintCanonicalForm ?? "",
+            requestedScope: parsed.data.promotionScope,
+            category: parsed.data.hintCategory
+          })
+        : null;
+      const status = reviewStatus(parsed.data.reviewKind, parsed.data.status, Boolean(promotion));
+      const existingFlags = jsonRecord(existing.guardFlags);
+      const guardFlags = parsed.data.reviewKind
+        ? JSON.parse(JSON.stringify({
+            ...existingFlags,
+            adminReview: {
+              kind: parsed.data.reviewKind,
+              correctedSourceText: parsed.data.correctedSourceText?.trim() || undefined,
+              note: parsed.data.reviewNote?.trim() || undefined,
+              hintObservedForm: parsed.data.hintObservedForm?.trim() || undefined,
+              hintCanonicalForm: parsed.data.hintCanonicalForm?.trim() || undefined,
+              hintCategory: parsed.data.hintCategory?.trim() || undefined,
+              promotionScope: promotion?.entry.scope ?? parsed.data.promotionScope,
+              promotedGlossaryEntryId: promotion?.entry.id,
+              promotionAction: promotion?.action,
+              reviewedBy: { id: admin.id, name: admin.name },
+              reviewedAt: new Date().toISOString()
+            }
+          })) as Prisma.InputJsonValue
+        : undefined;
 
-  return NextResponse.json({ sample: sampleResponse(sample) });
+      const sample = await tx.translationSample.update({
+        where: { id: parsed.data.id },
+        data: {
+          status,
+          reviewedAt: status === "new" ? null : new Date(),
+          ...(guardFlags ? { guardFlags } : {})
+        },
+        include: {
+          hospital: { select: { id: true, name: true, slug: true } },
+          staff: { select: { id: true, name: true, email: true } }
+        }
+      });
+      return { sample, promotion };
+    });
+
+    if (result.promotion) clearGlossaryCache();
+    return NextResponse.json({
+      sample: sampleResponse(result.sample),
+      promotion: result.promotion
+        ? { entryId: result.promotion.entry.id, action: result.promotion.action, scope: result.promotion.entry.scope }
+        : null
+    });
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : "Sample review failed";
+    const status = message.includes("already mapped") ? 409 : 400;
+    return NextResponse.json({ error: message }, { status });
+  }
 }
