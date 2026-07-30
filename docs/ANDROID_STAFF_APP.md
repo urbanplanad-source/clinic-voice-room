@@ -169,18 +169,6 @@ OPENAI_REALTIME_MODEL=gpt-realtime
 OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 ```
 
-Hybrid face-to-face translation is controlled globally by the server:
-
-```text
-MEDIVOICE_HYBRID_TRANSLATION_MODE=low_risk_main
-OPENAI_STORE_TRANSLATION_MODEL=gpt-realtime-translate
-```
-
-- `low_risk_main` is the default. Set `off` to keep every turn on the existing `gpt-realtime` path.
-- `shadow` streams to the translation model for measurement but never selects its result.
-- `low_risk_main` selects a completed translation-model result only when the Android risk gate finds no retained clinical-safety, brand, money, dosage-unit, or body-part cue. Plain numbers, dates, and counts are not high risk; shot counts are treated as counts. Among allergy, pregnancy, side effects, contraindications, consent, and important negation cues, only side effects remain high risk.
-- The Android app refreshes this policy every 30 seconds while face-to-face mode is open. Change the Vercel environment value and redeploy to turn the feature off without rebuilding the APK.
-
 The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but honors an explicit value such as `gpt-5.5`. It normalizes legacy `OPENAI_REALTIME_MODEL=gpt-realtime-translate` to `gpt-realtime` for the current general Realtime path, and legacy `OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper` to `gpt-4o-transcribe`.
 
 ## Face-To-Face Mode Field Test

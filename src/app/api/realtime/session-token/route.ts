@@ -6,15 +6,13 @@ import { createRealtimeSessionToken } from "@/lib/openai-realtime";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { isPatientRoomRequestAuthorized } from "@/lib/patient-room-session";
 import { getGlossaryForHospital } from "@/lib/glossary-service";
-import { createRealtimeTranslationClientSecret } from "@/lib/openai-realtime-translation";
 
 const schema = z.object({
   roomId: z.string(),
   role: z.enum(["staff", "patient"]),
   roomToken: z.string().optional(),
   direction: z.enum(["staff_to_patient", "patient_to_staff"]).optional(),
-  manualTurn: z.boolean().optional(),
-  translationSession: z.boolean().optional()
+  manualTurn: z.boolean().optional()
 });
 
 export async function POST(request: Request) {
@@ -61,22 +59,6 @@ export async function POST(request: Request) {
 
   let token;
   try {
-    if (parsed.data.translationSession) {
-      const direction = parsed.data.direction ?? (
-        parsed.data.role === "staff" ? "staff_to_patient" : "patient_to_staff"
-      );
-      const translationToken = await createRealtimeTranslationClientSecret({
-        targetLanguage: direction === "staff_to_patient" ? room.patientLanguage : "ko",
-        safetyIdentifier: `${room.hospitalId}:${room.hostStaffId}:${room.id}:${parsed.data.role}:${direction}`
-      });
-      token = {
-        ...translationToken,
-        client_secret: { value: translationToken.value },
-        type: "realtime_translation"
-      };
-      return NextResponse.json({ token });
-    }
-
     const glossaryData = await getGlossaryForHospital(room.hospitalId, room.hospital.specialty);
     token = await createRealtimeSessionToken({
       role: parsed.data.role,

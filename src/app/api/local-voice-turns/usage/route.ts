@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
 import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { isPatientLanguage, type PatientLanguage } from "@/lib/languages";
@@ -9,27 +8,7 @@ import {
   type LocalInterpreterDirection,
   type LocalInterpreterTransport
 } from "@/lib/local-interpreter-usage";
-import { prisma } from "@/lib/prisma";
 import { recordTranslationSample, stableTranslationSampleMessageId } from "@/lib/translation-samples";
-
-const hybridObservationSchema = z.object({
-  mode: z.enum(["off", "shadow", "low_risk_main"]),
-  appVersion: z.string().trim().min(1).max(40).optional(),
-  available: z.boolean(),
-  selected: z.boolean(),
-  settled: z.boolean(),
-  sourceTranscriptComplete: z.boolean(),
-  outputTranscriptComplete: z.boolean(),
-  firstOutputMs: z.number().min(0).max(120_000).nullable(),
-  completedMs: z.number().min(0).max(120_000).nullable(),
-  finalizationMs: z.number().min(0).max(120_000).nullable().optional(),
-  completionReason: z.enum(["session_closed", "socket_closed", "timeout"]).nullable().optional(),
-  sourceText: z.string().max(10_000),
-  translatedText: z.string().max(10_000),
-  lowRisk: z.boolean(),
-  riskReasons: z.array(z.string().min(1).max(120)).max(32),
-  error: z.string().max(500).nullable()
-});
 
 const schema = z.object({
   patientLanguage: z.custom<PatientLanguage>((value) => isPatientLanguage(value)),
@@ -42,8 +21,7 @@ const schema = z.object({
   translatedText: z.string().trim().min(1).max(10_000).optional(),
   sourceTranscriptComplete: z.boolean().optional().default(true),
   recordSample: z.boolean().optional().default(true),
-  model: z.string().trim().min(1).max(120).optional(),
-  hybridObservation: hybridObservationSchema.optional()
+  model: z.string().trim().min(1).max(120).optional()
 });
 
 export async function POST(request: Request) {
@@ -91,7 +69,7 @@ export async function POST(request: Request) {
     });
 
     try {
-      const recorded = await recordTranslationSample({
+      await recordTranslationSample({
         hospitalId: staff.hospitalId,
         staffId: staff.id,
         messageId: sampleMessageId,
@@ -104,39 +82,8 @@ export async function POST(request: Request) {
         sourceLanguage,
         targetLanguage,
         model: parsed.data.model ?? `${parsed.data.transport}-local`,
-        sourceTranscriptComplete: parsed.data.sourceTranscriptComplete,
-        guardFlags: parsed.data.hybridObservation
-          ? { hybrid: parsed.data.hybridObservation }
-          : undefined
-      });
-
-      if (parsed.data.hybridObservation && !recorded) {
-        const existing = await prisma.translationSample.findFirst({
-          where: {
-            hospitalId: staff.hospitalId,
-            source: "local_voice",
-            messageId: sampleMessageId
-          },
-          select: { id: true, guardFlags: true }
-        });
-        if (existing) {
-          const existingFlags = existing.guardFlags &&
-            typeof existing.guardFlags === "object" &&
-            !Array.isArray(existing.guardFlags)
-            ? existing.guardFlags as Prisma.JsonObject
-            : {};
-          await prisma.translationSample.update({
-            where: { id: existing.id },
-            data: {
-              guardFlags: {
-                ...existingFlags,
-                hybrid: parsed.data.hybridObservation
-              } as Prisma.InputJsonObject
-            }
-          });
-        }
-      }
-    } catch (caught) {
+        sourceTranscriptComplete: parsed.data.sourceTranscriptComplete
+      });    } catch (caught) {
       console.error("[local-voice-turns usage sample]", caught);
     }
   }
