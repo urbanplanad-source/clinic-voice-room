@@ -52,6 +52,14 @@ describe("clinic glossary display normalization", () => {
     expect(prompt).toContain("울쎄라");
   });
 
+  it("includes common Korean procedure phrases in transcription guidance", () => {
+    const prompt = buildClinicTranscriptionPrompt("ko");
+    expect(prompt).toContain("시술에 관심이 있으세요?");
+    expect(prompt).toContain("시술을 진행하겠습니다");
+    expect(prompt).toContain("시술 후에 주의해 주세요");
+    expect(prompt).toContain("울쎄라 시술에 관심이 있으세요?");
+  });
+
   it("normalizes price-list treatment and brand names from dermatology and plastic surgery sheets", () => {
     expect(normalizeClinicTranslation("브이로어드밴스와 듀얼 프락셀", "en")).toContain("V-RO ADVANCE");
     expect(normalizeClinicTranslation("브이로어드밴스와 듀얼 프락셀", "en")).toContain("Fraxel Dual");
