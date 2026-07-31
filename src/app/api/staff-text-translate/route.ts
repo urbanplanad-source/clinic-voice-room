@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { runWithBoundedRetry } from "@/lib/bounded-retry";
 import { buildClinicGlossaryInstructions, normalizeClinicTranslation } from "@/lib/clinic-glossary";
 import { getGlossaryForHospital } from "@/lib/glossary-service";
 import {
@@ -13,6 +14,11 @@ import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { getCurrentStaff } from "@/lib/session";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
 import { recordTextTranslationUsage } from "@/lib/text-translation-usage";
+
+export const maxDuration = 45;
+
+const staffTranslationAttemptTimeoutMs = 12_000;
+const staffTranslationMaxAttempts = 2;
 
 const schema = z.object({
   sourceLanguage: z.custom<TranslationLanguage>((value) => isTranslationLanguage(value)),
@@ -123,6 +129,35 @@ export async function POST(request: Request) {
   }
 
   const glossaryData = await getGlossaryForHospital(staff.hospitalId, staff.hospital.specialty);
+  const directVerifiedMatch =
+    parsed.data.sourceLanguage === "ko"
+      ? matchVerifiedSentence(parsed.data.text, parsed.data.targetLanguage, glossaryData)
+      : null;
+
+  if (directVerifiedMatch) {
+    const translatedText = normalizeClinicTranslation(
+      directVerifiedMatch.translatedText,
+      parsed.data.targetLanguage,
+      glossaryData
+    );
+    await recordTextTranslationUsage({
+      staff,
+      sourceLanguage: parsed.data.sourceLanguage,
+      targetLanguage: parsed.data.targetLanguage
+    }).catch((caught) => {
+      console.error("[staff-text-translate usage]", caught);
+    });
+
+    return NextResponse.json({
+      translatedText,
+      polishedSourceText: directVerifiedMatch.entry.standardKo,
+      sourceLanguage: parsed.data.sourceLanguage,
+      targetLanguage: parsed.data.targetLanguage,
+      model: "verified",
+      polishModel: null
+    });
+  }
+
   let sourceTextForTranslation = parsed.data.text;
   let polishedSourceText: string | undefined;
   let polishModel: string | undefined;
@@ -185,21 +220,32 @@ export async function POST(request: Request) {
 
   let translation;
   try {
-    translation = await translateWithOpenAITextSafety({
-      apiKey,
-      safetyIdentifier: `clinic-voice-room-staff-text-${staff.id}-${patientLanguageForUsage(parsed.data.sourceLanguage, parsed.data.targetLanguage)}`,
-      sourceText: sourceTextForTranslation,
-      instructions,
-      glossaryData,
-      errorLabel: "[staff-text-translate]",
-      context: "staff-text-translate",
-      forceStandard: true
+    translation = await runWithBoundedRetry({
+      maxAttempts: staffTranslationMaxAttempts,
+      retryDelayMs: 150,
+      operation: () => translateWithOpenAITextSafety({
+        apiKey,
+        safetyIdentifier: `clinic-voice-room-staff-text-${staff.id}-${patientLanguageForUsage(parsed.data.sourceLanguage, parsed.data.targetLanguage)}`,
+        sourceText: sourceTextForTranslation,
+        instructions,
+        glossaryData,
+        errorLabel: "[staff-text-translate]",
+        context: "staff-text-translate",
+        forceStandard: true,
+        timeoutMs: staffTranslationAttemptTimeoutMs
+      }),
+      onFailure: (failure) => {
+        console.error("[staff-text-translate] attempt failed", JSON.stringify(failure));
+      }
     });
   } catch (caught) {
     if (caught instanceof Error && caught.message === "empty_translation") {
       return NextResponse.json({ error: "No translated text was returned" }, { status: 502 });
     }
-    return NextResponse.json({ error: "Text translation failed" }, { status: 502 });
+    return NextResponse.json(
+      { error: "일시적으로 번역하지 못했습니다. 잠시 후 다시 시도해주세요." },
+      { status: 502 }
+    );
   }
 
   const translatedText = normalizeClinicTranslation(translation.translatedText, parsed.data.targetLanguage, glossaryData);
