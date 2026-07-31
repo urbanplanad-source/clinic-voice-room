@@ -80,6 +80,16 @@ function jsonValueOrUndefined(value: unknown) {
   return JSON.parse(serialized) as Prisma.InputJsonValue;
 }
 
+function isPrismaUniqueConstraintError(caught: unknown) {
+  if (caught instanceof Prisma.PrismaClientKnownRequestError) {
+    return caught.code === "P2002";
+  }
+  return typeof caught === "object" &&
+    caught !== null &&
+    "code" in caught &&
+    caught.code === "P2002";
+}
+
 export async function recordTranslationSample(params: RecordTranslationSampleParams) {
   const sourceText = params.sourceText.trim();
   const translatedText = params.translatedText.trim();
@@ -105,7 +115,7 @@ export async function recordTranslationSample(params: RecordTranslationSamplePar
       }
     });
   } catch (caught) {
-    if (caught instanceof Prisma.PrismaClientKnownRequestError && caught.code === "P2002") {
+    if (isPrismaUniqueConstraintError(caught)) {
       return null;
     }
     throw caught;
