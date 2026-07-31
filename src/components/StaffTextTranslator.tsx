@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeftRight, Check, Clipboard, FileText, Languages, Loader2, Trash2, Volume2 } from "lucide-react";
+import { ArrowLeftRight, Check, Clipboard, Languages, Loader2, Trash2, Volume2 } from "lucide-react";
 import { translationLanguageLabels, translationLanguages, type TranslationLanguage } from "@/lib/languages";
 
 const maxCharacters = 3000;
@@ -17,26 +17,7 @@ const orderedLanguages = [
   ...translationLanguages.filter((language) => !["ko", "zh", "en", "ja", "zh_tw", "yue"].includes(language))
 ] as TranslationLanguage[];
 
-const defaultPhrases = [
-  "통증은 어떠세요?",
-  "눈 감고 계세요.",
-  "시술 후 붓기가 있을 수 있어요.",
-  "오늘은 사우나와 음주를 피해주세요."
-];
 
-const maxRememberedPhrases = 50;
-
-type RememberedPhrase = {
-  id: string;
-  sourceLanguage: TranslationLanguage;
-  targetLanguage: TranslationLanguage;
-  text: string;
-  polishedText: string;
-  translatedText?: string;
-  count: number;
-  lastUsedAt: number;
-  createdAt: number;
-};
 
 const speechLocales = {
   ko: "ko-KR",
@@ -77,50 +58,6 @@ function compactLanguageDisplay(language: TranslationLanguage) {
   return label.ko.replace("중국어 ", "중국어");
 }
 
-function normalizeForPhraseMatch(text: string) {
-  return text
-    .normalize("NFKC")
-    .toLocaleLowerCase()
-    .replace(/[\s\p{P}\p{S}]+/gu, "");
-}
-
-function polishHospitalPhrase(text: string) {
-  let polished = text
-    .normalize("NFKC")
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.?!。？！])/g, "$1")
-    .trim();
-
-  polished = polished.replace(/(\d+)\s*샷에\s*([0-9,]+)\s*만원/g, "$1샷 기준 $2만원");
-  polished = polished.replace(/([가-힣])해주세요/g, "$1해 주세요");
-
-  if (polished && !/[.!?。？！]$/.test(polished)) {
-    polished += ".";
-  }
-
-  return polished;
-}
-
-function phraseSimilarityScore(query: string, candidate: string) {
-  const normalizedQuery = normalizeForPhraseMatch(query);
-  const normalizedCandidate = normalizeForPhraseMatch(candidate);
-  if (!normalizedQuery || !normalizedCandidate) return 0;
-  if (normalizedCandidate === normalizedQuery) return 1;
-  if (normalizedCandidate.includes(normalizedQuery) || normalizedQuery.includes(normalizedCandidate)) return 0.95;
-
-  const queryChars = new Set(Array.from(normalizedQuery));
-  const candidateChars = new Set(Array.from(normalizedCandidate));
-  let overlap = 0;
-  queryChars.forEach((character) => {
-    if (candidateChars.has(character)) overlap += 1;
-  });
-
-  return overlap / Math.max(queryChars.size, candidateChars.size);
-}
-
-function storageKeyForHospital(hospitalName: string) {
-  return `clinic-voice-room:staff-text-phrases:v1:${hospitalName}`;
-}
 
 export function StaffTextTranslator({
   staff
@@ -136,75 +73,12 @@ export function StaffTextTranslator({
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
-  const [rememberedPhrases, setRememberedPhrases] = useState<RememberedPhrase[]>([]);
-  const [phrasesLoaded, setPhrasesLoaded] = useState(false);
   const isComposingRef = useRef(false);
-  const phraseStorageKey = storageKeyForHospital(staff.hospital.name);
 
   const characters = input.length;
   const canTranslate = input.trim().length > 0 && characters <= maxCharacters && sourceLanguage !== targetLanguage && !loading;
   const shouldShowPolishedSource =
     sourceLanguage === "ko" && targetLanguage !== "ko" && output.trim().length > 0 && polishedSourceText.trim().length > 0;
-  const suggestedPhrases = useMemo(() => {
-    if (input.trim().length < 3) return [];
-
-    return rememberedPhrases
-      .filter((phrase) => phrase.sourceLanguage === sourceLanguage)
-      .map((phrase) => ({
-        phrase,
-        score: Math.max(
-          phraseSimilarityScore(input, phrase.text),
-          phraseSimilarityScore(input, phrase.polishedText)
-        )
-      }))
-      .filter(({ score }) => score >= 0.48)
-      .sort((a, b) => b.score - a.score || b.phrase.count - a.phrase.count || b.phrase.lastUsedAt - a.phrase.lastUsedAt)
-      .slice(0, 4)
-      .map(({ phrase }) => phrase);
-  }, [input, rememberedPhrases, sourceLanguage]);
-  const frequentPhrases = useMemo(
-    () =>
-      rememberedPhrases
-        .filter((phrase) => phrase.sourceLanguage === sourceLanguage)
-        .sort((a, b) => b.count - a.count || b.lastUsedAt - a.lastUsedAt)
-        .slice(0, 8),
-    [rememberedPhrases, sourceLanguage]
-  );
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(phraseStorageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as RememberedPhrase[];
-        if (Array.isArray(parsed)) {
-          setRememberedPhrases(
-            parsed.filter(
-              (phrase) =>
-                phrase &&
-                typeof phrase.id === "string" &&
-                typeof phrase.text === "string" &&
-                typeof phrase.polishedText === "string" &&
-                typeof phrase.count === "number"
-            )
-          );
-        }
-      }
-    } catch {
-      setRememberedPhrases([]);
-    } finally {
-      setPhrasesLoaded(true);
-    }
-  }, [phraseStorageKey]);
-
-  useEffect(() => {
-    if (!phrasesLoaded) return;
-    try {
-      window.localStorage.setItem(phraseStorageKey, JSON.stringify(rememberedPhrases));
-    } catch {
-      // Phrase memory is a convenience feature. Translation should keep working if storage is unavailable.
-    }
-  }, [phraseStorageKey, phrasesLoaded, rememberedPhrases]);
-
   function updateSourceLanguage(nextLanguage: TranslationLanguage) {
     setCopied(false);
     setError("");
@@ -237,48 +111,6 @@ export function StaffTextTranslator({
     }
   }
 
-  function rememberPhrase(sourceText: string, translatedText: string, serverPolishedText?: string | null) {
-    const text = sourceText.trim();
-    if (text.length < 3) return;
-
-    const now = Date.now();
-    const polishedText = serverPolishedText?.trim() || polishHospitalPhrase(text);
-    const normalizedText = normalizeForPhraseMatch(polishedText);
-    setRememberedPhrases((current) => {
-      const existing = current.find(
-        (phrase) =>
-          phrase.sourceLanguage === sourceLanguage &&
-          normalizeForPhraseMatch(phrase.polishedText) === normalizedText
-      );
-
-      const nextEntry: RememberedPhrase = existing
-        ? {
-            ...existing,
-            targetLanguage,
-            text,
-            polishedText,
-            translatedText,
-            count: existing.count + 1,
-            lastUsedAt: now
-          }
-        : {
-            id: `${now}-${Math.random().toString(36).slice(2, 9)}`,
-            sourceLanguage,
-            targetLanguage,
-            text,
-            polishedText,
-            translatedText,
-            count: 1,
-            createdAt: now,
-            lastUsedAt: now
-          };
-
-      return [nextEntry, ...current.filter((phrase) => phrase.id !== nextEntry.id)]
-        .sort((a, b) => b.count - a.count || b.lastUsedAt - a.lastUsedAt)
-        .slice(0, maxRememberedPhrases);
-    });
-  }
-
   async function translate() {
     const text = input.trim();
     if (!text || !canTranslate) return;
@@ -306,7 +138,6 @@ export function StaffTextTranslator({
 
       setOutput(data.translatedText);
       setPolishedSourceText(data.polishedSourceText?.trim() ?? "");
-      rememberPhrase(text, data.translatedText, data.polishedSourceText);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "번역하지 못했습니다.");
     } finally {
@@ -337,32 +168,6 @@ export function StaffTextTranslator({
     window.speechSynthesis.speak(utterance);
   }
 
-  function applyTextPhrase(phrase: string) {
-    setInput(phrase);
-    setOutput("");
-    setPolishedSourceText("");
-    setSourceLanguage("ko");
-    if (targetLanguage === "ko") {
-      setTargetLanguage("zh");
-    }
-    setError("");
-  }
-
-  function applyRememberedPhrase(phrase: RememberedPhrase) {
-    setInput(phrase.polishedText);
-    setSourceLanguage(phrase.sourceLanguage);
-    if (phrase.sourceLanguage === targetLanguage && phrase.targetLanguage !== phrase.sourceLanguage) {
-      setTargetLanguage(phrase.targetLanguage);
-    }
-    setError("");
-    if (phrase.targetLanguage === targetLanguage && phrase.translatedText) {
-      setOutput(phrase.translatedText);
-      setPolishedSourceText(phrase.sourceLanguage === "ko" && phrase.targetLanguage !== "ko" ? phrase.polishedText : "");
-    } else {
-      setOutput("");
-      setPolishedSourceText("");
-    }
-  }
 
   function handleInputKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (isComposingRef.current || event.nativeEvent.isComposing) return;
@@ -441,24 +246,6 @@ export function StaffTextTranslator({
             className="min-h-[170px] flex-1 resize-none border-0 bg-white p-5 text-[24px] font-semibold leading-[1.42] text-ink outline-none placeholder:text-slate-300 md:min-h-[220px] md:p-6 md:text-[28px]"
           />
 
-          {suggestedPhrases.length > 0 ? (
-            <div className="border-t border-line bg-blue-50/40 px-4 py-3">
-              <p className="mb-2 text-xs font-bold text-trust">입력 기록 추천</p>
-              <div className="flex flex-wrap gap-2">
-                {suggestedPhrases.map((phrase) => (
-                  <button
-                    key={phrase.id}
-                    type="button"
-                    onClick={() => applyRememberedPhrase(phrase)}
-                    className="max-w-full truncate rounded-lg border border-blue-100 bg-white px-3 py-2 text-sm font-bold text-ink transition hover:border-trust hover:text-trust"
-                    title={phrase.polishedText}
-                  >
-                    {phrase.polishedText}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
 
           <div className="grid min-h-16 grid-cols-[56px_1fr_auto] border-t border-line md:grid-cols-[64px_1fr_auto]">
             <button
@@ -574,38 +361,13 @@ export function StaffTextTranslator({
           </div>
         </div>
       </section>
+      {error ? <p className="rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold leading-6 text-rose-700">{error}</p> : null}
 
-      <section className="rounded-lg bg-white p-4 shadow-soft">
-        <div className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-500">
-          <FileText size={17} className="text-trust" />
-          {frequentPhrases.length > 0 ? "자주 쓰는 문장" : "기본 문장"}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {frequentPhrases.length > 0
-            ? frequentPhrases.map((phrase) => (
-                <button
-                  key={phrase.id}
-                  type="button"
-                  onClick={() => applyRememberedPhrase(phrase)}
-                  className="max-w-full truncate rounded-lg border border-line bg-slate-50 px-3 py-2 text-sm font-bold text-ink transition hover:border-trust hover:bg-blue-50 hover:text-trust"
-                  title={phrase.polishedText}
-                >
-                  {phrase.polishedText}
-                </button>
-              ))
-            : defaultPhrases.map((phrase) => (
-                <button
-                  key={phrase}
-                  type="button"
-                  onClick={() => applyTextPhrase(phrase)}
-                  className="rounded-lg border border-line bg-slate-50 px-3 py-2 text-sm font-bold text-ink transition hover:border-trust hover:bg-blue-50 hover:text-trust"
-                >
-                  {phrase}
-                </button>
-              ))}
-        </div>
-        {error ? <p className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold leading-6 text-rose-700">{error}</p> : null}
-      </section>
     </div>
   );
 }
+
+
+
+
+
