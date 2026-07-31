@@ -115,17 +115,17 @@ export function StaffHome({
         <div className="min-w-0">
           <p className="truncate text-sm font-bold text-blue-200">{staff.hospital.name}</p>
           <h1 className={selectedMode ? "mt-0.5 text-xl font-bold leading-tight md:text-2xl" : "mt-1 text-[30px] font-bold leading-tight md:text-[36px]"}>
-            {selectedMode ? "환자 언어 선택" : "통역 기능 선택"}
+            {selectedMode ? "환자 언어 선택" : "상담 도구"}
           </h1>
           <p className={selectedMode ? "hidden md:mt-1 md:block md:text-sm md:font-semibold md:leading-5 md:text-slate-300" : "mt-2 text-sm font-semibold leading-6 text-slate-300 md:text-base"}>
-            {selectedMode ? modeCopy[selectedMode].body : "시술 QR 통역, 설치형 대면 통역, 텍스트 번역만 운영합니다."}
+            {selectedMode ? modeCopy[selectedMode].body : "상담 문장을 바로 번역합니다."}
           </p>
         </div>
       </header>
 
       {!selectedMode ? (
         <>
-          <section className="grid gap-4 md:grid-cols-2">
+          <section className="hidden" aria-hidden="true">
             <button
               type="button"
               onClick={() => {
@@ -159,14 +159,14 @@ export function StaffHome({
 
           <Link
             href="/staff/text-translate"
-            className="flex min-h-[96px] items-center gap-4 rounded-lg bg-white p-5 text-left shadow-soft transition hover:bg-emerald-50 md:min-h-[112px] md:p-6"
+            className="flex min-h-[260px] flex-1 flex-col justify-between gap-8 rounded-lg bg-white p-7 text-left shadow-soft transition hover:bg-emerald-50 sm:min-h-[300px] md:min-h-[360px] md:p-10"
           >
-            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-emerald-50 text-mint">
-              <FileText size={28} />
+            <span className="grid h-20 w-20 shrink-0 place-items-center rounded-lg bg-emerald-50 text-mint md:h-24 md:w-24">
+              <FileText size={40} />
             </span>
             <span className="min-w-0">
-              <span className="block text-[24px] font-bold leading-tight text-ink md:text-[30px]">텍스트 번역하기</span>
-              <span className="mt-2 block text-sm font-semibold leading-6 text-slate-500 md:text-base">상담 문장 바로 번역</span>
+              <span className="block text-[34px] font-bold leading-tight text-ink md:text-[46px]">텍스트 번역하기</span>
+              <span className="mt-3 block text-lg font-semibold leading-8 text-slate-500 md:text-xl">상담 문장 바로 번역</span>
             </span>
           </Link>
         </>

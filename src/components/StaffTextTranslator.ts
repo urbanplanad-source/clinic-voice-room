@@ -1,1 +1,0 @@
-export { StaffTextTranslator } from "./StaffTextTranslatorReplacement";
