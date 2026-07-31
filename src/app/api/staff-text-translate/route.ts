@@ -9,7 +9,10 @@ import {
   type PatientLanguage,
   type TranslationLanguage
 } from "@/lib/languages";
-import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
+import {
+  CriticalNumericTranslationError,
+  translateWithOpenAITextSafety
+} from "@/lib/openai-text-translation";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { getCurrentStaff } from "@/lib/session";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
@@ -58,6 +61,9 @@ function buildInstructions({
   return [
     "You are a professional medical interpreter for a Korean hospital consultation desk.",
     `Translate from ${sourceLabel} to ${targetLabel}.`,
+    ...(sourceLanguage === "ko" && targetLanguage !== "ko"
+      ? ["Silently normalize awkward Korean spacing and wording before translating, but output only the target-language translation."]
+      : []),
     "The likely context is dermatology, plastic surgery, reception, pricing, consent, procedure guidance, side effects, aftercare, or patient questions.",
     "Use natural, polite wording suitable for live hospital counseling.",
     "Preserve the original clinical meaning. Do not add advice, diagnosis, consent language, risk claims, or extra explanation.",
@@ -65,18 +71,6 @@ function buildInstructions({
     "Preserve line breaks when they help readability.",
     "Return only the translated text. No labels, quotes, markdown, or commentary.",
     glossaryInstructionsFor(targetLanguage, glossaryData)
-  ].join("\n");
-}
-
-function buildKoreanPolishInstructions() {
-  return [
-    "You are a Korean medical consultation editor for a hospital translation desk.",
-    "Rewrite the Korean staff message into clear, readable, polite Korean before it is translated for a foreign patient.",
-    "Preserve the original clinical meaning exactly. Do not add diagnosis, advice, consent language, risk claims, discounts, or explanations.",
-    "Keep all numbers, prices, units, dates, treatment names, medication names, and body areas exact.",
-    "Use natural hospital counseling wording in Korean honorific style.",
-    "If the input is already clear, make only minimal spacing, punctuation, and readability edits.",
-    "Return only the polished Korean text. No labels, quotes, markdown, or commentary."
   ].join("\n");
 }
 
@@ -163,26 +157,8 @@ export async function POST(request: Request) {
   let polishModel: string | undefined;
 
   if (parsed.data.sourceLanguage === "ko" && parsed.data.targetLanguage !== "ko") {
-    const fallbackPolishedText = fallbackKoreanPolish(parsed.data.text);
-    try {
-      const polish = await translateWithOpenAITextSafety({
-        apiKey,
-        safetyIdentifier: `clinic-voice-room-staff-text-polish-${staff.id}`,
-        sourceText: parsed.data.text,
-        instructions: buildKoreanPolishInstructions(),
-        glossaryData,
-        errorLabel: "[staff-text-polish]",
-        context: "staff-text-polish",
-        forceStandard: true
-      });
-      const normalizedPolishedText = normalizeClinicTranslation(polish.translatedText, "ko", glossaryData);
-      polishedSourceText = normalizedPolishedText || fallbackPolishedText;
-      polishModel = polish.model;
-    } catch (caught) {
-      console.error("[staff-text-polish] fail-open", caught);
-      polishedSourceText = fallbackPolishedText;
-      polishModel = "fallback";
-    }
+    polishedSourceText = fallbackKoreanPolish(parsed.data.text);
+    polishModel = "inline";
     sourceTextForTranslation = polishedSourceText;
   }
 
@@ -236,7 +212,11 @@ export async function POST(request: Request) {
       }),
       onFailure: (failure) => {
         console.error("[staff-text-translate] attempt failed", JSON.stringify(failure));
-      }
+      },
+      shouldRetry: (caught) => !(
+        caught instanceof CriticalNumericTranslationError &&
+        caught.message === "critical_translation_guard_mismatch"
+      )
     });
   } catch (caught) {
     if (caught instanceof Error && caught.message === "empty_translation") {

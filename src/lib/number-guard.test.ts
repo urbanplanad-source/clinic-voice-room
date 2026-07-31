@@ -29,6 +29,19 @@ describe("number guard", () => {
     expect(compareNumericSignatures("\u4E00\u5468\u540E\u590D\u8BCA", "\uC77C\uC8FC\uC77C \uD6C4 \uC7AC\uBC29\uBB38").ok).toBe(true);
   });
 
+  it("treats equivalent ten-thousand currency notation as the same amount", () => {
+    expect(compareNumericSignatures("300만원입니다.", "The price is 3,000,000 won.").ok).toBe(true);
+    expect(compareNumericSignatures("300만 원입니다.", "300万ウォンです。").ok).toBe(true);
+    expect(compareNumericSignatures("1.5만원입니다.", "15,000 KRW").ok).toBe(true);
+  });
+
+  it("still rejects a changed ten-thousand currency amount", () => {
+    const comparison = compareNumericSignatures("300만원입니다.", "The price is 300,000 won.");
+    expect(comparison.ok).toBe(false);
+    expect(comparison.missing).toContain(3_000_000);
+    expect(comparison.extra).toContain(300_000);
+  });
+
   it("handles Korean to Chinese and Japanese fixture pairs", () => {
     expect(compareNumericSignatures("3\uC77C \uD6C4 \uB2E4\uC2DC \uC624\uC138\uC694", "\u8BF7\u0033\u5929\u540E\u518D\u6765\u3002").ok).toBe(true);
     expect(compareNumericSignatures("2\uC8FC \uB3D9\uC548 \uC220\uC740 \uD53C\uD574\uC8FC\uC138\uC694", "2\u9031\u9593\u306F\u98F2\u9152\u3092\u907F\u3051\u3066\u304F\u3060\u3055\u3044\u3002").ok).toBe(true);

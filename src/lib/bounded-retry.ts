@@ -24,6 +24,7 @@ export async function runWithBoundedRetry<T>(params: {
   maxAttempts: number;
   operation: (attempt: number) => Promise<T>;
   onFailure?: (failure: BoundedRetryFailure) => void;
+  shouldRetry?: (caught: unknown, failure: BoundedRetryFailure) => boolean;
   retryDelayMs?: number;
 }) {
   const maxAttempts = Math.max(1, Math.floor(params.maxAttempts));
@@ -34,14 +35,15 @@ export async function runWithBoundedRetry<T>(params: {
     try {
       return await params.operation(attempt);
     } catch (caught) {
-      params.onFailure?.({
+      const failure = {
         attempt,
         maxAttempts,
         elapsedMs: Date.now() - startedAt,
         ...errorDetails(caught)
-      });
+      };
+      params.onFailure?.(failure);
 
-      if (attempt >= maxAttempts) throw caught;
+      if (attempt >= maxAttempts || params.shouldRetry?.(caught, failure) === false) throw caught;
       if (retryDelayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
       }

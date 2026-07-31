@@ -129,9 +129,21 @@ function diffCounts(left: Map<number, number>, right: Map<number, number>) {
 export function extractNumericSignature(text: string) {
   const normalized = canonicalizeDigits(text);
   const numbers: number[] = [];
+  const scaledMoneyRanges: Array<{ start: number; end: number }> = [];
+
+  const tenThousandMoneyPattern =
+    /(?<![A-Za-z])([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:만|万|萬)\s*(?=(?:원|ウォン|韓元|韩元|圓|圆|won|krw))/giu;
+  for (const match of normalized.matchAll(tenThousandMoneyPattern)) {
+    const start = match.index ?? 0;
+    scaledMoneyRanges.push({ start, end: start + match[0].length });
+    pushNumber(numbers, Number(match[1].replace(/,/g, "")) * 10_000);
+  }
 
   const arabicPattern = /(?<![A-Za-z])[-+]?\d+(?:,\d{3})*(?:\.\d+)?/g;
   for (const match of normalized.matchAll(arabicPattern)) {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    if (scaledMoneyRanges.some((range) => start < range.end && end > range.start)) continue;
     pushNumber(numbers, Number(match[0].replace(/,/g, "")));
   }
 

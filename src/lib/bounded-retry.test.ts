@@ -33,6 +33,17 @@ describe("runWithBoundedRetry", () => {
     );
   });
 
+  it("does not retry an error rejected by the retry policy", async () => {
+    const operation = vi.fn().mockRejectedValue(new Error("guard_mismatch"));
+    const shouldRetry = vi.fn().mockReturnValue(false);
+
+    await expect(
+      runWithBoundedRetry({ maxAttempts: 2, operation, shouldRetry })
+    ).rejects.toThrow("guard_mismatch");
+    expect(operation).toHaveBeenCalledTimes(1);
+    expect(shouldRetry).toHaveBeenCalledTimes(1);
+  });
+
   it("throws the final error after the attempt limit", async () => {
     const operation = vi.fn().mockRejectedValue(new Error("translation_failed"));
     const onFailure = vi.fn();

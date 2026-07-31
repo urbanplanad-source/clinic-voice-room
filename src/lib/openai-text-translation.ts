@@ -195,6 +195,24 @@ export async function translateWithOpenAITextSafety(params: {
     retryUnitComparison.translatedUnits.length > 0;
 
   if (retryCriticalContext) {
+    console.error("[translation-guard] critical mismatch", JSON.stringify({
+      context: params.context,
+      model,
+      numeric: {
+        missing: retryNumericComparison.missing,
+        extra: retryNumericComparison.extra,
+        source: retryNumericComparison.sourceNumbers,
+        translated: retryNumericComparison.translatedNumbers
+      },
+      units: {
+        missing: retryUnitComparison.missing,
+        extra: retryUnitComparison.extra,
+        source: retryUnitComparison.sourceUnits,
+        translated: retryUnitComparison.translatedUnits,
+        sourcePairs: retryUnitComparison.sourcePairs,
+        translatedPairs: retryUnitComparison.translatedPairs
+      }
+    }));
     throw new CriticalNumericTranslationError("critical_translation_guard_mismatch");
   }
 
