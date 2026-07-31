@@ -29,3 +29,4 @@ android-staff-app/.kotlin/
 android-staff-app/local.properties
 android-staff-app/app/build/
 android-staff-app/build/
+tsconfig.tsbuildinfo

@@ -228,7 +228,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.34"
+private const val AppDisplayVersion = "0.3.35"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -262,7 +262,8 @@ private const val StaffModeIdleTimeoutMs = 15 * 60 * 1000L
 private const val StaffModeIdleCheckMs = 30 * 1000L
 private const val LocalRealtimeUserWaitTimeoutMs = 7_000L
 private const val FootpadDuplicateWindowMs = 450L
-private const val LocalValidationTimeoutMs = 5_000L
+private const val LocalValidationTimeoutMs = 7_000L
+private const val RealtimePersistTimeoutMs = 9_000L
 private const val LocalValidationMaxSourceChars = 18
 private const val LocalValidationMaxTranslatedChars = 36
 private const val LocalValidationMaxSourceWords = 3
@@ -3437,24 +3438,17 @@ class MainActivity : ComponentActivity() {
 
                 val targetLanguageMismatch = direction == LocalDirectionPatientToKo &&
                     hasClearKoreanTargetMismatch(source, translated)
-                val requirePatientToKoreanValidation = requiresPatientToKoreanPreOutputValidation(
+                val validationPlan = planLocalTranslationValidation(
                     direction = direction,
                     isInstantTemplate = isInstantTemplate,
-                    sourceTranscriptComplete = sourceTranscriptComplete
+                    sourceTranscriptComplete = sourceTranscriptComplete,
+                    targetLanguageMismatch = targetLanguageMismatch,
+                    sourceText = source,
+                    translatedText = translated,
+                    shortTurnCandidate = shouldValidateLocalTranslation(source, translated)
                 )
-                val validationCandidate = !isInstantTemplate &&
-                    sourceTranscriptComplete &&
-                    (
-                        requirePatientToKoreanValidation ||
-                            targetLanguageMismatch ||
-                            shouldValidateLocalTranslation(source, translated)
-                    )
-                val validationRequired = validationCandidate &&
-                    (
-                        requirePatientToKoreanValidation ||
-                            targetLanguageMismatch ||
-                            shouldSynchronouslyValidateLocalTranslation(source, translated)
-                    )
+                val validationCandidate = validationPlan.candidate
+                val validationRequired = validationPlan.required
                 val validation = when {
                     targetLanguageMismatch && !sourceTranscriptComplete -> LocalTranslationValidation(
                         checked = true,
@@ -3466,12 +3460,8 @@ class MainActivity : ComponentActivity() {
                         patientLanguage,
                         source,
                         translated,
-                        force = requirePatientToKoreanValidation || targetLanguageMismatch,
-                        forceReason = when {
-                            targetLanguageMismatch -> "target_language_mismatch"
-                            requirePatientToKoreanValidation -> "patient_to_ko_pre_output"
-                            else -> ""
-                        }
+                        force = validationPlan.force,
+                        forceReason = validationPlan.forceReason
                     ).let { candidate ->
                         val usableKoreanRepair = hasUsableKoreanTargetRepair(
                             source,
@@ -3504,7 +3494,7 @@ class MainActivity : ComponentActivity() {
                     appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 의미 불일치 자동 교정")
                 }
 
-                val requiredValidationUnavailable = requirePatientToKoreanValidation && !validation.checked
+                val requiredValidationUnavailable = validationPlan.required && !validation.checked
                 if (requiredValidationUnavailable || (validation.checked && !validation.ok && !validation.repaired)) {
                     val retryKorean = localRetryPromptKorean()
                     val retryPatient = localRetryPromptForPatientLanguage(patientLanguage)
@@ -3935,32 +3925,33 @@ class MainActivity : ComponentActivity() {
             val realtime = activeRealtimeTurnClient ?: realtimeTurnClient
             activeRealtimeTurnClient = null
             if (realtime != null) {
-                runCatching {
+                val result = runCatching {
                     val startedAt = SystemClock.elapsedRealtime()
-                    val result = realtime.stopTurnAndTranslate()
+                    realtime.stopTurnAndTranslate().also {
+                        appendLog("Realtime translation complete ${SystemClock.elapsedRealtime() - startedAt}ms")
+                    }
+                }.onFailure {
+                    appendLog("Realtime failed, falling back to upload: ${it.message}")
+                    if (realtimeTurnClient === realtime) {
+                        closeRealtimeTurnClient()
+                    } else {
+                        runCatching { realtime.close() }
+                    }
+                }.getOrNull()
+
+                if (result != null) {
                     val sourceText = normalizeKoreanSourceText(result.sourceText)
-                    appendLog("Realtime translation complete ${SystemClock.elapsedRealtime() - startedAt}ms")
                     if (realtimeTurnClient !== realtime) {
                         runCatching { realtime.close() }
                     }
                     val messageId = "staff-realtime-android-${System.currentTimeMillis()}"
-                    persistRealtimeStaffVoiceTurnAsync(
+                    return persistRealtimeStaffVoiceTurnWithRetry(
                         room,
                         messageId,
                         sourceText,
                         result.translatedText,
                         result.sourceTranscriptComplete
                     )
-                    return localRealtimeStaffVoiceTurn(
-                        room,
-                        messageId,
-                        sourceText,
-                        result.translatedText,
-                        result.sourceTranscriptComplete
-                    )
-                }.onFailure {
-                    appendLog("Realtime failed, falling back to upload: ${it.message}")
-                    closeRealtimeTurnClient()
                 }
             }
         }
@@ -3970,55 +3961,35 @@ class MainActivity : ComponentActivity() {
         return uploadStaffVoiceTurn(room, wav)
     }
 
-    private fun localRealtimeStaffVoiceTurn(
-        room: RoomInfo,
-        messageId: String,
-        sourceText: String,
-        translatedText: String,
-        sourceTranscriptComplete: Boolean = true
-    ): JSONObject {
-        val message = JSONObject()
-            .put("id", messageId)
-            .put("speaker", "staff")
-            .put("sourceText", sourceText)
-            .put("text", translatedText)
-            .put("targetLanguage", room.patientLanguage)
-            .put("createdAt", isoTimestampNow())
-            .put("readAt", JSONObject.NULL)
-        return JSONObject()
-            .put("message", message)
-            .put("sourceText", sourceText)
-            .put("translatedText", translatedText)
-            .put("sourceTranscriptComplete", sourceTranscriptComplete)
-            .put("model", "realtime-local")
-    }
-
-    private fun persistRealtimeStaffVoiceTurnAsync(
+    private fun persistRealtimeStaffVoiceTurnWithRetry(
         room: RoomInfo,
         messageId: String,
         sourceText: String,
         translatedText: String,
         sourceTranscriptComplete: Boolean
-    ) {
-        sessionExecutor.execute {
-            var lastError: Throwable? = null
-            var persisted = false
-            repeat(2) { attempt ->
-                if (persisted) return@repeat
-                runCatching {
-                    persistRealtimeStaffVoiceTurn(room, messageId, sourceText, translatedText, sourceTranscriptComplete)
-                }.onSuccess {
-                    persisted = true
-                }.onFailure {
-                    lastError = it
-                    if (attempt == 0) {
-                        appendLog("Realtime persist retry: ${it.message}")
-                        Thread.sleep(250)
-                    }
+    ): JSONObject {
+        var lastError: Throwable? = null
+        for (attempt in 0..1) {
+            try {
+                return persistRealtimeStaffVoiceTurn(
+                    room,
+                    messageId,
+                    sourceText,
+                    translatedText,
+                    sourceTranscriptComplete
+                )
+            } catch (caught: Throwable) {
+                lastError = caught
+                val timedOut = caught is java.io.InterruptedIOException
+                if (attempt == 0 && !timedOut) {
+                    appendLog("Realtime final persist retry: ${caught.message}")
+                    Thread.sleep(250)
+                } else {
+                    break
                 }
             }
-            if (!persisted) appendLog("Realtime persist failed: ${lastError?.message ?: "unknown error"}")
         }
+        throw lastError ?: IllegalStateException("Realtime final persist failed")
     }
 
     private fun persistRealtimeStaffVoiceTurn(
@@ -4040,8 +4011,12 @@ class MainActivity : ComponentActivity() {
             .put("sourceTranscriptComplete", sourceTranscriptComplete)
             .toString()
         val startedAt = SystemClock.elapsedRealtime()
-        return postJson("$backend/api/$endpoint", payload).also {
-            appendLog("Realtime persist ${SystemClock.elapsedRealtime() - startedAt}ms")
+        return postJsonWithTimeout(
+            "$backend/api/$endpoint",
+            payload,
+            RealtimePersistTimeoutMs
+        ).also {
+            appendLog("Realtime final persist ${SystemClock.elapsedRealtime() - startedAt}ms")
         }
     }
 

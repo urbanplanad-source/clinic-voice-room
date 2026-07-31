@@ -33,6 +33,13 @@ private val acceptedLatinClinicTokens = setOf(
     "thermage", "ultherapy", "xerf"
 )
 
+internal data class LocalTranslationValidationPlan(
+    val candidate: Boolean,
+    val required: Boolean,
+    val force: Boolean,
+    val forceReason: String
+)
+
 private val questionCuePatterns = listOf(
     Regex("""[?？]\s*$"""),
     Regex("""(?:나요|까요|습니까|인가요|있나요|없나요|되나요|맞나요)\s*[.!。]?$"""),
@@ -134,4 +141,45 @@ internal fun shouldSynchronouslyValidateLocalTranslation(
     if (hasGeneratedReplyPrefix(source, translated)) return true
 
     return false
+}
+
+internal fun planLocalTranslationValidation(
+    direction: String,
+    isInstantTemplate: Boolean,
+    sourceTranscriptComplete: Boolean,
+    targetLanguageMismatch: Boolean,
+    sourceText: String,
+    translatedText: String,
+    shortTurnCandidate: Boolean
+): LocalTranslationValidationPlan {
+    if (isInstantTemplate || !sourceTranscriptComplete) {
+        return LocalTranslationValidationPlan(
+            candidate = false,
+            required = false,
+            force = false,
+            forceReason = ""
+        )
+    }
+
+    val patientToKoreanPreOutput = requiresPatientToKoreanPreOutputValidation(
+        direction = direction,
+        isInstantTemplate = isInstantTemplate,
+        sourceTranscriptComplete = sourceTranscriptComplete
+    )
+    val synchronousRisk = shouldSynchronouslyValidateLocalTranslation(sourceText, translatedText)
+    val forceReason = when {
+        targetLanguageMismatch -> "target_language_mismatch"
+        patientToKoreanPreOutput -> "patient_to_ko_pre_output"
+        synchronousRisk -> "high_risk_translation"
+        else -> ""
+    }
+    val force = targetLanguageMismatch || patientToKoreanPreOutput || synchronousRisk
+    val candidate = force || shortTurnCandidate
+
+    return LocalTranslationValidationPlan(
+        candidate = candidate,
+        required = candidate && force,
+        force = force,
+        forceReason = forceReason
+    )
 }

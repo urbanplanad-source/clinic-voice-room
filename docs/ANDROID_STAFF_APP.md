@@ -163,13 +163,13 @@ Before field testing against `voice.insightmedi.co.kr`:
 Recommended OpenAI env values:
 
 ```text
-OPENAI_TEXT_TRANSLATION_MODEL=gpt-5.2
+OPENAI_TEXT_TRANSLATION_MODEL=gpt-5.5
 OPENAI_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 OPENAI_REALTIME_MODEL=gpt-realtime
 OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-4o-transcribe
 ```
 
-The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.2` when unset, but honors an explicit value such as `gpt-5.5`. It normalizes legacy `OPENAI_REALTIME_MODEL=gpt-realtime-translate` to `gpt-realtime` for the current general Realtime path, and legacy `OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper` to `gpt-4o-transcribe`.
+The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.5` when unset. It normalizes legacy `OPENAI_REALTIME_MODEL=gpt-realtime-translate` to `gpt-realtime` for the current general Realtime path, and legacy `OPENAI_REALTIME_TRANSCRIPTION_MODEL=gpt-realtime-whisper` to `gpt-4o-transcribe`.
 
 ## Face-To-Face Mode Field Test
 

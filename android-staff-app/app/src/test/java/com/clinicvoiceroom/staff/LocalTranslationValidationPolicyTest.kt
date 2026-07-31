@@ -1,5 +1,6 @@
 package com.clinicvoiceroom.staff
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -167,5 +168,58 @@ class LocalTranslationValidationPolicyTest {
                 shouldSynchronouslyValidateLocalTranslation(source, translated)
             )
         }
+    }
+
+    @Test
+    fun longNumericRiskBypassesShortTurnGate() {
+        val plan = planLocalTranslationValidation(
+            direction = "ko_to_patient",
+            isInstantTemplate = false,
+            sourceTranscriptComplete = true,
+            targetLanguageMismatch = false,
+            sourceText = "써마지 600샷으로 안내해 드릴 예정이고 시술 시간은 한 시간 정도 걸립니다.",
+            translatedText = "サーマクール600ショットでご案内する予定で、施術時間は約1時間です。",
+            shortTurnCandidate = false
+        )
+
+        assertTrue(plan.candidate)
+        assertTrue(plan.required)
+        assertTrue(plan.force)
+        assertEquals("high_risk_translation", plan.forceReason)
+    }
+
+    @Test
+    fun ordinaryLongStaffTurnDoesNotBecomeBlockingValidation() {
+        val plan = planLocalTranslationValidation(
+            direction = "ko_to_patient",
+            isInstantTemplate = false,
+            sourceTranscriptComplete = true,
+            targetLanguageMismatch = false,
+            sourceText = "현재 피부 상태를 확인한 다음 가장 적합한 관리 방법을 차근차근 설명해 드리겠습니다.",
+            translatedText = "現在の肌の状態を確認してから、最も適したケア方法を順番にご説明します。",
+            shortTurnCandidate = false
+        )
+
+        assertFalse(plan.candidate)
+        assertFalse(plan.required)
+        assertFalse(plan.force)
+    }
+
+    @Test
+    fun patientToKoreanPlanAlwaysRequiresPreOutputValidation() {
+        val plan = planLocalTranslationValidation(
+            direction = "patient_to_ko",
+            isInstantTemplate = false,
+            sourceTranscriptComplete = true,
+            targetLanguageMismatch = false,
+            sourceText = "目を開けてください。",
+            translatedText = "시작할게요.",
+            shortTurnCandidate = false
+        )
+
+        assertTrue(plan.candidate)
+        assertTrue(plan.required)
+        assertTrue(plan.force)
+        assertEquals("patient_to_ko_pre_output", plan.forceReason)
     }
 }

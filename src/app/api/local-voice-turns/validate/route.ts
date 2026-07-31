@@ -40,7 +40,7 @@ const schema = z.object({
   forceReason: z.string().trim().max(80).optional().default("")
 });
 
-const validationRequestBudgetMs = 4_300;
+const validationRequestBudgetMs = 6_200;
 const validationModelTimeoutMs = 3_200;
 
 function compactText(value: string) {
@@ -225,6 +225,49 @@ export async function POST(request: Request) {
     }
   };
 
+  const recoverForcedValidation = async (failureReason: string) => {
+    if (!forcedCheck) return null;
+
+    const correctedTranslation = await attemptStrictRepair();
+    const repairSucceeded = Boolean(correctedTranslation) &&
+      (direction !== "patient_to_ko" || !isClearlyNotKoreanTranslation(canonicalSourceText, correctedTranslation));
+    if (!repairSucceeded) {
+      console.error("[local-voice-turns validate] forced recovery failed", JSON.stringify({
+        staffId: staff.id,
+        direction,
+        forceReason: parsed.data.forceReason,
+        failureReason
+      }));
+      return null;
+    }
+
+    const reason = `${failureReason}; strict retranslation applied`;
+    await recordValidatedLocalSample({
+      staff,
+      patientLanguage,
+      direction,
+      sourceText,
+      canonicalSourceText,
+      translatedText: correctedTranslation,
+      validation: { checked: true, ok: false, reason, repaired: true }
+    });
+    console.warn("[local-voice-turns validate] forced recovery applied", JSON.stringify({
+      staffId: staff.id,
+      direction,
+      forceReason: parsed.data.forceReason,
+      failureReason
+    }));
+
+    return NextResponse.json({
+      checked: true,
+      ok: false,
+      reason,
+      repaired: true,
+      correctedTranslation,
+      canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : ""
+    });
+  };
+
   if (targetLanguageMismatch) {
     const correctedTranslation = await attemptStrictRepair();
     const repairSucceeded = Boolean(correctedTranslation) &&
@@ -317,17 +360,23 @@ export async function POST(request: Request) {
   });
 
   if (!response) {
+    const recovered = await recoverForcedValidation("validation unavailable");
+    if (recovered) return recovered;
     return NextResponse.json({ checked: false, ok: true, reason: "validation unavailable" });
   }
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     console.error("[local-voice-turns validate]", response.status, detail);
+    const recovered = await recoverForcedValidation(`validation unavailable (${response.status})`);
+    if (recovered) return recovered;
     return NextResponse.json({ checked: false, ok: true, reason: "validation unavailable" });
   }
 
   const data = (await response.json()) as ResponsesApiResponse;
   const result = parseLocalTranslationValidationResult(extractOutputText(data));
   if (!result) {
+    const recovered = await recoverForcedValidation("validation parse skipped");
+    if (recovered) return recovered;
     return NextResponse.json({ checked: false, ok: true, reason: "validation parse skipped" });
   }
 
