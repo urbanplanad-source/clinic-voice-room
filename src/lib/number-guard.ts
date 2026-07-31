@@ -163,17 +163,17 @@ export function extractNumericSignature(text: string) {
     pushNumber(numbers, englishNumbers[match[1].toLocaleLowerCase()]);
   }
 
-  const nativePattern = /(하나|다섯|여섯|일곱|여덟|아홉|둘|셋|넷|열|한|두|세|네)\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알)/g;
+  const nativePattern = /(하나|다섯|여섯|일곱|여덟|아홉|둘|셋|넷|열|한|두|세|네)\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알)(?=$|[^가-힣]|(?:입니다|이에요|예요|이었다|이었|부터|까지|정도|가량|씩|마다|동안|간|후|전|째|으로|에서|에게|을|를|은|는|이|가|에|도|만))/g;
   for (const match of normalized.matchAll(nativePattern)) {
     pushNumber(numbers, koreanNativeNumbers[match[1]]);
   }
 
-  const koreanSinoWithUnitPattern = /([영공일이삼사오육륙칠팔구십백천만]+)\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알|퍼센트|프로|원|만원)/g;
+  const koreanSinoWithUnitPattern = /([영공일이삼사오육륙칠팔구십백천만]+)\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알|퍼센트|프로|원|만원)(?=$|[^가-힣]|(?:입니다|이에요|예요|이었다|이었|부터|까지|정도|가량|씩|마다|동안|간|후|전|째|으로|에서|에게|을|를|은|는|이|가|에|도|만))/g;
   for (const match of normalized.matchAll(koreanSinoWithUnitPattern)) {
     pushNumber(numbers, parseUnitNumber(match[1], koreanSinoDigits, koreanUnits));
   }
 
-  const koreanSinoStandalonePattern = /[영공일이삼사오육륙칠팔구]*[십백천만][영공일이삼사오육륙칠팔구십백천만]*(?!\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알|퍼센트|프로|원|만원))/g;
+  const koreanSinoStandalonePattern = /(?<![가-힣])[영공일이삼사오육륙칠팔구]*[십백천만][영공일이삼사오육륙칠팔구십백천만]*(?![가-힣])(?!\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알|퍼센트|프로|원|만원))/g;
   for (const match of normalized.matchAll(koreanSinoStandalonePattern)) {
     pushNumber(numbers, parseUnitNumber(match[0], koreanSinoDigits, koreanUnits));
   }
@@ -209,7 +209,10 @@ export function compareNumericSignatures(source: string, translated: string): Nu
 }
 
 const criticalMoneyContextPattern =
-  /(?:[\u20A9\u00A5\u0024\uFFE6\uFFE5]|\uC6D0|\u5186|\u5143|\b(?:won|krw|yen|jpy|yuan|cny|rmb|dollars?|usd|euros?|eur)\b)/iu;
+  /(?:[\u20A9\u00A5\u0024\uFFE6\uFFE5]|\u5186|\u5143|\b(?:won|krw|yen|jpy|yuan|cny|rmb|dollars?|usd|euros?|eur)\b)/iu;
+
+const koreanMoneyContextPattern =
+  /(?:[-+]?\d+(?:,\d{3})*(?:\.\d+)?|[영공일이삼사오육륙칠팔구십백천만]+)\s*(?:만\s*)?원(?=$|[^가-힣]|(?:입니다|이에요|예요|이었다|이었|부터|까지|정도|가량|대로|대|씩|짜리|으로|을|를|은|는|이|가))/u;
 
 const criticalClinicalUnitContextPattern =
   /(?:(?<![A-Za-z])(?:cc|ml|mg|g|kg|mm|cm|iu)(?![A-Za-z])|%|\uC0F7|\uC568\uD50C|\uC5E0\uD50C)/iu;
@@ -218,6 +221,7 @@ export function hasCriticalNumericContext(text: string) {
   if (extractNumericSignature(text).length === 0) return false;
   return (
     criticalMoneyContextPattern.test(text) ||
+    koreanMoneyContextPattern.test(text) ||
     criticalClinicalUnitContextPattern.test(text)
   );
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { compareNumericSignatures, extractNumericSignature } from "./number-guard";
+import {
+  compareNumericSignatures,
+  extractNumericSignature,
+  hasCriticalNumericContext
+} from "./number-guard";
 
 function sorted(values: number[]) {
   return [...values].sort((a, b) => a - b);
@@ -13,6 +17,33 @@ describe("number guard", () => {
   it("extracts common Korean number words", () => {
     expect(sorted(extractNumericSignature("\uD558\uB8E8 \uB450 \uBC88, 3\uC77C\uAC04 \uBCF5\uC6A9\uD558\uC138\uC694"))).toEqual([2, 3]);
     expect(sorted(extractNumericSignature("\uC0AC\uD758 \uB3D9\uC548 \uBC18 \uC2DC\uAC04\uC529"))).toEqual([0.5, 3]);
+  });
+
+  it("does not read ordinary Korean words as numbers or prices", () => {
+    const source = "원장님이 알맞은 상품으로 추천해줄거야";
+
+    expect(extractNumericSignature(source)).toEqual([]);
+    expect(hasCriticalNumericContext(source)).toBe(false);
+    expect(compareNumericSignatures(source, "The director will recommend a suitable product.").ok).toBe(true);
+  });
+
+  it("does not read the director title as currency when another number exists", () => {
+    const source = "원장님이 2가지 상품을 추천합니다.";
+
+    expect(extractNumericSignature(source)).toEqual([2]);
+    expect(hasCriticalNumericContext(source)).toBe(false);
+  });
+
+  it("keeps real Korean count units while rejecting word prefixes", () => {
+    expect(extractNumericSignature("약을 이 알 복용하세요.")).toEqual([2]);
+    expect(extractNumericSignature("한 번 확인해 주세요.")).toEqual([1]);
+    expect(extractNumericSignature("한 번역 결과입니다.")).toEqual([]);
+  });
+
+  it("keeps actual Korean won amounts in the critical path", () => {
+    expect(hasCriticalNumericContext("가격은 300원입니다.")).toBe(true);
+    expect(hasCriticalNumericContext("가격은 300만원입니다.")).toBe(true);
+    expect(hasCriticalNumericContext("가격은 삼백 원입니다.")).toBe(true);
   });
 
   it("detects a missing number in Korean to English", () => {

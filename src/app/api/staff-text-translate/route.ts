@@ -10,7 +10,12 @@ import {
   type TranslationLanguage
 } from "@/lib/languages";
 import {
+  type OpenAIKoreanPolishTranslationResult,
+  polishKoreanAndTranslateWithOpenAITextSafety
+} from "@/lib/openai-korean-polish-translation";
+import {
   CriticalNumericTranslationError,
+  type OpenAITextTranslationResult,
   translateWithOpenAITextSafety
 } from "@/lib/openai-text-translation";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
@@ -49,11 +54,13 @@ function glossaryInstructionsFor(targetLanguage: TranslationLanguage, glossaryDa
 function buildInstructions({
   sourceLanguage,
   targetLanguage,
-  glossaryData
+  glossaryData,
+  orderedKoreanOutput
 }: {
   sourceLanguage: TranslationLanguage;
   targetLanguage: TranslationLanguage;
   glossaryData: Awaited<ReturnType<typeof getGlossaryForHospital>>;
+  orderedKoreanOutput: boolean;
 }) {
   const sourceLabel = translationLanguageLabels[sourceLanguage].english;
   const targetLabel = translationLanguageLabels[targetLanguage].english;
@@ -61,15 +68,22 @@ function buildInstructions({
   return [
     "You are a professional medical interpreter for a Korean hospital consultation desk.",
     `Translate from ${sourceLabel} to ${targetLabel}.`,
-    ...(sourceLanguage === "ko" && targetLanguage !== "ko"
-      ? ["Silently normalize awkward Korean spacing and wording before translating, but output only the target-language translation."]
+    ...(orderedKoreanOutput
+      ? [
+          "Perform these steps exactly in order:",
+          "1. Rewrite the Korean staff message into clear, readable, natural, polite Korean in polishedKorean. Correct spacing, grammar, honorifics, and colloquial endings without changing meaning.",
+          "2. Translate the complete polishedKorean from step 1 into the target language in translatedText. Do not translate directly from the raw input.",
+          "polishedKorean must be the exact Korean sentence used as the basis for translatedText."
+        ]
       : []),
     "The likely context is dermatology, plastic surgery, reception, pricing, consent, procedure guidance, side effects, aftercare, or patient questions.",
     "Use natural, polite wording suitable for live hospital counseling.",
     "Preserve the original clinical meaning. Do not add advice, diagnosis, consent language, risk claims, or extra explanation.",
     "Keep numbers, units, dates, procedure names, medication names, and body areas exact.",
     "Preserve line breaks when they help readability.",
-    "Return only the translated text. No labels, quotes, markdown, or commentary.",
+    orderedKoreanOutput
+      ? "Return only the required polishedKorean and translatedText structured fields."
+      : "Return only the translated text. No labels, quotes, markdown, or commentary.",
     glossaryInstructionsFor(targetLanguage, glossaryData)
   ].join("\n");
 }
@@ -152,19 +166,14 @@ export async function POST(request: Request) {
     });
   }
 
-  let sourceTextForTranslation = parsed.data.text;
-  let polishedSourceText: string | undefined;
-  let polishModel: string | undefined;
-
-  if (parsed.data.sourceLanguage === "ko" && parsed.data.targetLanguage !== "ko") {
-    polishedSourceText = fallbackKoreanPolish(parsed.data.text);
-    polishModel = "inline";
-    sourceTextForTranslation = polishedSourceText;
-  }
+  const fallbackPolishedSourceText =
+    parsed.data.sourceLanguage === "ko" && parsed.data.targetLanguage !== "ko"
+      ? fallbackKoreanPolish(parsed.data.text)
+      : undefined;
 
   const verifiedMatch =
     parsed.data.sourceLanguage === "ko"
-      ? matchVerifiedSentence(sourceTextForTranslation, parsed.data.targetLanguage, glossaryData) ??
+      ? matchVerifiedSentence(fallbackPolishedSourceText ?? parsed.data.text, parsed.data.targetLanguage, glossaryData) ??
         matchVerifiedSentence(parsed.data.text, parsed.data.targetLanguage, glossaryData)
       : null;
 
@@ -180,36 +189,50 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       translatedText,
-      polishedSourceText: polishedSourceText ?? (parsed.data.sourceLanguage === "ko" ? verifiedMatch.entry.standardKo : undefined),
+      polishedSourceText: verifiedMatch.entry.standardKo,
       sourceLanguage: parsed.data.sourceLanguage,
       targetLanguage: parsed.data.targetLanguage,
       model: "verified",
-      polishModel: polishModel ?? null
+      polishModel: null
     });
   }
 
+  const orderedKoreanOutput = parsed.data.sourceLanguage === "ko" && parsed.data.targetLanguage !== "ko";
   const instructions = buildInstructions({
     sourceLanguage: parsed.data.sourceLanguage,
     targetLanguage: parsed.data.targetLanguage,
-    glossaryData
+    glossaryData,
+    orderedKoreanOutput
   });
 
-  let translation;
+  let translation: OpenAITextTranslationResult | OpenAIKoreanPolishTranslationResult;
   try {
     translation = await runWithBoundedRetry({
       maxAttempts: staffTranslationMaxAttempts,
       retryDelayMs: 150,
-      operation: () => translateWithOpenAITextSafety({
-        apiKey,
-        safetyIdentifier: `clinic-voice-room-staff-text-${staff.id}-${patientLanguageForUsage(parsed.data.sourceLanguage, parsed.data.targetLanguage)}`,
-        sourceText: sourceTextForTranslation,
-        instructions,
-        glossaryData,
-        errorLabel: "[staff-text-translate]",
-        context: "staff-text-translate",
-        forceStandard: true,
-        timeoutMs: staffTranslationAttemptTimeoutMs
-      }),
+      operation: () => orderedKoreanOutput
+        ? polishKoreanAndTranslateWithOpenAITextSafety({
+            apiKey,
+            safetyIdentifier: `clinic-voice-room-staff-text-${staff.id}-${patientLanguageForUsage(parsed.data.sourceLanguage, parsed.data.targetLanguage)}`,
+            sourceText: parsed.data.text,
+            instructions,
+            glossaryData,
+            errorLabel: "[staff-text-translate-ordered]",
+            context: "staff-text-translate-ordered",
+            forceStandard: true,
+            timeoutMs: staffTranslationAttemptTimeoutMs
+          })
+        : translateWithOpenAITextSafety({
+            apiKey,
+            safetyIdentifier: `clinic-voice-room-staff-text-${staff.id}-${patientLanguageForUsage(parsed.data.sourceLanguage, parsed.data.targetLanguage)}`,
+            sourceText: parsed.data.text,
+            instructions,
+            glossaryData,
+            errorLabel: "[staff-text-translate]",
+            context: "staff-text-translate",
+            forceStandard: true,
+            timeoutMs: staffTranslationAttemptTimeoutMs
+          }),
       onFailure: (failure) => {
         console.error("[staff-text-translate] attempt failed", JSON.stringify(failure));
       },
@@ -229,6 +252,10 @@ export async function POST(request: Request) {
   }
 
   const translatedText = normalizeClinicTranslation(translation.translatedText, parsed.data.targetLanguage, glossaryData);
+  const polishedSourceText =
+    orderedKoreanOutput && "polishedSourceText" in translation
+      ? translation.polishedSourceText
+      : null;
   await recordTextTranslationUsage({
     staff,
     sourceLanguage: parsed.data.sourceLanguage,
@@ -239,11 +266,11 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     translatedText,
-    polishedSourceText: polishedSourceText ?? null,
+    polishedSourceText,
     sourceLanguage: parsed.data.sourceLanguage,
     targetLanguage: parsed.data.targetLanguage,
     model: translation.model,
-    polishModel: polishModel ?? null,
+    polishModel: orderedKoreanOutput ? translation.model : null,
     guardFlags: translation.guardFlags ?? null
   });
 }
