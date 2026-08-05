@@ -114,8 +114,8 @@ Do not install or distribute the unsigned release APK. Use it only to verify rel
 
 Current app version:
 
-- versionName: `0.3.36`
-- versionCode: `48`
+- versionName: `0.3.37`
+- versionCode: `49`
 
 Pinned build stack:
 
@@ -247,4 +247,3 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.5` when unset. It 
 - Android v0.2.1 and later use the phone's normal media volume/output route for TTS and request no Bluetooth permission.
 - The v0.3.21 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
 - A real two-phone field test is required before marking the app production-ready.
-

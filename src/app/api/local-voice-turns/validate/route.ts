@@ -168,12 +168,12 @@ export async function POST(request: Request) {
       staffId: staff.id,
       direction
     }));
-    return NextResponse.json({ checked: true, ok: true, reason: "non-mandatory staff turn" });
+    return NextResponse.json({ checked: true, ok: true, reason: "non-mandatory staff turn", validationSource: "deterministic_policy" });
   }
 
   const forcedCheck = parsed.data.force || targetLanguageMismatch;
   if (!forcedCheck && !shouldCheckShortTurn(sourceText, translatedText)) {
-    return NextResponse.json({ checked: false, ok: true });
+    return NextResponse.json({ checked: false, ok: true, validationSource: "not_required" });
   }
   if (forcedCheck) {
     console.info("[local-voice-turns validate] forced", JSON.stringify({
@@ -181,20 +181,6 @@ export async function POST(request: Request) {
       direction,
       reason: targetLanguageMismatch ? "target_language_mismatch" : parsed.data.forceReason || "client_force"
     }));
-  }
-
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    if (targetLanguageMismatch) {
-      return NextResponse.json({
-        checked: true,
-        ok: false,
-        reason: "Korean target received foreign output and repair is unavailable",
-        repaired: false,
-        correctedTranslation: ""
-      });
-    }
-    return NextResponse.json({ checked: false, ok: true, reason: "OPENAI_API_KEY is not configured" });
   }
 
   const sourceLanguage = direction === "ko_to_patient" ? "Korean" : languageLabels[patientLanguage].english;
@@ -205,6 +191,60 @@ export async function POST(request: Request) {
   const canonicalSourceText = direction === "ko_to_patient"
     ? normalizeClinicSourceText(sourceText, glossaryData)
     : sourceText;
+  const verifiedMatch = matchVerifiedSentence(canonicalSourceText, targetLanguageCode, glossaryData);
+  if (verifiedMatch) {
+    const verifiedTranslation = normalizeClinicTranslation(
+      verifiedMatch.translatedText,
+      targetLanguageCode,
+      glossaryData
+    );
+    const normalizedCandidate = normalizeClinicTranslation(translatedText, targetLanguageCode, glossaryData);
+    const repaired = compactText(verifiedTranslation) !== compactText(normalizedCandidate);
+    const reason = repaired ? "verified sentence replaced candidate" : "verified sentence matched";
+
+    await recordValidatedLocalSample({
+      staff,
+      patientLanguage,
+      direction,
+      sourceText,
+      canonicalSourceText,
+      translatedText: verifiedTranslation,
+      validation: { checked: true, ok: !repaired, reason, repaired }
+    });
+
+    return NextResponse.json({
+      checked: true,
+      ok: !repaired,
+      reason,
+      repaired,
+      correctedTranslation: repaired ? verifiedTranslation : "",
+      canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : "",
+      validationSource: "verified_sentence",
+      verifiedSentence: true
+    });
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    if (targetLanguageMismatch) {
+      return NextResponse.json({
+        checked: true,
+        ok: false,
+        reason: "Korean target received foreign output and repair is unavailable",
+        repaired: false,
+        correctedTranslation: "",
+        validationSource: "unavailable",
+        failureCategory: "configuration"
+      });
+    }
+    return NextResponse.json({
+      checked: false,
+      ok: true,
+      reason: "OPENAI_API_KEY is not configured",
+      validationSource: "unavailable",
+      failureCategory: "configuration"
+    });
+  }
   const attemptStrictRepair = async () => {
     const verifiedMatch = matchVerifiedSentence(canonicalSourceText, targetLanguageCode, glossaryData);
     if (verifiedMatch) {
@@ -284,7 +324,8 @@ export async function POST(request: Request) {
       reason,
       repaired: true,
       correctedTranslation,
-      canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : ""
+      canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : "",
+      validationSource: "strict_repair"
     });
   };
 
@@ -306,13 +347,14 @@ export async function POST(request: Request) {
           checked: true,
           ok: true,
           reason: "mandatory amount numbers matched",
-          canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : ""
+          canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : "",
+          validationSource: "deterministic_amount"
         });
       }
 
       const repaired = await recoverForcedValidation("mandatory amount number mismatch");
       if (repaired) return repaired;
-      return NextResponse.json({ checked: false, ok: true, reason: "mandatory amount repair unavailable" });
+      return NextResponse.json({ checked: false, ok: true, reason: "mandatory amount repair unavailable", validationSource: "unavailable", failureCategory: "repair_unavailable" });
     }
   }
 
@@ -342,7 +384,9 @@ export async function POST(request: Request) {
       reason,
       repaired: repairSucceeded,
       correctedTranslation: repairSucceeded ? correctedTranslation : "",
-      canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : ""
+      canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : "",
+      validationSource: repairSucceeded ? "strict_repair" : "unresolved",
+      failureCategory: repairSucceeded ? undefined : "repair_unavailable"
     });
   }
 
@@ -359,6 +403,7 @@ export async function POST(request: Request) {
     1,
     Math.min(validationModelTimeoutMs, deadlineAt - Date.now())
   );
+  let validationFailureCategory = "timeout_or_network";
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -405,6 +450,10 @@ export async function POST(request: Request) {
     }),
     signal: AbortSignal.timeout(validationTimeoutMs)
   }).catch((caught) => {
+    const message = caught instanceof Error ? caught.message.toLowerCase() : "";
+    validationFailureCategory = message.includes("timeout") || message.includes("aborted")
+      ? "timeout"
+      : "network";
     console.error("[local-voice-turns validate] unavailable", caught);
     return null;
   });
@@ -412,14 +461,15 @@ export async function POST(request: Request) {
   if (!response) {
     const recovered = await recoverForcedValidation("validation unavailable");
     if (recovered) return recovered;
-    return NextResponse.json({ checked: false, ok: true, reason: "validation unavailable" });
+    return NextResponse.json({ checked: false, ok: true, reason: "validation unavailable", validationSource: "unavailable", failureCategory: validationFailureCategory });
   }
   if (!response.ok) {
+    validationFailureCategory = response.status === 429 ? "rate_limited" : "provider_http";
     const detail = await response.text().catch(() => "");
     console.error("[local-voice-turns validate]", response.status, detail);
     const recovered = await recoverForcedValidation(`validation unavailable (${response.status})`);
     if (recovered) return recovered;
-    return NextResponse.json({ checked: false, ok: true, reason: "validation unavailable" });
+    return NextResponse.json({ checked: false, ok: true, reason: "validation unavailable", validationSource: "unavailable", failureCategory: validationFailureCategory });
   }
 
   const data = (await response.json()) as ResponsesApiResponse;
@@ -427,7 +477,7 @@ export async function POST(request: Request) {
   if (!result) {
     const recovered = await recoverForcedValidation("validation parse skipped");
     if (recovered) return recovered;
-    return NextResponse.json({ checked: false, ok: true, reason: "validation parse skipped" });
+    return NextResponse.json({ checked: false, ok: true, reason: "validation parse skipped", validationSource: "unavailable", failureCategory: "invalid_response" });
   }
 
   let resolved = resolveLocalTranslation(translatedText, result);
@@ -461,6 +511,7 @@ export async function POST(request: Request) {
     reason: result.reason,
     repaired: resolved.repaired,
     correctedTranslation: resolved.repaired ? resolved.translatedText : "",
-    canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : ""
+    canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : "",
+    validationSource: resolved.repaired ? "strict_repair" : "model"
   });
 }

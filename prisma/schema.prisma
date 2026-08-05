@@ -103,24 +103,25 @@ enum ConnectionState {
 }
 
 model Hospital {
-  id                         String                      @id @default(cuid())
-  name                       String
-  slug                       String                      @unique
-  planType                   PlanType                    @default(partner_free)
-  status                     HospitalStatus              @default(active)
-  specialty                  HospitalSpecialty           @default(dermatology)
-  monthlyIncludedMinutes     Int?
-  createdAt                  DateTime                    @default(now())
-  updatedAt                  DateTime                    @updatedAt
-  staffUsers                 StaffUser[]
-  rooms                      TranslationRoom[]
-  usageSessions              UsageSession[]
-  localInterpreterUsageTurns LocalInterpreterUsageTurn[]
-  textTranslationUsage       TextTranslationUsage[]
-  glossaryEntries            GlossaryEntry[]
-  quickPhrases               HospitalQuickPhrase[]
-  translationFeedback        TranslationFeedback[]
-  translationSamples         TranslationSample[]
+  id                          String                       @id @default(cuid())
+  name                        String
+  slug                        String                       @unique
+  planType                    PlanType                     @default(partner_free)
+  status                      HospitalStatus               @default(active)
+  specialty                   HospitalSpecialty            @default(dermatology)
+  monthlyIncludedMinutes      Int?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  staffUsers                  StaffUser[]
+  rooms                       TranslationRoom[]
+  usageSessions               UsageSession[]
+  localInterpreterUsageTurns  LocalInterpreterUsageTurn[]
+  localInterpreterTurnMetrics LocalInterpreterTurnMetric[]
+  textTranslationUsage        TextTranslationUsage[]
+  glossaryEntries             GlossaryEntry[]
+  quickPhrases                HospitalQuickPhrase[]
+  translationFeedback         TranslationFeedback[]
+  translationSamples          TranslationSample[]
 }
 
 model GlossaryEntry {
@@ -160,23 +161,24 @@ model HospitalQuickPhrase {
 }
 
 model StaffUser {
-  id                         String                      @id @default(cuid())
-  hospitalId                 String
-  hospital                   Hospital                    @relation(fields: [hospitalId], references: [id])
-  name                       String
-  email                      String                      @unique
-  passwordHash               String
-  sessionVersion             Int                         @default(1)
-  role                       StaffRole                   @default(staff)
-  isActive                   Boolean                     @default(true)
-  lastLoginAt                DateTime?
-  createdAt                  DateTime                    @default(now())
-  updatedAt                  DateTime                    @updatedAt
-  rooms                      TranslationRoom[]           @relation("RoomHost")
-  usageSessions              UsageSession[]
-  localInterpreterUsageTurns LocalInterpreterUsageTurn[]
-  textTranslationUsage       TextTranslationUsage[]
-  translationSamples         TranslationSample[]
+  id                          String                       @id @default(cuid())
+  hospitalId                  String
+  hospital                    Hospital                     @relation(fields: [hospitalId], references: [id])
+  name                        String
+  email                       String                       @unique
+  passwordHash                String
+  sessionVersion              Int                          @default(1)
+  role                        StaffRole                    @default(staff)
+  isActive                    Boolean                      @default(true)
+  lastLoginAt                 DateTime?
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  rooms                       TranslationRoom[]            @relation("RoomHost")
+  usageSessions               UsageSession[]
+  localInterpreterUsageTurns  LocalInterpreterUsageTurn[]
+  localInterpreterTurnMetrics LocalInterpreterTurnMetric[]
+  textTranslationUsage        TextTranslationUsage[]
+  translationSamples          TranslationSample[]
 }
 
 model TranslationRoom {
@@ -311,6 +313,33 @@ model LocalInterpreterUsageTurn {
   @@index([hospitalId, createdAt])
   @@index([staffId, createdAt])
   @@index([patientLanguage, createdAt])
+}
+
+model LocalInterpreterTurnMetric {
+  id               String          @id
+  hospitalId       String
+  hospital         Hospital        @relation(fields: [hospitalId], references: [id])
+  staffId          String
+  staff            StaffUser       @relation(fields: [staffId], references: [id])
+  patientLanguage  PatientLanguage
+  direction        String
+  transport        String
+  outcome          String
+  resultReadyMs    Int?
+  audioStartedMs   Int?
+  validationMs     Int?
+  validationStatus String?
+  corrected        Boolean         @default(false)
+  verifiedSentence Boolean         @default(false)
+  errorCategory    String?
+  appVersion       String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([hospitalId, createdAt])
+  @@index([staffId, createdAt])
+  @@index([patientLanguage, createdAt])
+  @@index([outcome, createdAt])
 }
 
 model TextTranslationUsage {

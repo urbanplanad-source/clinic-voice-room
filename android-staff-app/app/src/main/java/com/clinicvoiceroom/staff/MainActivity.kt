@@ -130,6 +130,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -228,7 +230,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.36"
+private const val AppDisplayVersion = "0.3.37"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
@@ -515,7 +517,26 @@ private data class LocalTranslationValidation(
     val repaired: Boolean = false,
     val correctedTranslation: String = "",
     val canonicalSourceText: String = "",
-    val reason: String = ""
+    val reason: String = "",
+    val elapsedMs: Long = 0L,
+    val validationSource: String = "not_required",
+    val failureCategory: String = "",
+    val verifiedSentence: Boolean = false
+)
+
+private data class LocalInterpreterTurnMetric(
+    val eventId: String,
+    val patientLanguage: String,
+    val direction: String,
+    val transport: String,
+    val outcome: String,
+    val resultReadyMs: Long? = null,
+    val audioStartedMs: Long? = null,
+    val validationMs: Long? = null,
+    val validationStatus: String = "not_required",
+    val corrected: Boolean = false,
+    val verifiedSentence: Boolean = false,
+    val errorCategory: String = ""
 )
 
 private data class RealtimeTurnTiming(
@@ -1351,6 +1372,7 @@ class MainActivity : ComponentActivity() {
     private var ttsPlaybackActive = false
     @Volatile
     private var activeTtsUtteranceId = ""
+    private val ttsStartCallbacks = ConcurrentHashMap<String, () -> Unit>()
     private val localRealtimeLock = Any()
     private val localRealtimeTurnClients = mutableMapOf<String, AndroidRealtimeTurnClient>()
     private val localRealtimePreparingKeys = mutableSetOf<String>()
@@ -2017,16 +2039,19 @@ class MainActivity : ComponentActivity() {
 
     private fun stopTtsPlayback() {
         activeTtsUtteranceId = ""
+        ttsStartCallbacks.clear()
         runCatching { textToSpeech?.stop() }
         setTtsPlaybackActive(false)
     }
 
     private fun handleTtsStarted(utteranceId: String) {
         activeTtsUtteranceId = utteranceId
+        ttsStartCallbacks.remove(utteranceId)?.invoke()
         setTtsPlaybackActive(true)
     }
 
     private fun handleTtsFinished(utteranceId: String) {
+        ttsStartCallbacks.remove(utteranceId)
         if (activeTtsUtteranceId != utteranceId) return
         activeTtsUtteranceId = ""
         noteModeActivity()
@@ -3400,6 +3425,10 @@ class MainActivity : ComponentActivity() {
         val snapshot = uiState.value
         val direction = if (snapshot.localTurnDirection == LocalDirectionPatientToKo) LocalDirectionPatientToKo else LocalDirectionKoToPatient
         val patientLanguage = snapshot.selectedLanguage
+        val metricEventId = UUID.randomUUID().toString()
+        val metricStartedAt = SystemClock.elapsedRealtime()
+        var metricTransport = "unknown"
+        var metricRecorded = false
         recordingActive = false
         updateState { it.copy(speaking = false, busy = true, status = localTranslatingStatus(snapshot.selectedRoomMode)) }
         appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 녹음 종료: $direction")
@@ -3424,6 +3453,11 @@ class MainActivity : ComponentActivity() {
                 val targetLanguage = result.optString("targetLanguage")
                 val sourceTranscriptComplete = result.optBoolean("sourceTranscriptComplete", true)
                 val initialModel = result.optString("model")
+                metricTransport = if (initialModel == "realtime-local" || initialModel == "instant-template") {
+                    "realtime"
+                } else {
+                    "upload"
+                }
                 val isInstantTemplate = initialModel == "instant-template"
                 val experimentalMode = isExperimentalLocalInterpreterMode(snapshot.selectedRoomMode)
                 var source = if (sourceLanguage == "ko") {
@@ -3453,7 +3487,9 @@ class MainActivity : ComponentActivity() {
                     targetLanguageMismatch && !sourceTranscriptComplete -> LocalTranslationValidation(
                         checked = true,
                         ok = false,
-                        reason = "Korean target received foreign output with an incomplete source transcript"
+                        reason = "Korean target received foreign output with an incomplete source transcript",
+                        validationSource = "client_guard",
+                        failureCategory = "incomplete_transcript"
                     )
                     validationRequired -> validateLocalTranslation(
                         direction,
@@ -3469,18 +3505,28 @@ class MainActivity : ComponentActivity() {
                             candidate.correctedTranslation
                         )
                         if (targetLanguageMismatch && !usableKoreanRepair) {
-                            LocalTranslationValidation(
+                            candidate.copy(
                                 checked = true,
                                 ok = false,
+                                repaired = false,
+                                correctedTranslation = "",
                                 reason = candidate.reason.ifBlank {
                                     "Korean target received foreign output and repair did not complete"
-                                }
+                                },
+                                failureCategory = candidate.failureCategory.ifBlank { "repair_unavailable" }
                             )
                         } else {
                             candidate
                         }
                     }
                     else -> LocalTranslationValidation()
+                }
+                val validationStatus = when {
+                    !validationRequired -> "not_required"
+                    validation.repaired -> "repaired"
+                    !validation.checked -> "unavailable"
+                    validation.ok -> "passed"
+                    else -> "unresolved"
                 }
                 if (sourceLanguage == "ko" && validation.canonicalSourceText.isNotBlank()) {
                     val canonicalSource = normalizeKoreanSourceText(validation.canonicalSourceText)
@@ -3498,10 +3544,38 @@ class MainActivity : ComponentActivity() {
                 if (requiredValidationUnavailable || (validation.checked && !validation.ok && !validation.repaired)) {
                     val retryKorean = localRetryPromptKorean()
                     val retryPatient = localRetryPromptForPatientLanguage(patientLanguage)
-                    val validationFailureStatus = if (requiredValidationUnavailable) {
-                        "번역 정확성을 확인하지 못했습니다. 다시 말씀해주세요."
-                    } else {
-                        "번역 내용이 서로 맞지 않아 다시 말씀해주세요."
+                    val failureCategory = validation.failureCategory.ifBlank {
+                        if (validationStatus == "unresolved") "meaning_mismatch" else "validation_unavailable"
+                    }
+                    recordLocalInterpreterMetricAsync(
+                        LocalInterpreterTurnMetric(
+                            eventId = metricEventId,
+                            patientLanguage = patientLanguage,
+                            direction = direction,
+                            transport = metricTransport,
+                            outcome = "retry_prompt",
+                            resultReadyMs = SystemClock.elapsedRealtime() - metricStartedAt,
+                            validationMs = validation.elapsedMs.takeIf { it > 0L },
+                            validationStatus = validationStatus,
+                            corrected = validation.repaired,
+                            verifiedSentence = validation.verifiedSentence,
+                            errorCategory = failureCategory
+                        )
+                    )
+                    metricRecorded = true
+                    val validationFailureStatus = when {
+                        !requiredValidationUnavailable ->
+                            "번역 내용이 서로 맞지 않아 다시 말씀해주세요."
+                        failureCategory == "timeout" ->
+                            "번역 서버 응답이 늦어 정확성을 확인하지 못했습니다. 다시 말씀해주세요."
+                        failureCategory == "network" ->
+                            "네트워크 연결로 정확성을 확인하지 못했습니다. 연결을 확인하고 다시 말씀해주세요."
+                        failureCategory == "rate_limited" ->
+                            "번역 요청이 몰려 정확성을 확인하지 못했습니다. 잠시 후 다시 말씀해주세요."
+                        failureCategory == "repair_unavailable" ->
+                            "교정 번역을 확정하지 못했습니다. 다시 말씀해주세요."
+                        else ->
+                            "번역 정확성을 확인하지 못했습니다. 다시 말씀해주세요."
                     }
                     updateState {
                         it.copy(
@@ -3567,6 +3641,20 @@ class MainActivity : ComponentActivity() {
                     null
                 }
 
+                val successMetric = LocalInterpreterTurnMetric(
+                    eventId = metricEventId,
+                    patientLanguage = patientLanguage,
+                    direction = direction,
+                    transport = metricTransport,
+                    outcome = "success",
+                    resultReadyMs = SystemClock.elapsedRealtime() - metricStartedAt,
+                    validationMs = validation.elapsedMs.takeIf { it > 0L },
+                    validationStatus = validationStatus,
+                    corrected = validation.repaired,
+                    verifiedSentence = validation.verifiedSentence
+                )
+                recordLocalInterpreterMetricAsync(successMetric)
+                metricRecorded = true
                 updateState {
                     val nextLocalTurns = if (summaryTurn == null) {
                         it.localConversationTurns
@@ -3590,10 +3678,15 @@ class MainActivity : ComponentActivity() {
                 if (!realtimeAudioPlayed || validation.repaired) {
                     val ttsDelayMs = SystemClock.elapsedRealtime() - translationCompleteAt
                     appendLog("TTS start ${ttsDelayMs}ms after ${localModeDisplayName(snapshot.selectedRoomMode)} translation")
+                    val recordAudioStarted = {
+                        recordLocalInterpreterMetricAsync(
+                            successMetric.copy(audioStartedMs = SystemClock.elapsedRealtime() - metricStartedAt)
+                        )
+                    }
                     if (direction == LocalDirectionKoToPatient) {
-                        speakTranslatedText(translated, patientLanguage)
+                        speakTranslatedText(translated, patientLanguage, recordAudioStarted)
                     } else {
-                        speakKoreanText(translated)
+                        speakKoreanText(translated, recordAudioStarted)
                     }
                 }
                 if (validationCandidate && !validationRequired) {
@@ -3601,6 +3694,20 @@ class MainActivity : ComponentActivity() {
                 }
                 appendLog("${localModeDisplayName(snapshot.selectedRoomMode)} 완료")
             }.onFailure { caught ->
+                if (!metricRecorded) {
+                    recordLocalInterpreterMetricAsync(
+                        LocalInterpreterTurnMetric(
+                            eventId = metricEventId,
+                            patientLanguage = patientLanguage,
+                            direction = direction,
+                            transport = metricTransport,
+                            outcome = "error",
+                            resultReadyMs = SystemClock.elapsedRealtime() - metricStartedAt,
+                            errorCategory = classifyLocalTurnError(caught)
+                        )
+                    )
+                    metricRecorded = true
+                }
                 val message = userFacingError(caught)
                 updateState { it.copy(busy = false, speaking = false, status = "${localModeDisplayName(snapshot.selectedRoomMode)} 실패: $message") }
                 prepareLocalRealtimeTurnClientsAsync(patientLanguage)
@@ -3640,6 +3747,7 @@ class MainActivity : ComponentActivity() {
     ): LocalTranslationValidation {
         if (!force && !shouldValidateLocalTranslation(sourceText, translatedText)) return LocalTranslationValidation()
 
+        val startedAt = SystemClock.elapsedRealtime()
         return runCatching {
             val backend = normalizedBackendUrl(uiState.value.backendUrl)
             val payload = JSONObject()
@@ -3657,6 +3765,9 @@ class MainActivity : ComponentActivity() {
             val correctedTranslation = data.optString("correctedTranslation").trim()
             val canonicalSourceText = data.optString("canonicalSourceText").trim()
             val reason = data.optString("reason")
+            val validationSource = data.optString("validationSource", if (checked) "model" else "unavailable")
+            val failureCategory = data.optString("failureCategory")
+            val verifiedSentence = data.optBoolean("verifiedSentence", false)
             if (checked) {
                 val result = if (ok) "ok" else if (repaired) "repaired" else "unresolved"
                 appendLog("Local consistency $result: $reason")
@@ -3667,11 +3778,34 @@ class MainActivity : ComponentActivity() {
                 repaired = repaired && correctedTranslation.isNotBlank(),
                 correctedTranslation = correctedTranslation,
                 canonicalSourceText = canonicalSourceText,
-                reason = reason
+                reason = reason,
+                elapsedMs = SystemClock.elapsedRealtime() - startedAt,
+                validationSource = validationSource,
+                failureCategory = failureCategory,
+                verifiedSentence = verifiedSentence
             )
         }.onFailure {
             appendLog("Local consistency skipped: ${it.message}")
-        }.getOrDefault(LocalTranslationValidation())
+        }.getOrElse { caught ->
+            LocalTranslationValidation(
+                checked = false,
+                ok = true,
+                reason = caught.message.orEmpty(),
+                elapsedMs = SystemClock.elapsedRealtime() - startedAt,
+                validationSource = "unavailable",
+                failureCategory = classifyLocalValidationFailure(caught)
+            )
+        }
+    }
+
+    private fun classifyLocalValidationFailure(caught: Throwable): String {
+        val message = caught.message.orEmpty().lowercase(Locale.ROOT)
+        return when {
+            "timeout" in message || "timed out" in message || "canceled" in message -> "timeout"
+            "429" in message || "too many requests" in message -> "rate_limited"
+            "failed to connect" in message || "unable to resolve" in message || "network" in message -> "network"
+            else -> "unavailable"
+        }
     }
 
     private fun validateLocalTranslationAsync(
@@ -4045,6 +4179,45 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun classifyLocalTurnError(caught: Throwable): String {
+        val message = caught.message.orEmpty().lowercase(Locale.ROOT)
+        return when {
+            "timeout" in message || "timed out" in message || "canceled" in message -> "timeout"
+            "failed to connect" in message || "unable to resolve" in message || "network" in message -> "network"
+            "no translated text" in message || "returned no translated text" in message -> "empty_translation"
+            "too short" in message || "너무 짧" in message -> "audio_too_short"
+            else -> "translation_error"
+        }
+    }
+
+    private fun recordLocalInterpreterMetricAsync(metric: LocalInterpreterTurnMetric) {
+        val backend = normalizedBackendUrl(uiState.value.backendUrl)
+        val payload = JSONObject()
+            .put("eventId", metric.eventId)
+            .put("patientLanguage", metric.patientLanguage)
+            .put("direction", metric.direction)
+            .put("transport", metric.transport)
+            .put("outcome", metric.outcome)
+            .put("validationStatus", metric.validationStatus)
+            .put("corrected", metric.corrected)
+            .put("verifiedSentence", metric.verifiedSentence)
+            .put("appVersion", BuildConfig.VERSION_NAME)
+        metric.resultReadyMs?.let { payload.put("resultReadyMs", it) }
+        metric.audioStartedMs?.let { payload.put("audioStartedMs", it) }
+        metric.validationMs?.let { payload.put("validationMs", it) }
+        if (metric.errorCategory.isNotBlank()) payload.put("errorCategory", metric.errorCategory)
+
+        val payloadText = payload.toString()
+        sessionExecutor.execute {
+            runCatching {
+                postJson("$backend/api/local-voice-turns/metrics", payloadText)
+            }.onSuccess {
+                appendLog("Local metric logged: ${metric.outcome} ${metric.transport}")
+            }.onFailure {
+                appendLog("Local metric log failed: ${it.message}")
+            }
+        }
+    }
     private fun recordLocalInterpreterUsageAsync(
         direction: String,
         patientLanguage: String,
@@ -4313,16 +4486,25 @@ class MainActivity : ComponentActivity() {
         if (result != TextToSpeech.ERROR) appendLog("TTS warmup: $label")
     }
 
-    private fun speakTranslatedText(text: String, patientLanguage: String) {
+    private fun speakTranslatedText(
+        text: String,
+        patientLanguage: String,
+        onStarted: (() -> Unit)? = null
+    ) {
         val language = patientLanguages.firstOrNull { it.code == patientLanguage } ?: patientLanguages.first()
-        speakText(text, language.ttsLocale, language.ko)
+        speakText(text, language.ttsLocale, language.ko, onStarted)
     }
 
-    private fun speakKoreanText(text: String) {
-        speakText(text, Locale.KOREA, "한국어")
+    private fun speakKoreanText(text: String, onStarted: (() -> Unit)? = null) {
+        speakText(text, Locale.KOREA, "한국어", onStarted)
     }
 
-    private fun speakText(text: String, locale: Locale, label: String) {
+    private fun speakText(
+        text: String,
+        locale: Locale,
+        label: String,
+        onStarted: (() -> Unit)? = null
+    ) {
         if (!uiState.value.ttsEnabled || text.isBlank()) return
         val tts = textToSpeech ?: return
         val availability = tts.setLanguage(locale)
@@ -4333,8 +4515,10 @@ class MainActivity : ComponentActivity() {
         }
         val utteranceId = "$TtsSpeechUtterancePrefix-${System.currentTimeMillis()}"
         activeTtsUtteranceId = utteranceId
+        onStarted?.let { ttsStartCallbacks[utteranceId] = it }
         val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
         if (result == TextToSpeech.ERROR) {
+            ttsStartCallbacks.remove(utteranceId)
             activeTtsUtteranceId = ""
             setTtsPlaybackActive(false)
             updateState { it.copy(ttsStatus = "$label 재생 실패") }

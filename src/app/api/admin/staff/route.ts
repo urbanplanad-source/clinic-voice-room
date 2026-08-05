@@ -231,12 +231,15 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Cannot delete the current admin account" }, { status: 400 });
   }
 
-  const [roomCount, usageCount] = await Promise.all([
+  const [roomCount, usageCount, localUsageCount, textUsageCount, localMetricCount] = await Promise.all([
     prisma.translationRoom.count({ where: { hostStaffId: parsed.data.staffUserId } }),
-    prisma.usageSession.count({ where: { staffId: parsed.data.staffUserId } })
+    prisma.usageSession.count({ where: { staffId: parsed.data.staffUserId } }),
+    prisma.localInterpreterUsageTurn.count({ where: { staffId: parsed.data.staffUserId } }),
+    prisma.textTranslationUsage.count({ where: { staffId: parsed.data.staffUserId } }),
+    prisma.localInterpreterTurnMetric.count({ where: { staffId: parsed.data.staffUserId } })
   ]);
 
-  if (roomCount > 0 || usageCount > 0) {
+  if (roomCount > 0 || usageCount > 0 || localUsageCount > 0 || textUsageCount > 0 || localMetricCount > 0) {
     const staffUser = await prisma.staffUser.update({
       where: { id: parsed.data.staffUserId },
       data: { isActive: false },

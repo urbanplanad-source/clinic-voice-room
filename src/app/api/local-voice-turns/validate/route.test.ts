@@ -28,6 +28,7 @@ vi.mock("@/lib/translation-samples", () => ({
 
 const originalApiKey = process.env.OPENAI_API_KEY;
 const originalLightModel = process.env.OPENAI_TEXT_TRANSLATION_MODEL_LIGHT;
+const originalVerifiedSentences = process.env.VERIFIED_SENTENCES;
 
 function validationRequest({
   direction = "patient_to_ko",
@@ -57,9 +58,42 @@ function validationRequest({
 }
 
 describe("local voice validation recovery", () => {
+  it("returns an exact verified sentence before any model call", async () => {
+    delete process.env.OPENAI_API_KEY;
+    vi.mocked(getGlossaryForHospital).mockResolvedValue({
+      terms: [],
+      criticalPhrases: [],
+      transcriptionHints: [],
+      verifiedSentences: [{
+        spoken: ["目を開けてください。"],
+        standardKo: "눈을 떠 주세요.",
+        translations: { ja: "目を開けてください。" },
+        category: "procedure",
+        note: "reviewed regression"
+      }]
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(validationRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      checked: true,
+      ok: false,
+      repaired: true,
+      correctedTranslation: "눈을 떠 주세요.",
+      validationSource: "verified_sentence",
+      verifiedSentence: true
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(translateWithOpenAITextSafety).not.toHaveBeenCalled();
+    expect(recordTranslationSample).toHaveBeenCalledTimes(1);
+  });
   beforeEach(() => {
     process.env.OPENAI_API_KEY = "test-key";
     delete process.env.OPENAI_TEXT_TRANSLATION_MODEL_LIGHT;
+    process.env.VERIFIED_SENTENCES = "on";
     vi.mocked(getCurrentStaff).mockResolvedValue({
       id: "staff-1",
       hospitalId: "hospital-1",
@@ -83,6 +117,11 @@ describe("local voice validation recovery", () => {
       delete process.env.OPENAI_TEXT_TRANSLATION_MODEL_LIGHT;
     } else {
       process.env.OPENAI_TEXT_TRANSLATION_MODEL_LIGHT = originalLightModel;
+    }
+    if (originalVerifiedSentences === undefined) {
+      delete process.env.VERIFIED_SENTENCES;
+    } else {
+      process.env.VERIFIED_SENTENCES = originalVerifiedSentences;
     }
   });
 
