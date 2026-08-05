@@ -228,7 +228,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.35"
+private const val AppDisplayVersion = "0.3.36"
 private const val StaffSessionCookieName = "cvr_session"
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"

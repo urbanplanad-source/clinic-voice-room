@@ -114,8 +114,8 @@ Do not install or distribute the unsigned release APK. Use it only to verify rel
 
 Current app version:
 
-- versionName: `0.3.21`
-- versionCode: `33`
+- versionName: `0.3.36`
+- versionCode: `48`
 
 Pinned build stack:
 

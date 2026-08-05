@@ -8,7 +8,7 @@ val releaseKeystorePath = providers.environmentVariable("CVR_ANDROID_KEYSTORE").
 val releaseKeystorePassword = providers.environmentVariable("CVR_ANDROID_KEYSTORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("CVR_ANDROID_KEY_ALIAS").orNull
 val releaseKeyPassword = providers.environmentVariable("CVR_ANDROID_KEY_PASSWORD").orNull
-val appVersionName = "0.3.35"
+val appVersionName = "0.3.36"
 val brandedFieldApkName = "medivoice-$appVersionName-field.apk"
 val brandedReleaseBundleName = "medivoice-$appVersionName-release.aab"
 val hasReleaseSigning = listOf(
@@ -30,7 +30,7 @@ android {
         applicationId = "com.clinicvoiceroom.staff"
         minSdk = 26
         targetSdk = 35
-        versionCode = 47
+        versionCode = 48
         versionName = appVersionName
     }
 

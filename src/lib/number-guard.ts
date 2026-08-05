@@ -54,8 +54,25 @@ const cjkDigits: Record<string, number> = {
   九: 9
 };
 
-const koreanUnits: Record<string, number> = { 십: 10, 백: 100, 천: 1000, 만: 10000 };
-const cjkUnits: Record<string, number> = { 十: 10, 百: 100, 千: 1000, 万: 10000, 萬: 10000 };
+const koreanUnits: Record<string, number> = {
+  십: 10,
+  백: 100,
+  천: 1000,
+  만: 10_000,
+  억: 100_000_000,
+  조: 1_000_000_000_000
+};
+const cjkUnits: Record<string, number> = {
+  十: 10,
+  百: 100,
+  千: 1000,
+  万: 10_000,
+  萬: 10_000,
+  億: 100_000_000,
+  亿: 100_000_000,
+  兆: 1_000_000_000_000
+};
+const mixedScaleUnits: Record<string, number> = { ...koreanUnits, ...cjkUnits };
 const englishNumbers: Record<string, number> = {
   one: 1,
   once: 1,
@@ -79,31 +96,50 @@ function canonicalizeDigits(text: string) {
   }).join("");
 }
 
-function parseUnitNumber(text: string, digits: Record<string, number>, units: Record<string, number>) {
-  if (text === "만" || text === "万" || text === "萬") return null;
-
+function accumulateUnitNumber(tokens: Array<number | string>, units: Record<string, number>) {
   let total = 0;
+  let section = 0;
   let current = 0;
-  let hasUnit = false;
-  let hasDigit = false;
+  let found = false;
 
-  for (const char of Array.from(text)) {
-    if (char in digits) {
-      current = digits[char];
-      hasDigit = true;
+  for (const token of tokens) {
+    if (typeof token === "number") {
+      current = token;
+      found = true;
       continue;
     }
 
-    const unit = units[char];
-    if (unit) {
-      hasUnit = true;
-      total += (current || 1) * unit;
-      current = 0;
+    const unit = units[token];
+    if (!unit) continue;
+    found = true;
+    if (unit >= 10_000) {
+      section += current;
+      total += (section || 1) * unit;
+      section = 0;
+    } else {
+      section += (current || 1) * unit;
     }
+    current = 0;
   }
 
-  if (!hasDigit && !hasUnit) return null;
-  return hasUnit ? total + current : current;
+  return found ? total + section + current : null;
+}
+
+function parseUnitNumber(text: string, digits: Record<string, number>, units: Record<string, number>) {
+  const tokens = Array.from(text).flatMap<number | string>((char) => {
+    if (char in digits) return [digits[char]];
+    if (char in units) return [char];
+    return [];
+  });
+  return accumulateUnitNumber(tokens, units);
+}
+
+function parseMixedUnitNumber(text: string) {
+  const tokens = text.match(/[-+]?\d+(?:,\d{3})*(?:\.\d+)?|[백천만억조百千万萬億亿兆]/g) ?? [];
+  return accumulateUnitNumber(
+    tokens.map((token) => token in mixedScaleUnits ? token : Number(token.replace(/,/g, ""))),
+    mixedScaleUnits
+  );
 }
 
 function pushNumber(numbers: number[], value: number | null | undefined) {
@@ -129,21 +165,23 @@ function diffCounts(left: Map<number, number>, right: Map<number, number>) {
 export function extractNumericSignature(text: string) {
   const normalized = canonicalizeDigits(text);
   const numbers: number[] = [];
-  const scaledMoneyRanges: Array<{ start: number; end: number }> = [];
+  const parsedMoneyRanges: Array<{ start: number; end: number }> = [];
+  const overlapsParsedMoney = (start: number, end: number) =>
+    parsedMoneyRanges.some((range) => start < range.end && end > range.start);
 
-  const tenThousandMoneyPattern =
-    /(?<![A-Za-z])([-+]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:만|万|萬)\s*(?=(?:원|ウォン|韓元|韩元|圓|圆|won|krw))/giu;
-  for (const match of normalized.matchAll(tenThousandMoneyPattern)) {
+  const mixedMoneyPattern =
+    /(?<![A-Za-z])([-+]?\d+(?:,\d{3})*(?:\.\d+)?(?:\s*[백천만억조百千万萬億亿兆](?:\s*\d+(?:,\d{3})*(?:\.\d+)?)?)*)\s*(?=(?:원|円|元|ウォン|韓元|韩元|圓|圆|won|krw))/giu;
+  for (const match of normalized.matchAll(mixedMoneyPattern)) {
     const start = match.index ?? 0;
-    scaledMoneyRanges.push({ start, end: start + match[0].length });
-    pushNumber(numbers, Number(match[1].replace(/,/g, "")) * 10_000);
+    parsedMoneyRanges.push({ start, end: start + match[0].length });
+    pushNumber(numbers, parseMixedUnitNumber(match[1]));
   }
 
   const arabicPattern = /(?<![A-Za-z])[-+]?\d+(?:,\d{3})*(?:\.\d+)?/g;
   for (const match of normalized.matchAll(arabicPattern)) {
     const start = match.index ?? 0;
     const end = start + match[0].length;
-    if (scaledMoneyRanges.some((range) => start < range.end && end > range.start)) continue;
+    if (overlapsParsedMoney(start, end)) continue;
     pushNumber(numbers, Number(match[0].replace(/,/g, "")));
   }
 
@@ -168,23 +206,35 @@ export function extractNumericSignature(text: string) {
     pushNumber(numbers, koreanNativeNumbers[match[1]]);
   }
 
-  const koreanSinoWithUnitPattern = /([영공일이삼사오육륙칠팔구십백천만]+)\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알|퍼센트|프로|원|만원)(?=$|[^가-힣]|(?:입니다|이에요|예요|이었다|이었|부터|까지|정도|가량|씩|마다|동안|간|후|전|째|으로|에서|에게|을|를|은|는|이|가|에|도|만))/g;
+  const koreanSinoWithUnitPattern = /(?<![가-힣])([영공일이삼사오육륙칠팔구십백천만억조]+)\s*(만원|번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알|퍼센트|프로|원)(?=$|[^가-힣]|(?:입니다|이에요|예요|이었다|이었|부터|까지|정도|가량|씩|마다|동안|간|후|전|째|으로|에서|에게|을|를|은|는|이|가|에|도|만))/g;
   for (const match of normalized.matchAll(koreanSinoWithUnitPattern)) {
-    pushNumber(numbers, parseUnitNumber(match[1], koreanSinoDigits, koreanUnits));
+    const start = match.index ?? 0;
+    if (overlapsParsedMoney(start, start + match[0].length)) continue;
+    const numericWord = match[1];
+    const unit = match[2];
+    if (unit === "원" && !/[십백천만억조]/.test(numericWord)) continue;
+    const parsedNumber = parseUnitNumber(numericWord, koreanSinoDigits, koreanUnits);
+    pushNumber(numbers, unit === "만원" && parsedNumber !== null ? parsedNumber * 10_000 : parsedNumber);
   }
 
-  const koreanSinoStandalonePattern = /(?<![가-힣])[영공일이삼사오육륙칠팔구]*[십백천만][영공일이삼사오육륙칠팔구십백천만]*(?![가-힣])(?!\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알|퍼센트|프로|원|만원))/g;
+  const koreanSinoStandalonePattern = /(?<![가-힣])[영공일이삼사오육륙칠팔구]*[십백천만억조][영공일이삼사오육륙칠팔구십백천만억조]*(?![가-힣])(?!\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알|퍼센트|프로|원|만원))/g;
   for (const match of normalized.matchAll(koreanSinoStandalonePattern)) {
+    const start = match.index ?? 0;
+    if (overlapsParsedMoney(start, start + match[0].length)) continue;
     pushNumber(numbers, parseUnitNumber(match[0], koreanSinoDigits, koreanUnits));
   }
 
-  const cjkWithUnitPattern = /([零〇一二两兩三四五六七八九十百千万萬]+)\s*(?:周|週|天|日|次|回|个月|個月|月|小时|小時|分|元|岁|歲|%|％)/g;
+  const cjkWithUnitPattern = /([零〇一二两兩三四五六七八九十百千万萬億亿兆]+)\s*(?:周|週|天|日|次|回|个月|個月|月|小时|小時|分|元|岁|歲|%|％)/g;
   for (const match of normalized.matchAll(cjkWithUnitPattern)) {
+    const start = match.index ?? 0;
+    if (overlapsParsedMoney(start, start + match[0].length)) continue;
     pushNumber(numbers, parseUnitNumber(match[1], cjkDigits, cjkUnits));
   }
 
-  const cjkStandalonePattern = /[零〇一二两兩三四五六七八九]*[十百千万萬][零〇一二两兩三四五六七八九十百千万萬]*(?!\s*(?:周|週|天|日|次|回|个月|個月|月|小时|小時|分|元|岁|歲|%|％))/g;
+  const cjkStandalonePattern = /[零〇一二两兩三四五六七八九]*[十百千万萬億亿兆][零〇一二两兩三四五六七八九十百千万萬億亿兆]*(?!\s*(?:周|週|天|日|次|回|个月|個月|月|小时|小時|分|元|岁|歲|%|％))/g;
   for (const match of normalized.matchAll(cjkStandalonePattern)) {
+    const start = match.index ?? 0;
+    if (overlapsParsedMoney(start, start + match[0].length)) continue;
     pushNumber(numbers, parseUnitNumber(match[0], cjkDigits, cjkUnits));
   }
 
@@ -209,10 +259,10 @@ export function compareNumericSignatures(source: string, translated: string): Nu
 }
 
 const criticalMoneyContextPattern =
-  /(?:[\u20A9\u00A5\u0024\uFFE6\uFFE5]|\u5186|\u5143|\b(?:won|krw|yen|jpy|yuan|cny|rmb|dollars?|usd|euros?|eur)\b)/iu;
+  /(?:[\u20A9\u00A5\u0024\uFFE6\uFFE5]|[円元圓圆]|ウォン|韓元|韩元|(?<![A-Za-z])\d[\d,.]*\s*(?:won|yen|yuan|dollars?)\b|\b(?:krw|jpy|cny|rmb|dollars?|usd|euros?|eur)\b)/iu;
 
 const koreanMoneyContextPattern =
-  /(?:[-+]?\d+(?:,\d{3})*(?:\.\d+)?|[영공일이삼사오육륙칠팔구십백천만]+)\s*(?:만\s*)?원(?=$|[^가-힣]|(?:입니다|이에요|예요|이었다|이었|부터|까지|정도|가량|대로|대|씩|짜리|으로|을|를|은|는|이|가))/u;
+  /(?<![가-힣])(?:\d[\d,.]*(?:\s*[백천만억조](?:\s*\d[\d,.]*)?)*|[영공일이삼사오육륙칠팔구]*[십백천만억조][영공일이삼사오육륙칠팔구십백천만억조]*)\s*원(?=$|[^가-힣]|(?:입니다|이에요|예요|이었다|이었|부터|까지|정도|가량|대로|대|씩|짜리|으로|을|를|은|는|이|가))/u;
 
 const criticalClinicalUnitContextPattern =
   /(?:(?<![A-Za-z])(?:cc|ml|mg|g|kg|mm|cm|iu)(?![A-Za-z])|%|\uC0F7|\uC568\uD50C|\uC5E0\uD50C)/iu;

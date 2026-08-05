@@ -3,6 +3,32 @@ export type LocalTranslationValidationResult = {
   reason: string;
   correctedTranslation: string;
 };
+const staffAmountCuePatterns = [
+  /(?:금액|가격|비용|결제|할부|시술비|진료비|수술비|마취비|치료비|검사비|약값|총액|정가|할인가|할인|예약금|보증금|계약금|잔금|선납|부가세|세금)/u,
+  /(?<![가-힣])(?:\d[\d,.]*(?:\s*[백천만억조](?:\s*\d[\d,.]*)?)*|[영공일이삼사오육륙칠팔구]*[십백천만억조][영공일이삼사오육륙칠팔구십백천만억조]*)\s*원(?=$|[^가-힣]|(?:입니다|이에요|예요|이었|부터|까지|정도|가량|대로|씩|짜리|으로|을|를|은|는|이|가|에|도|만))/u,
+  /(?:料金|価格|費用|金額|支払|施術料|診察料|治療費|会計|割引|分割払|(?:\d[\d,.]*|[零〇一二两兩三四五六七八九十百千万萬億亿兆]+)\s*(?:円|ウォン))/u,
+  /(?:价格|價格|费用|費用|金额|金額|付款|支付|收费|收費|诊疗费|診療費|会计|會計|折扣|分期|(?:\d[\d,.]*|[零〇一二两兩三四五六七八九十百千万萬億亿兆]+)\s*(?:元|韩元|韓元))/u,
+  /(?:\b(?:prices?|fees?|payments?|installments?|discounts?|krw|jpy|cny|rmb|usd)\b|(?<!at all\s)\bcosts?\b(?![-\s]?effective)|\bdollars?\b|(?:(?:\d[\d,.]*|(?:one|two|three|four|five|six|seven|eight|nine|ten|hundred|thousand|million|billion)(?:[-\s]+(?:one|two|three|four|five|six|seven|eight|nine|ten|hundred|thousand|million|billion))*)\s*(?:(?:korean\s+)?won|yen|yuan|dollars?))\b|\bpay(?:ing|ed)?\s+(?:by|with|in|for|now|later|\d))/iu
+];
+const sideEffectCuePattern =
+  /(?:부작용|(?<!더)(?<!더\s)(?<!그)(?<!그\s)이상\s*반응|반응(?:이|은|가)?\s*이상(?!적)|副作用|不良反[应應]|異常な?\s*反応|异常反应|異常反應|side\s*effects?|adverse\s*(?:effect|reaction)s?|(?:unusual|abnormal)\s+reactions?)/iu;
+
+function normalizeStaffRiskText(text: string) {
+  return text.normalize("NFKC").trim();
+}
+
+export function hasMandatoryStaffAmountRisk(text: string) {
+  const normalized = normalizeStaffRiskText(text);
+  return staffAmountCuePatterns.some((pattern) => pattern.test(normalized));
+}
+
+export function hasMandatoryStaffSideEffectRisk(text: string) {
+  return sideEffectCuePattern.test(normalizeStaffRiskText(text));
+}
+
+export function hasMandatoryStaffTranslationRisk(text: string) {
+  return hasMandatoryStaffAmountRisk(text) || hasMandatoryStaffSideEffectRisk(text);
+}
 
 export function buildLocalTranslationValidationInstructions(params: {
   sourceLanguage: string;

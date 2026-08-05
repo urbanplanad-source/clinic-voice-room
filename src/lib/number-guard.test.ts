@@ -25,6 +25,11 @@ describe("number guard", () => {
     expect(extractNumericSignature(source)).toEqual([]);
     expect(hasCriticalNumericContext(source)).toBe(false);
     expect(compareNumericSignatures(source, "The director will recommend a suitable product.").ok).toBe(true);
+    expect(extractNumericSignature("이원입니다.")).toEqual([]);
+    expect(extractNumericSignature("삼원입니다.")).toEqual([]);
+    expect(compareNumericSignatures("이원입니다.", "イ・ウォンです。").ok).toBe(true);
+    expect(hasCriticalNumericContext("Dr. Yuan will see you in room 2.")).toBe(false);
+    expect(hasCriticalNumericContext("Please wait for Ms. Yen in room 3.")).toBe(false);
   });
 
   it("does not read the director title as currency when another number exists", () => {
@@ -44,6 +49,9 @@ describe("number guard", () => {
     expect(hasCriticalNumericContext("가격은 300원입니다.")).toBe(true);
     expect(hasCriticalNumericContext("가격은 300만원입니다.")).toBe(true);
     expect(hasCriticalNumericContext("가격은 삼백 원입니다.")).toBe(true);
+    expect(hasCriticalNumericContext("3천 원입니다.")).toBe(true);
+    expect(hasCriticalNumericContext("3억 원입니다.")).toBe(true);
+    expect(hasCriticalNumericContext("삼백만 원입니다.")).toBe(true);
   });
 
   it("detects a missing number in Korean to English", () => {
@@ -64,6 +72,27 @@ describe("number guard", () => {
     expect(compareNumericSignatures("300만원입니다.", "The price is 3,000,000 won.").ok).toBe(true);
     expect(compareNumericSignatures("300만 원입니다.", "300万ウォンです。").ok).toBe(true);
     expect(compareNumericSignatures("1.5만원입니다.", "15,000 KRW").ok).toBe(true);
+  });
+
+  it("normalizes Korean and CJK currency scale units", () => {
+    expect(extractNumericSignature("3천 원입니다.")).toEqual([3_000]);
+    expect(extractNumericSignature("3억 원입니다.")).toEqual([300_000_000]);
+    expect(extractNumericSignature("삼백만 원입니다.")).toEqual([3_000_000]);
+    expect(extractNumericSignature("삼 만원입니다.")).toEqual([30_000]);
+    expect(extractNumericSignature("三百万韓元です。")).toEqual([3_000_000]);
+    expect(extractNumericSignature("3亿元。")).toEqual([300_000_000]);
+    expect(extractNumericSignature("三亿元。")).toEqual([300_000_000]);
+    expect(hasCriticalNumericContext("价格是3亿元。")).toBe(true);
+    expect(compareNumericSignatures("3억 원입니다.", "3億ウォンです。").ok).toBe(true);
+    expect(compareNumericSignatures("3억 원입니다.", "3亿元。").ok).toBe(true);
+    expect(compareNumericSignatures("3억 원입니다.", "三亿元。").ok).toBe(true);
+    expect(compareNumericSignatures("삼백만 원입니다.", "300万ウォンです。").ok).toBe(true);
+  });
+
+  it("rejects a changed currency scale even when the visible digit is unchanged", () => {
+    expect(compareNumericSignatures("3억 원입니다.", "3ウォンです。").ok).toBe(false);
+    expect(compareNumericSignatures("3천 원입니다.", "3ウォンです。").ok).toBe(false);
+    expect(compareNumericSignatures("3억 원입니다.", "3万ウォンです。").ok).toBe(false);
   });
 
   it("still rejects a changed ten-thousand currency amount", () => {

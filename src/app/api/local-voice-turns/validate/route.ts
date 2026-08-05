@@ -7,9 +7,12 @@ import { getGlossaryForHospital } from "@/lib/glossary-service";
 import { isPatientLanguage, languageLabels, sourceTargetFor, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import {
   buildLocalTranslationValidationInstructions,
+  hasMandatoryStaffAmountRisk,
+  hasMandatoryStaffSideEffectRisk,
   parseLocalTranslationValidationResult,
   resolveLocalTranslation
 } from "@/lib/local-translation-validation";
+import { compareNumericSignatures, extractNumericSignature } from "@/lib/number-guard";
 import { normalizedTextTranslationModel } from "@/lib/openai-models";
 import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { recordTranslationSample, stableTranslationSampleMessageId } from "@/lib/translation-samples";
@@ -151,6 +154,23 @@ export async function POST(request: Request) {
   const { patientLanguage, direction, sourceText, translatedText } = parsed.data;
   const targetLanguageMismatch = direction === "patient_to_ko" &&
     isClearlyNotKoreanTranslation(sourceText, translatedText);
+  const legacyStaffHighRisk = direction === "ko_to_patient" &&
+    parsed.data.force &&
+    parsed.data.forceReason === "high_risk_translation";
+  const sourceStaffAmountRisk = legacyStaffHighRisk && hasMandatoryStaffAmountRisk(sourceText);
+  const translatedStaffAmountRisk = legacyStaffHighRisk && hasMandatoryStaffAmountRisk(translatedText);
+  const mandatoryStaffSideEffect = legacyStaffHighRisk &&
+    (hasMandatoryStaffSideEffectRisk(sourceText) || hasMandatoryStaffSideEffectRisk(translatedText));
+  const mandatoryStaffHighRisk =
+    sourceStaffAmountRisk || translatedStaffAmountRisk || mandatoryStaffSideEffect;
+  if (legacyStaffHighRisk && !mandatoryStaffHighRisk) {
+    console.info("[local-voice-turns validate] legacy high-risk downgraded", JSON.stringify({
+      staffId: staff.id,
+      direction
+    }));
+    return NextResponse.json({ checked: true, ok: true, reason: "non-mandatory staff turn" });
+  }
+
   const forcedCheck = parsed.data.force || targetLanguageMismatch;
   if (!forcedCheck && !shouldCheckShortTurn(sourceText, translatedText)) {
     return NextResponse.json({ checked: false, ok: true });
@@ -268,6 +288,34 @@ export async function POST(request: Request) {
     });
   };
 
+  if (sourceStaffAmountRisk && translatedStaffAmountRisk && !mandatoryStaffSideEffect) {
+    const sourceNumbers = extractNumericSignature(canonicalSourceText);
+    if (sourceNumbers.length > 0) {
+      const numericComparison = compareNumericSignatures(canonicalSourceText, translatedText);
+      if (numericComparison.ok) {
+        await recordValidatedLocalSample({
+          staff,
+          patientLanguage,
+          direction,
+          sourceText,
+          canonicalSourceText,
+          translatedText,
+          validation: { checked: true, ok: true, reason: "mandatory amount numbers matched" }
+        });
+        return NextResponse.json({
+          checked: true,
+          ok: true,
+          reason: "mandatory amount numbers matched",
+          canonicalSourceText: canonicalSourceText !== sourceText ? canonicalSourceText : ""
+        });
+      }
+
+      const repaired = await recoverForcedValidation("mandatory amount number mismatch");
+      if (repaired) return repaired;
+      return NextResponse.json({ checked: false, ok: true, reason: "mandatory amount repair unavailable" });
+    }
+  }
+
   if (targetLanguageMismatch) {
     const correctedTranslation = await attemptStrictRepair();
     const repairSucceeded = Boolean(correctedTranslation) &&
@@ -298,7 +346,9 @@ export async function POST(request: Request) {
     });
   }
 
-  const model = normalizedTextTranslationModel(process.env.OPENAI_TEXT_TRANSLATION_MODEL);
+  const standardModel = normalizedTextTranslationModel(process.env.OPENAI_TEXT_TRANSLATION_MODEL);
+  const model = process.env.OPENAI_TEXT_TRANSLATION_MODEL_LIGHT?.trim() || standardModel;
+  const validationUsedLightModel = model !== standardModel;
   const instructions = buildLocalTranslationValidationInstructions({
     sourceLanguage,
     targetLanguage,
@@ -381,14 +431,11 @@ export async function POST(request: Request) {
   }
 
   let resolved = resolveLocalTranslation(translatedText, result);
-  if (!result.ok && !resolved.repaired) {
+  if (!result.ok && (validationUsedLightModel || !resolved.repaired)) {
     const repairedTranslation = await attemptStrictRepair();
-    if (repairedTranslation) {
-      resolved = {
-        translatedText: repairedTranslation,
-        repaired: true
-      };
-    }
+    resolved = repairedTranslation
+      ? { translatedText: repairedTranslation, repaired: true }
+      : { translatedText, repaired: false };
   } else if (resolved.repaired) {
     resolved = {
       translatedText: normalizeClinicTranslation(resolved.translatedText, targetLanguageCode, glossaryData),
