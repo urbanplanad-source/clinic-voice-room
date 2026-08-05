@@ -53,6 +53,7 @@ If Realtime returns no text or errors, the same in-memory PCM turn is wrapped as
 - No server secrets in Android.
 - No raw audio file storage in Android.
 - No full transcript permanent storage.
+- Failed non-identifying quality metrics are kept in app-private storage only, contain no transcript or audio, and are capped at 200 queued payloads.
 - Short room messages are used for live delivery and are deleted when the room ends.
 - Android cleartext HTTP is disabled; production backend URLs must use `https://`.
 - The app auto-normalizes a backend value like `voice.insightmedi.co.kr` to `https://voice.insightmedi.co.kr`.
@@ -61,28 +62,25 @@ If Realtime returns no text or errors, the same in-memory PCM turn is wrapped as
 
 ## Build
 
-Expected local environment:
+Run Android compilation, unit tests, and field lint without signing:
 
 ```powershell
-$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
-$env:ANDROID_HOME='C:\Users\user\AppData\Local\Android\Sdk'
-cd "C:\Users\user\Desktop\개발 작업\clinic-voice-room\android-staff-app"
-.\gradlew.bat :app:copyBrandedFieldApk
+powershell -ExecutionPolicy Bypass -File ".\scripts\verify-medivoice-android.ps1"
 ```
 
-Installable field-test APK after build:
+Build the installable, release-signed field APK with the protected keystore prompt:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\Documents\MediVoiceKeys\build-medivoice-field.ps1"
+```
+
+Direct `assembleField` or `copyBrandedFieldApk` packaging now fails when the four release-signing environment variables are missing. This prevents a debug-signed APK from being mistaken for a field release.
+
+Installable field APK after the signed build:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/medivoice-0.3.21-field.apk
+android-staff-app/app/build/outputs/apk/field/medivoice-0.3.38-field.apk
 ```
-
-Latest local field-test APK:
-
-```text
-android-staff-app/app/build/outputs/apk/field/medivoice-0.3.21-field.apk
-SHA256: build locally to generate
-```
-
 Release build sanity check:
 
 ```powershell
@@ -114,8 +112,8 @@ Do not install or distribute the unsigned release APK. Use it only to verify rel
 
 Current app version:
 
-- versionName: `0.3.37`
-- versionCode: `49`
+- versionName: `0.3.38`
+- versionCode: `50`
 
 Pinned build stack:
 
@@ -125,8 +123,8 @@ Pinned build stack:
 - Compose BOM: 2024.12.01
 - minSdk: 26
 - compileSdk/targetSdk: 35
-- Google Play field APK: `android-staff-app/app/build/outputs/apk/field/medivoice-0.3.21-field.apk`
-- Google Play release AAB filename after bundle build: `android-staff-app/app/build/outputs/bundle/release/medivoice-0.3.21-release.aab`
+- Google Play field APK: `android-staff-app/app/build/outputs/apk/field/medivoice-0.3.38-field.apk`
+- Google Play release AAB filename after bundle build: `android-staff-app/app/build/outputs/bundle/release/medivoice-0.3.38-release.aab`
 - Store privacy policy page draft: `/privacy`
 
 `android.overridePathCheck=true` is set for Korean workspace paths.
@@ -245,5 +243,5 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.5` when unset. It 
 - Android v0.2.3 makes Android and web staff QR links both include `?mode=consultation|procedure` for clearer field-test handoff. The server still uses `TranslationRoom.roomMode` as the source of truth.
 - Android v0.2.2 puts the active translation panel before room metadata after the patient joins, so staff see chat/mic controls first.
 - Android v0.2.1 and later use the phone's normal media volume/output route for TTS and request no Bluetooth permission.
-- The v0.3.21 field APK is non-debuggable but still debug-signed for field testing. A signed release build and staff-device provisioning are still needed before production distribution.
+- The v0.3.38 field APK is non-debuggable, and Field packaging is blocked unless the release signing environment is complete. Verify the signing certificate before device distribution.
 - A real two-phone field test is required before marking the app production-ready.

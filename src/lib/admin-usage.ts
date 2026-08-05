@@ -21,7 +21,7 @@ type TextUsageHospitalGroup = TextUsageAggregate & {
   lastUsed: Date | null;
 };
 
-type LocalQualityAggregate = {
+export type LocalQualityAggregate = {
   hospitalId?: string;
   turnCount: number | bigint | string | null;
   successCount: number | bigint | string | null;
@@ -38,13 +38,27 @@ type LocalQualityAggregate = {
   validationP95Ms: number | string | null;
 };
 
+export type LocalQualityBreakdown = ReturnType<typeof qualitySummary> & {
+  key: string;
+};
+
+type LocalQualityBreakdownAggregate = LocalQualityAggregate & {
+  dimension: "direction" | "language" | "transport" | "app_version";
+  key: string;
+};
+
+type LocalQualityErrorAggregate = {
+  errorCategory: string;
+  eventCount: number | bigint | string | null;
+};
+
 function numeric(value: number | bigint | string | null | undefined) {
   if (typeof value === "bigint") return Number(value);
   if (typeof value === "string") return Number(value);
   return value ?? 0;
 }
 
-function qualitySummary(row?: LocalQualityAggregate) {
+export function qualitySummary(row?: LocalQualityAggregate) {
   const turnCount = numeric(row?.turnCount);
   const ratio = (value: number | bigint | string | null | undefined) =>
     turnCount > 0 ? numeric(value) / turnCount : 0;
@@ -91,7 +105,9 @@ export async function getAdminUsageSummary() {
     textMonthlyByHospital,
     textLastUsedByHospital,
     qualityMonthlyTotals,
-    qualityMonthlyByHospital
+    qualityMonthlyByHospital,
+    qualityMonthlyBreakdowns,
+    qualityMonthlyErrors
   ] = await Promise.all([
     prisma.hospital.findMany({
       select: {
@@ -198,6 +214,122 @@ export async function getAdminUsageSummary() {
       FROM "LocalInterpreterTurnMetric"
       WHERE "createdAt" >= ${monthStart}
       GROUP BY "hospitalId"
+    `,
+    prisma.$queryRaw<LocalQualityBreakdownAggregate[]>`
+      WITH monthly AS (
+        SELECT *
+        FROM "LocalInterpreterTurnMetric"
+        WHERE "createdAt" >= ${monthStart}
+      )
+      SELECT
+        grouped."dimension",
+        grouped."key",
+        grouped."turnCount",
+        grouped."successCount",
+        grouped."retryCount",
+        grouped."errorCount",
+        grouped."correctedCount",
+        grouped."verifiedCount",
+        grouped."uploadCount",
+        grouped."resultP50Ms",
+        grouped."resultP95Ms",
+        grouped."audioP50Ms",
+        grouped."audioP95Ms",
+        grouped."validationP50Ms",
+        grouped."validationP95Ms"
+      FROM (
+        SELECT
+          'direction'::text AS "dimension",
+          "direction"::text AS "key",
+          COUNT(*)::int AS "turnCount",
+          COUNT(*) FILTER (WHERE "outcome" = 'success')::int AS "successCount",
+          COUNT(*) FILTER (WHERE "outcome" = 'retry_prompt')::int AS "retryCount",
+          COUNT(*) FILTER (WHERE "outcome" = 'error')::int AS "errorCount",
+          COUNT(*) FILTER (WHERE "corrected")::int AS "correctedCount",
+          COUNT(*) FILTER (WHERE "verifiedSentence")::int AS "verifiedCount",
+          COUNT(*) FILTER (WHERE "transport" = 'upload')::int AS "uploadCount",
+          (PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "resultReadyMs") FILTER (WHERE "resultReadyMs" IS NOT NULL))::float8 AS "resultP50Ms",
+          (PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "resultReadyMs") FILTER (WHERE "resultReadyMs" IS NOT NULL))::float8 AS "resultP95Ms",
+          (PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "audioStartedMs") FILTER (WHERE "audioStartedMs" IS NOT NULL))::float8 AS "audioP50Ms",
+          (PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "audioStartedMs") FILTER (WHERE "audioStartedMs" IS NOT NULL))::float8 AS "audioP95Ms",
+          (PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "validationMs") FILTER (WHERE "validationMs" IS NOT NULL))::float8 AS "validationP50Ms",
+          (PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "validationMs") FILTER (WHERE "validationMs" IS NOT NULL))::float8 AS "validationP95Ms"
+        FROM monthly GROUP BY "direction"
+        UNION ALL
+        SELECT
+          'language', "patientLanguage"::text,
+          COUNT(*)::int,
+          COUNT(*) FILTER (WHERE "outcome" = 'success')::int,
+          COUNT(*) FILTER (WHERE "outcome" = 'retry_prompt')::int,
+          COUNT(*) FILTER (WHERE "outcome" = 'error')::int,
+          COUNT(*) FILTER (WHERE "corrected")::int,
+          COUNT(*) FILTER (WHERE "verifiedSentence")::int,
+          COUNT(*) FILTER (WHERE "transport" = 'upload')::int,
+          (PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "resultReadyMs") FILTER (WHERE "resultReadyMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "resultReadyMs") FILTER (WHERE "resultReadyMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "audioStartedMs") FILTER (WHERE "audioStartedMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "audioStartedMs") FILTER (WHERE "audioStartedMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "validationMs") FILTER (WHERE "validationMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "validationMs") FILTER (WHERE "validationMs" IS NOT NULL))::float8
+        FROM monthly GROUP BY "patientLanguage"
+        UNION ALL
+        SELECT
+          'transport', "transport"::text,
+          COUNT(*)::int,
+          COUNT(*) FILTER (WHERE "outcome" = 'success')::int,
+          COUNT(*) FILTER (WHERE "outcome" = 'retry_prompt')::int,
+          COUNT(*) FILTER (WHERE "outcome" = 'error')::int,
+          COUNT(*) FILTER (WHERE "corrected")::int,
+          COUNT(*) FILTER (WHERE "verifiedSentence")::int,
+          COUNT(*) FILTER (WHERE "transport" = 'upload')::int,
+          (PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "resultReadyMs") FILTER (WHERE "resultReadyMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "resultReadyMs") FILTER (WHERE "resultReadyMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "audioStartedMs") FILTER (WHERE "audioStartedMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "audioStartedMs") FILTER (WHERE "audioStartedMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "validationMs") FILTER (WHERE "validationMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "validationMs") FILTER (WHERE "validationMs" IS NOT NULL))::float8
+        FROM monthly GROUP BY "transport"
+        UNION ALL
+        SELECT
+          'app_version', COALESCE(NULLIF("appVersion", ''), 'unknown'),
+          COUNT(*)::int,
+          COUNT(*) FILTER (WHERE "outcome" = 'success')::int,
+          COUNT(*) FILTER (WHERE "outcome" = 'retry_prompt')::int,
+          COUNT(*) FILTER (WHERE "outcome" = 'error')::int,
+          COUNT(*) FILTER (WHERE "corrected")::int,
+          COUNT(*) FILTER (WHERE "verifiedSentence")::int,
+          COUNT(*) FILTER (WHERE "transport" = 'upload')::int,
+          (PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "resultReadyMs") FILTER (WHERE "resultReadyMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "resultReadyMs") FILTER (WHERE "resultReadyMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "audioStartedMs") FILTER (WHERE "audioStartedMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "audioStartedMs") FILTER (WHERE "audioStartedMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY "validationMs") FILTER (WHERE "validationMs" IS NOT NULL))::float8,
+          (PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY "validationMs") FILTER (WHERE "validationMs" IS NOT NULL))::float8
+        FROM monthly GROUP BY COALESCE(NULLIF("appVersion", ''), 'unknown')
+      ) AS grouped
+      ORDER BY grouped."dimension", grouped."turnCount" DESC, grouped."key"
+    `,
+    prisma.$queryRaw<LocalQualityErrorAggregate[]>`
+      WITH failed AS (
+        SELECT CASE
+          WHEN NULLIF("errorCategory", '') IS NOT NULL THEN "errorCategory"
+          WHEN "validationStatus" = 'unavailable' THEN 'validation_unavailable'
+          WHEN "validationStatus" = 'unresolved' THEN 'validation_mismatch'
+          WHEN "outcome" = 'retry_prompt' THEN 'retry_prompt'
+          ELSE 'unclassified'
+        END AS "errorCategory"
+        FROM "LocalInterpreterTurnMetric"
+        WHERE "createdAt" >= ${monthStart}
+          AND (
+            "outcome" <> 'success'
+            OR "validationStatus" IN ('unavailable', 'unresolved')
+            OR NULLIF("errorCategory", '') IS NOT NULL
+          )
+      )
+      SELECT "errorCategory", COUNT(*)::int AS "eventCount"
+      FROM failed
+      GROUP BY "errorCategory"
+      ORDER BY "eventCount" DESC, "errorCategory"
     `
   ]);
 
@@ -222,6 +354,24 @@ export async function getAdminUsageSummary() {
     monthlyLocalTurnCount: numeric(localMonthlyTotals[0]?.turnCount),
     monthlyTextTranslationCount: numeric(textMonthlyTotals[0]?.translationCount),
     localQuality: qualitySummary(qualityMonthlyTotals[0]),
+    localQualityBreakdowns: {
+      directions: qualityMonthlyBreakdowns
+        .filter((row) => row.dimension === "direction")
+        .map((row) => ({ key: row.key, ...qualitySummary(row) })),
+      languages: qualityMonthlyBreakdowns
+        .filter((row) => row.dimension === "language")
+        .map((row) => ({ key: row.key, ...qualitySummary(row) })),
+      transports: qualityMonthlyBreakdowns
+        .filter((row) => row.dimension === "transport")
+        .map((row) => ({ key: row.key, ...qualitySummary(row) })),
+      appVersions: qualityMonthlyBreakdowns
+        .filter((row) => row.dimension === "app_version")
+        .map((row) => ({ key: row.key, ...qualitySummary(row) }))
+    },
+    localQualityErrors: qualityMonthlyErrors.map((row) => ({
+      errorCategory: row.errorCategory,
+      eventCount: numeric(row.eventCount)
+    })),
     hospitals: visibleHospitals.map((hospital) => {
       const monthlyRoomUsage = monthlyRoomsByHospitalId.get(hospital.id);
       const roomLastUsed = roomLastUsedByHospitalId.get(hospital.id)?._max.roomStartedAt ?? null;

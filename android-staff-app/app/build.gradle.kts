@@ -8,7 +8,7 @@ val releaseKeystorePath = providers.environmentVariable("CVR_ANDROID_KEYSTORE").
 val releaseKeystorePassword = providers.environmentVariable("CVR_ANDROID_KEYSTORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("CVR_ANDROID_KEY_ALIAS").orNull
 val releaseKeyPassword = providers.environmentVariable("CVR_ANDROID_KEY_PASSWORD").orNull
-val appVersionName = "0.3.37"
+val appVersionName = "0.3.38"
 val brandedFieldApkName = "medivoice-$appVersionName-field.apk"
 val brandedReleaseBundleName = "medivoice-$appVersionName-release.aab"
 val hasReleaseSigning = listOf(
@@ -19,7 +19,21 @@ val hasReleaseSigning = listOf(
 ).all { !it.isNullOrBlank() }
 
 if (!hasReleaseSigning) {
-    logger.warn("MediVoice field/release signing env vars are missing; field APK will use the debug fallback key.")
+    logger.warn("MediVoice signing env vars are missing; field APK packaging will fail, while tests and lint may use the debug fallback key.")
+}
+
+val requireFieldSigning = tasks.register("requireFieldSigning") {
+    group = "verification"
+    description = "Fails field APK packaging unless the MediVoice release signing environment is complete."
+    doLast {
+        if (!hasReleaseSigning) {
+            throw GradleException(
+                "Signed MediVoice field APK requires CVR_ANDROID_KEYSTORE, " +
+                    "CVR_ANDROID_KEYSTORE_PASSWORD, CVR_ANDROID_KEY_ALIAS, and CVR_ANDROID_KEY_PASSWORD. " +
+                    "Use build-medivoice-field.ps1."
+            )
+        }
+    }
 }
 
 android {
@@ -30,7 +44,7 @@ android {
         applicationId = "com.clinicvoiceroom.staff"
         minSdk = 26
         targetSdk = 35
-        versionCode = 49
+        versionCode = 50
         versionName = appVersionName
     }
 
@@ -137,5 +151,10 @@ tasks.register("copyBrandedReleaseBundle") {
             into(brandedReleaseBundle.get().asFile.parentFile)
             rename { brandedReleaseBundleName }
         }
+    }
+}
+tasks.configureEach {
+    if (name == "packageField" || name == "assembleField" || name == "copyBrandedFieldApk") {
+        dependsOn(requireFieldSigning)
     }
 }

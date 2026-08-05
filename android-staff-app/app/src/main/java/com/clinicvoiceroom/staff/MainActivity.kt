@@ -230,8 +230,12 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.37"
+private const val AppDisplayVersion = "0.3.38"
 private const val StaffSessionCookieName = "cvr_session"
+private const val LocalMetricOutboxPreferenceName = "local_metric_outbox"
+private const val LocalMetricOutboxPreferenceKey = "payloads"
+private const val LocalMetricOutboxMaxEntries = 200
+private const val LocalMetricOutboxRetryMs = 30_000L
 private const val SetupStepMode = "mode"
 private const val SetupStepLanguage = "language"
 private const val SetupStepLocalInterpreter = "local_interpreter"
@@ -1339,6 +1343,17 @@ class MainActivity : ComponentActivity() {
     private val sessionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val cookieJar by lazy { PersistentCookieJar(getSharedPreferences("staff_cookies", MODE_PRIVATE)) }
+    private val localMetricOutboxPreferences by lazy {
+        getSharedPreferences(LocalMetricOutboxPreferenceName, MODE_PRIVATE)
+    }
+    private val localMetricOutboxLock = Any()
+    private val localMetricOutbox by lazy { restoreLocalMetricOutbox() }
+    private var localMetricFlushQueued = false
+    private var localMetricRetryPending = false
+    private val localMetricRetryRunnable = Runnable {
+        synchronized(localMetricOutboxLock) { localMetricRetryPending = false }
+        scheduleLocalMetricOutboxFlush()
+    }
     private val ttsAudioAttributes by lazy {
         AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -1520,6 +1535,7 @@ class MainActivity : ComponentActivity() {
         noteModeActivity()
         startModeIdleWatcher()
         resumeRealtimeAndPollingAfterStart()
+        if (uiState.value.loggedIn) scheduleLocalMetricOutboxFlush()
     }
 
     override fun onStop() {
@@ -1552,6 +1568,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(localMetricRetryRunnable)
         stopModeIdleWatcher()
         stopRoomPolling()
         recordingActive = false
@@ -1706,9 +1723,11 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 appendLog("기존 로그인 세션 복구")
+                mainHandler.post { scheduleLocalMetricOutboxFlush() }
             }.onFailure { caught ->
                 if (uiState.value.loggedIn) return@onFailure
                 cookieJar.clear()
+                clearLocalMetricOutbox()
                 val message = userFacingError(caught)
                 updateState { it.copy(loggedIn = false, status = "로그인이 필요합니다: $message") }
                 appendLog("기존 로그인 세션 확인 실패: $message")
@@ -2125,6 +2144,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 appendLog("로그인 성공")
+                mainHandler.post { scheduleLocalMetricOutboxFlush() }
             }.onFailure { caught ->
                 val message = userFacingError(caught)
                 updateState { it.copy(busy = false, status = "로그인 실패: $message") }
@@ -2147,6 +2167,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             cookieJar.clear()
+            clearLocalMetricOutbox()
             updateState {
                 it.copy(
                     loggedIn = false,
@@ -4191,7 +4212,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun recordLocalInterpreterMetricAsync(metric: LocalInterpreterTurnMetric) {
-        val backend = normalizedBackendUrl(uiState.value.backendUrl)
         val payload = JSONObject()
             .put("eventId", metric.eventId)
             .put("patientLanguage", metric.patientLanguage)
@@ -4207,14 +4227,101 @@ class MainActivity : ComponentActivity() {
         metric.validationMs?.let { payload.put("validationMs", it) }
         if (metric.errorCategory.isNotBlank()) payload.put("errorCategory", metric.errorCategory)
 
-        val payloadText = payload.toString()
-        sessionExecutor.execute {
+        synchronized(localMetricOutboxLock) {
+            localMetricOutbox.enqueue(payload.toString())
+            persistLocalMetricOutboxLocked()
+        }
+        scheduleLocalMetricOutboxFlush()
+    }
+
+    private fun restoreLocalMetricOutbox(): LocalMetricOutbox {
+        val payloads = mutableListOf<String>()
+        val raw = localMetricOutboxPreferences.getString(LocalMetricOutboxPreferenceKey, null)
+        if (!raw.isNullOrBlank()) {
             runCatching {
-                postJson("$backend/api/local-voice-turns/metrics", payloadText)
-            }.onSuccess {
-                appendLog("Local metric logged: ${metric.outcome} ${metric.transport}")
+                val array = JSONArray(raw)
+                for (index in 0 until array.length()) {
+                    array.optString(index).takeIf { it.isNotBlank() }?.let(payloads::add)
+                }
             }.onFailure {
-                appendLog("Local metric log failed: ${it.message}")
+                localMetricOutboxPreferences.edit().remove(LocalMetricOutboxPreferenceKey).apply()
+            }
+        }
+        return LocalMetricOutbox(payloads, LocalMetricOutboxMaxEntries)
+    }
+
+    private fun persistLocalMetricOutboxLocked() {
+        val array = JSONArray()
+        localMetricOutbox.snapshot().forEach(array::put)
+        localMetricOutboxPreferences.edit()
+            .putString(LocalMetricOutboxPreferenceKey, array.toString())
+            .apply()
+    }
+
+    private fun scheduleLocalMetricOutboxFlush() {
+        if (!uiState.value.loggedIn || sessionExecutor.isShutdown) return
+        synchronized(localMetricOutboxLock) {
+            if (localMetricFlushQueued || localMetricOutbox.peek() == null) return
+            localMetricFlushQueued = true
+        }
+        sessionExecutor.execute {
+            try {
+                flushLocalMetricOutbox()
+            } finally {
+                val shouldContinue = synchronized(localMetricOutboxLock) {
+                    localMetricFlushQueued = false
+                    !localMetricRetryPending && localMetricOutbox.peek() != null
+                }
+                if (shouldContinue) mainHandler.post { scheduleLocalMetricOutboxFlush() }
+            }
+        }
+    }
+
+    private fun clearLocalMetricOutbox() {
+        mainHandler.removeCallbacks(localMetricRetryRunnable)
+        synchronized(localMetricOutboxLock) {
+            localMetricRetryPending = false
+            localMetricOutbox.clear()
+            persistLocalMetricOutboxLocked()
+        }
+    }
+
+    private fun flushLocalMetricOutbox() {
+        val backend = normalizedBackendUrl(uiState.value.backendUrl)
+        if (!uiState.value.loggedIn || !backend.startsWith("https://")) return
+
+        while (true) {
+            val payload = synchronized(localMetricOutboxLock) { localMetricOutbox.peek() } ?: return
+            val request = Request.Builder()
+                .url("$backend/api/local-voice-turns/metrics")
+                .post(payload.toRequestBody(jsonMediaType))
+                .build()
+            val delivery = runCatching {
+                http.newCall(request).execute().use { response -> response.code }
+            }
+            val responseCode = delivery.getOrNull()
+            when {
+                responseCode != null && responseCode in 200..299 -> {
+                    synchronized(localMetricOutboxLock) {
+                        localMetricOutbox.removeHead()
+                        persistLocalMetricOutboxLocked()
+                    }
+                }
+                responseCode == 400 || responseCode == 409 -> {
+                    synchronized(localMetricOutboxLock) {
+                        localMetricOutbox.removeHead()
+                        persistLocalMetricOutboxLocked()
+                    }
+                    appendLog("Local metric discarded: HTTP $responseCode")
+                }
+                else -> {
+                    val reason = responseCode?.let { "HTTP $it" } ?: delivery.exceptionOrNull()?.message.orEmpty()
+                    appendLog("Local metric queued for retry: $reason")
+                    synchronized(localMetricOutboxLock) { localMetricRetryPending = true }
+                    mainHandler.removeCallbacks(localMetricRetryRunnable)
+                    mainHandler.postDelayed(localMetricRetryRunnable, LocalMetricOutboxRetryMs)
+                    return
+                }
             }
         }
     }
@@ -4496,7 +4603,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun speakKoreanText(text: String, onStarted: (() -> Unit)? = null) {
-        speakText(text, Locale.KOREA, "한국어", onStarted)
+        speakText(normalizeKoreanTtsText(text), Locale.KOREA, "한국어", onStarted)
     }
 
     private fun speakText(

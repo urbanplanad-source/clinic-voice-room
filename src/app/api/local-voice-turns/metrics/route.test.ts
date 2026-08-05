@@ -37,7 +37,7 @@ const validMetric = {
   validationStatus: "repaired",
   corrected: true,
   verifiedSentence: false,
-  appVersion: "0.3.37"
+  appVersion: "0.3.38"
 };
 
 describe("local interpreter metrics API", () => {
