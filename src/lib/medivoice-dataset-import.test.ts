@@ -54,7 +54,7 @@ describe("analyzeMedivoiceDatasets", () => {
   it("merges exact cross-specialty terms into one global dry-run candidate", () => {
     const result = analyzeMedivoiceDatasets([
       workbook("dermatology", "피부과", "D001", "DG001"),
-      workbook("plastic_surgery", "성형외과", "P001", "PG001"),
+      workbook("plastic_surgery", "성형외과", "P001", "PG001", { english: "swelling" }),
       workbook("oriental_medicine", "한의원", "K001", "KG001", { term: "항응고제", alias: "피 묽게 하는 약", english: "anticoagulant" })
     ]);
 
@@ -68,6 +68,11 @@ describe("analyzeMedivoiceDatasets", () => {
     expect(result.summary.humanApprovalPendingCount).toBe(3);
     expect(result.summary.glossaryReviewPendingCount).toBe(3);
     expect(result.summary.blockerCount).toBe(0);
+    expect(result.conflicts).toContainEqual(expect.objectContaining({
+      kind: "term_translation",
+      label: "부종",
+      options: expect.arrayContaining(["edema"])
+    }));
   });
 
   it("flags an alias that points to different standard terms", () => {
@@ -78,6 +83,11 @@ describe("analyzeMedivoiceDatasets", () => {
     ]);
 
     expect(result.issues).toContainEqual(expect.objectContaining({ code: "alias_conflict", severity: "review" }));
+    expect(result.conflicts).toContainEqual(expect.objectContaining({
+      kind: "alias_mapping",
+      label: "붓기",
+      options: expect.arrayContaining(["부종", "종창"])
+    }));
   });
 
   it("blocks a workbook missing a required sheet", () => {

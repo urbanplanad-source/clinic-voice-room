@@ -25,6 +25,7 @@ async function main() {
     summary: result.summary,
     files: result.files,
     mergeGroups: result.mergeGroups,
+    conflicts: result.conflicts,
     issues: result.issues
   }, null, 2));
   if (result.summary.blockerCount > 0) process.exitCode = 1;
@@ -34,4 +35,3 @@ void main().catch((caught) => {
   console.error(caught);
   process.exitCode = 1;
 });
-

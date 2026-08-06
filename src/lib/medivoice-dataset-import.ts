@@ -64,6 +64,16 @@ export type DatasetMergeGroup = {
   suggestedScope: "global";
 };
 
+export type DatasetConflict = {
+  key: string;
+  kind: "term_translation" | "alias_mapping";
+  label: string;
+  description: string;
+  options: string[];
+  sourceIds: string[];
+  relatedCandidateKeys: string[];
+};
+
 export type DatasetFileSummary = {
   fileName: string;
   specialty: MedivoiceDatasetSpecialty;
@@ -96,6 +106,7 @@ export type DatasetDryRunResult = {
   candidates: DatasetAssetCandidate[];
   numericTests: DatasetNumericTest[];
   mergeGroups: DatasetMergeGroup[];
+  conflicts: DatasetConflict[];
   issues: DatasetIssue[];
 };
 
@@ -416,15 +427,25 @@ export function analyzeMedivoiceDatasets(workbooks: DatasetWorkbookInput[]): Dat
 
   const mergeGroups: DatasetMergeGroup[] = [];
   const candidates: DatasetAssetCandidate[] = [];
+  const conflicts: DatasetConflict[] = [];
   const glossaryGroups = groupByNormalized(glossaryRows, (row) => row.standardKo);
   for (const [key, group] of glossaryGroups) {
     const specialties = [...new Set(group.map((row) => row.specialty))];
-    const englishTerms = unique(group.map((row) => row.officialEnglishTerm).filter(Boolean));
+    const englishTerms = unique(group.flatMap((row) => row.officialEnglishTerm.split(/\s*\/\s*/u)).filter(Boolean));
     const isShared = specialties.length > 1;
     if (isShared) {
       mergeGroups.push({ key: `term:${key}`, kind: "term", standardKo: group[0].standardKo, specialties, sourceIds: group.map((row) => row.id), suggestedScope: "global" });
       if (englishTerms.length > 1) {
         issues.push({ id: `term-english-conflict:${key}`, severity: "review", code: "term_translation_conflict", message: `${group[0].standardKo}의 공식 영문 표기가 데이터셋마다 다릅니다: ${englishTerms.join(" / ")}` });
+        conflicts.push({
+          key: `term-translation:${key}`,
+          kind: "term_translation",
+          label: group[0].standardKo,
+          description: "데이터셋별 공식 영문 표기가 다릅니다. 대표 표기와 허용 범위를 결정하세요.",
+          options: englishTerms,
+          sourceIds: group.map((row) => `${row.specialty}:${row.id}`),
+          relatedCandidateKeys: [`term:${key}`]
+        });
       }
     }
     candidates.push({
@@ -491,7 +512,19 @@ export function analyzeMedivoiceDatasets(workbooks: DatasetWorkbookInput[]): Dat
   }
   for (const [key, entry] of aliasTargets) {
     if (entry.targets.size > 1) {
-      issues.push({ id: `alias-conflict:${key}`, severity: "review", code: "alias_conflict", message: `발음·별칭 '${entry.alias}'이 여러 표준용어에 연결됩니다: ${[...entry.targets].join(" / ")}` });
+      const targets = [...entry.targets];
+      issues.push({ id: `alias-conflict:${key}`, severity: "review", code: "alias_conflict", message: `발음·별칭 '${entry.alias}'이 여러 표준용어에 연결됩니다: ${targets.join(" / ")}` });
+      conflicts.push({
+        key: `alias-mapping:${key}`,
+        kind: "alias_mapping",
+        label: entry.alias,
+        description: "한 별칭이 여러 표준용어를 가리킵니다. 자동 치환 여부와 연결 대상을 결정하세요.",
+        options: targets,
+        sourceIds: candidates
+          .filter((candidate) => candidate.assetType === "term" && targets.includes(candidate.standardKo))
+          .flatMap((candidate) => candidate.sourceIds),
+        relatedCandidateKeys: targets.map((target) => `term:${normalizeDatasetText(target)}`)
+      });
     }
   }
 
@@ -520,6 +553,7 @@ export function analyzeMedivoiceDatasets(workbooks: DatasetWorkbookInput[]): Dat
     }),
     numericTests,
     mergeGroups,
+    conflicts,
     issues
   };
 }

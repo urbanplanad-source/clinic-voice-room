@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import readExcelFile from "read-excel-file/browser";
+import { AdminDatasetReviewWorkspace } from "@/components/AdminDatasetReviewWorkspace";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -242,11 +243,13 @@ export function AdminDatasetDryRun() {
             </div>
           </section>
 
+          <AdminDatasetReviewWorkspace key={result.files.map((file) => file.fileName).join("|")} result={result} />
+
           <section className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
             <div className="rounded-2xl bg-white p-5 shadow-soft sm:p-6">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-trust">3. 후보 검토</p>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-trust">4. 후보 탐색</p>
                   <h2 className="mt-1 text-xl font-bold text-ink">통합 품질 자산</h2>
                 </div>
                 <p className="text-xs font-bold text-slate-500">{filteredCandidates.length}개</p>
