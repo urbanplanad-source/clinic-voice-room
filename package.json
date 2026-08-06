@@ -18,7 +18,8 @@
     "glossary:verify": "tsx scripts/verify-glossary-source-diff.ts",
     "glossary:verify-stt": "tsx scripts/verify-stt-glossary.ts",
     "hospital-specialty:backfill": "tsx scripts/backfill-hospital-specialty.ts",
-    "staff:create": "tsx scripts/create-staff-user.ts"
+    "staff:create": "tsx scripts/create-staff-user.ts",
+    "dataset:verify": "tsx scripts/verify-medivoice-datasets.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -29,6 +30,7 @@
     "qrcode.react": "^4.1.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "read-excel-file": "^9.3.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
