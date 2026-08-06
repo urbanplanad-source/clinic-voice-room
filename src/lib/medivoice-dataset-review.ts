@@ -59,7 +59,7 @@ export function createConflictDecision(conflict: DatasetConflict): DatasetConfli
 
 export function conflictDecisionBlockers(conflict: DatasetConflict, decision: DatasetConflictDecision) {
   const blockers: string[] = [];
-  if (!decision.reviewer.trim()) blockers.push("검토자 이름이 필요합니다.");
+  if (!decision.reviewer.trim()) blockers.push("위의 공통 검토자 이름을 입력하면 결정 확정 버튼이 활성화됩니다.");
   if (!decision.action) blockers.push("처리 방식을 선택하세요.");
   if (conflict.kind === "term_translation" && decision.action !== "canonical") blockers.push("대표 영문 표기를 선택해야 합니다.");
   if (decision.action === "canonical" && !decision.selectedOption.trim()) blockers.push("연결할 대표 항목을 선택하세요.");

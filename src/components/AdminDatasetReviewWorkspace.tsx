@@ -294,6 +294,20 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
           <p className="text-sm font-bold text-slate-600">{reviewSummary.resolvedConflictCount}/{result.conflicts.length}건 해결</p>
         </div>
 
+        <div className={`mt-4 flex flex-col gap-3 rounded-xl border px-4 py-4 sm:flex-row sm:items-end sm:justify-between ${reviewer.trim() ? "border-emerald-200 bg-emerald-50" : "border-blue-200 bg-blue-50"}`}>
+          <div className="flex items-start gap-3">
+            <UserRoundCheck className={`mt-0.5 shrink-0 ${reviewer.trim() ? "text-emerald-600" : "text-trust"}`} size={19} aria-hidden="true" />
+            <div>
+              <p className="text-sm font-bold text-ink">공통 검토자</p>
+              <p className="mt-1 text-xs font-semibold text-slate-600">한 번 입력하면 아래 모든 충돌 결정과 문장 검토에 사용됩니다.</p>
+            </div>
+          </div>
+          <label className="block w-full sm:w-64">
+            <span className="mb-1 block text-xs font-bold text-slate-600">검토자 이름 <span className="text-rose-600">필수</span></span>
+            <input id="conflict-reviewer-name" value={reviewer} onChange={(event) => setReviewer(event.target.value)} placeholder="예: 홍길동 원장" className="h-11 w-full rounded-xl border border-line bg-white px-3 text-sm font-semibold text-ink outline-none placeholder:text-slate-400 focus:border-trust focus:ring-2 focus:ring-blue-100" />
+          </label>
+        </div>
+
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           {result.conflicts.map((conflict) => {
             const decision = conflictDecisions[conflict.key] ?? createConflictDecision(conflict);
