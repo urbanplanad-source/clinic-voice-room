@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppFrame } from "@/components/AppFrame";
-import { AdminTranslationSampleManager } from "@/components/AdminTranslationSampleManager";
+import { AdminTranslationQualityWorkspace } from "@/components/AdminTranslationQualityWorkspace";
 import { getCurrentStaff } from "@/lib/session";
 
 export default async function AdminSamplesPage() {
@@ -9,8 +9,8 @@ export default async function AdminSamplesPage() {
   if (staff.role === "staff") redirect("/staff");
 
   return (
-    <AppFrame backHref="/staff">
-      <AdminTranslationSampleManager />
+    <AppFrame backHref="/staff" wide>
+      <AdminTranslationQualityWorkspace />
     </AppFrame>
   );
 }

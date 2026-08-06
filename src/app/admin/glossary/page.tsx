@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppFrame } from "@/components/AppFrame";
-import { AdminGlossaryManager } from "@/components/AdminGlossaryManager";
+import { AdminGlossaryLibrary } from "@/components/AdminGlossaryLibrary";
 import { getCurrentStaff } from "@/lib/session";
 
 export default async function AdminGlossaryPage() {
@@ -9,8 +9,8 @@ export default async function AdminGlossaryPage() {
   if (staff.role === "staff") redirect("/staff");
 
   return (
-    <AppFrame backHref="/staff">
-      <AdminGlossaryManager />
+    <AppFrame backHref="/staff" wide>
+      <AdminGlossaryLibrary />
     </AppFrame>
   );
 }

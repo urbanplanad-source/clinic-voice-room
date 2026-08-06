@@ -1,0 +1,62 @@
+.root :global(.field) {
+  min-height: 2.75rem;
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid #e5e8eb;
+  background: #ffffff;
+  padding: 0 0.875rem;
+  font-size: 0.875rem;
+  color: #191f28;
+  outline: none;
+}
+
+.root :global(.field:focus) {
+  border-color: #3182f6;
+  box-shadow: 0 0 0 3px rgba(49, 130, 246, 0.12);
+}
+
+.root :global(textarea.field) {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+.root :global(.secondary-button),
+.root :global(.primary-button) {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.75rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.root :global(.secondary-button) {
+  border: 1px solid #e5e8eb;
+  background: #ffffff;
+  color: #191f28;
+}
+
+.root :global(.secondary-button:hover) {
+  background: #f7f8fa;
+}
+
+.root :global(.primary-button) {
+  border: 1px solid #3182f6;
+  background: #3182f6;
+  color: #ffffff;
+}
+
+.root :global(.primary-button:hover) {
+  border-color: #1b64da;
+  background: #1b64da;
+}
+
+.root :global(.primary-button:disabled),
+.root :global(.secondary-button:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
