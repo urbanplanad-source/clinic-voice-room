@@ -31,7 +31,7 @@ try {
     $env:JAVA_HOME = "$DriveLetter\.tools\jdk-17\jdk-17.0.19+10"
     $env:ANDROID_HOME = $androidHome
     Set-Location "$DriveLetter\android-staff-app"
-    & .\gradlew.bat --no-daemon --max-workers=4 "-Dorg.gradle.jvmargs=-Xmx1536m -Dfile.encoding=UTF-8" :app:testDebugUnitTest :app:testFieldUnitTest :app:lintField
+    & .\gradlew.bat --no-daemon --max-workers=2 "-Dorg.gradle.jvmargs=-Xmx1536m -Dfile.encoding=UTF-8" "-Pkotlin.compiler.execution.strategy=in-process" :app:testDebugUnitTest :app:testFieldUnitTest :app:assembleDebugAndroidTest :app:lintField
     if ($LASTEXITCODE -ne 0) { throw "MediVoice Android verification failed." }
     Write-Host "MediVoice Android verification passed." -ForegroundColor Green
 } finally {

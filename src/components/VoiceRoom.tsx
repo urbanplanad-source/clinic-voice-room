@@ -690,6 +690,27 @@ const patientCopies: Partial<Record<PatientLanguage, VoiceRoomCopy>> & { en: Voi
   }
 };
 
+type ConfirmationCopy = { title: string; body: string; confirm: string; repeat: string };
+const confirmationCopies: Record<PatientLanguage, ConfirmationCopy> = {
+  zh: { title: "请确认重要信息", body: "请再次确认数字、日期、用量、左右位置或否定表达。", confirm: "我已确认", repeat: "请再说明一次" },
+  yue: { title: "請確認重要資料", body: "請再確認數字、日期、用量、左右位置或否定表達。", confirm: "我已確認", repeat: "請再講一次" },
+  zh_tw: { title: "請確認重要資訊", body: "請再次確認數字、日期、用量、左右位置或否定表達。", confirm: "我已確認", repeat: "請再說明一次" },
+  ja: { title: "重要な内容をご確認ください", body: "数字、日付、用量、左右、否定表現をもう一度ご確認ください。", confirm: "確認しました", repeat: "もう一度説明してください" },
+  en: { title: "Please confirm the important details", body: "Check the numbers, date, dose, left or right side, and negative instructions again.", confirm: "I confirm", repeat: "Please explain again" },
+  th: { title: "โปรดยืนยันข้อมูลสำคัญ", body: "โปรดตรวจสอบตัวเลข วันที่ ปริมาณ ด้านซ้ายหรือขวา และข้อความปฏิเสธอีกครั้ง", confirm: "ยืนยันแล้ว", repeat: "กรุณาอธิบายอีกครั้ง" },
+  ms: { title: "Sila sahkan maklumat penting", body: "Semak semula nombor, tarikh, dos, bahagian kiri atau kanan dan arahan negatif.", confirm: "Saya sahkan", repeat: "Sila terangkan lagi" },
+  mn: { title: "Чухал мэдээллийг баталгаажуулна уу", body: "Тоо, огноо, тун, баруун эсвэл зүүн тал, хориглосон зааврыг дахин шалгана уу.", confirm: "Баталгаажууллаа", repeat: "Дахин тайлбарлана уу" },
+  ru: { title: "Подтвердите важные сведения", body: "Ещё раз проверьте числа, дату, дозу, левую или правую сторону и отрицательные указания.", confirm: "Подтверждаю", repeat: "Объясните ещё раз" },
+  vi: { title: "Vui lòng xác nhận thông tin quan trọng", body: "Hãy kiểm tra lại số, ngày, liều lượng, bên trái hoặc bên phải và câu phủ định.", confirm: "Tôi xác nhận", repeat: "Vui lòng giải thích lại" },
+  id: { title: "Harap konfirmasi informasi penting", body: "Periksa kembali angka, tanggal, dosis, sisi kiri atau kanan, dan instruksi negatif.", confirm: "Saya konfirmasi", repeat: "Tolong jelaskan lagi" },
+  tl: { title: "Pakikumpirma ang mahalagang detalye", body: "Suriin muli ang numero, petsa, dosis, kaliwa o kanan, at mga negatibong tagubilin.", confirm: "Kinukumpirma ko", repeat: "Pakipaliwanag muli" },
+  fr: { title: "Veuillez confirmer les informations importantes", body: "Vérifiez de nouveau les chiffres, la date, la dose, le côté gauche ou droit et les consignes négatives.", confirm: "Je confirme", repeat: "Veuillez réexpliquer" },
+  es: { title: "Confirme los datos importantes", body: "Revise de nuevo los números, la fecha, la dosis, el lado izquierdo o derecho y las instrucciones negativas.", confirm: "Confirmo", repeat: "Explíquelo de nuevo" },
+  de: { title: "Bitte bestätigen Sie die wichtigen Angaben", body: "Prüfen Sie Zahlen, Datum, Dosis, linke oder rechte Seite und Verneinungen erneut.", confirm: "Ich bestätige", repeat: "Bitte noch einmal erklären" },
+  it: { title: "Confermi le informazioni importanti", body: "Controlli di nuovo numeri, data, dose, lato sinistro o destro e indicazioni negative.", confirm: "Confermo", repeat: "Spieghi di nuovo" },
+  pt: { title: "Confirme as informações importantes", body: "Confira novamente números, data, dose, lado esquerdo ou direito e instruções negativas.", confirm: "Confirmo", repeat: "Explique novamente" }
+};
+
 function copyFor(role: ParticipantRole, patientLanguage: PatientLanguage) {
   if (role === "staff") return staffCopy;
   return patientCopies[patientLanguage] ?? (patientLanguage === "yue" ? patientCopies.zh_tw : patientCopies.en);
@@ -723,6 +744,8 @@ function ProcedureVoiceRoom({
   const [translationDraft, setTranslationDraft] = useState("");
   const [inputTranscriptDraft, setInputTranscriptDraft] = useState("");
   const [backWarning, setBackWarning] = useState(false);
+  const [confirmationBusy, setConfirmationBusy] = useState(false);
+  const [confirmationError, setConfirmationError] = useState("");
   const [roomRealtimeHealthy, setRoomRealtimeHealthy] = useState(false);
   const [messageRealtimeHealthy, setMessageRealtimeHealthy] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
@@ -791,6 +814,40 @@ function ProcedureVoiceRoom({
       : copy.transcript.title;
   const latestGuardFlags = role === "staff" ? latestMessage?.guardFlags : undefined;
   const latestBackTranslationStatus = latestGuardFlags?.backTranslation?.status;
+  const staffConfirmationMessage = role === "staff"
+    ? messages.find((message) => {
+        const status = message.guardFlags?.confirmation?.status;
+        return message.speaker === "staff" && (status === "pending" || status === "repeat_requested");
+      })
+    : undefined;
+  const patientConfirmationMessage = role === "patient"
+    ? messages.find((message) => message.speaker === "staff" && message.guardFlags?.confirmation?.status === "pending")
+    : undefined;
+  const patientConfirmationCopy = confirmationCopies[room.patientLanguage];
+
+  async function submitPatientConfirmation(status: "confirmed" | "repeat_requested") {
+    if (!patientConfirmationMessage || confirmationBusy) return;
+    setConfirmationBusy(true);
+    setConfirmationError("");
+    const response = await fetch(
+      `/api/rooms/${room.id}/messages/${patientConfirmationMessage.id}/confirmation`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(roomToken ? { "x-room-token": roomToken } : {})
+        },
+        body: JSON.stringify({ status })
+      }
+    );
+    const data = await response.json().catch(() => null) as { message?: TranslationMessage; error?: string } | null;
+    setConfirmationBusy(false);
+    if (!response.ok || !data?.message) {
+      setConfirmationError(data?.error || copy.errors.busy);
+      return;
+    }
+    setMessages((current) => current.map((message) => message.id === data.message?.id ? data.message : message));
+  }
 
   const triggerHardwareToggle = useCallback(() => {
     const now = Date.now();
@@ -1076,8 +1133,11 @@ function ProcedureVoiceRoom({
 
   useEffect(() => {
     return subscribeToTranslationMessages(room.id, (message) => {
-      if (message.speaker !== role) {
+      const isConfirmationUpdate = Boolean(message.guardFlags?.confirmation?.status);
+      if (message.speaker !== role || isConfirmationUpdate) {
         appendMessage(message);
+      }
+      if (message.speaker !== role) {
         markIncomingMessagesRead([message]);
       }
       markActivity();
@@ -1817,6 +1877,47 @@ function ProcedureVoiceRoom({
             ) : null}
           </article>
         ) : null}
+        </section>
+      ) : null}
+
+      {patientConfirmationMessage ? (
+        <section className="rounded-xl border-2 border-amber-300 bg-amber-50 p-5 shadow-sm" role="alert">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 shrink-0 text-amber-700" size={24} />
+            <div>
+              <h2 className="text-xl font-bold leading-7 text-amber-950">{patientConfirmationCopy.title}</h2>
+              <p className="mt-2 text-base font-semibold leading-7 text-amber-900">{patientConfirmationCopy.body}</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              disabled={confirmationBusy}
+              onClick={() => void submitPatientConfirmation("confirmed")}
+              className="min-h-14 rounded-xl bg-emerald-600 px-4 text-base font-bold text-white disabled:opacity-60"
+            >
+              {confirmationBusy ? <Loader2 className="mx-auto animate-spin" size={20} /> : patientConfirmationCopy.confirm}
+            </button>
+            <button
+              type="button"
+              disabled={confirmationBusy}
+              onClick={() => void submitPatientConfirmation("repeat_requested")}
+              className="min-h-14 rounded-xl border-2 border-amber-500 bg-white px-4 text-base font-bold text-amber-900 disabled:opacity-60"
+            >
+              {patientConfirmationCopy.repeat}
+            </button>
+          </div>
+          {confirmationError ? <p className="mt-3 text-sm font-bold text-rose-700">{confirmationError}</p> : null}
+        </section>
+      ) : null}
+
+      {staffConfirmationMessage ? (
+        <section className={`rounded-xl border-2 p-4 shadow-sm ${staffConfirmationMessage.guardFlags?.confirmation?.status === "repeat_requested" ? "border-rose-300 bg-rose-50" : "border-blue-200 bg-blue-50"}`}>
+          <p className="flex items-center gap-2 text-base font-bold text-ink">
+            {staffConfirmationMessage.guardFlags?.confirmation?.status === "repeat_requested" ? <AlertTriangle size={20} className="text-rose-600" /> : <Loader2 size={20} className="animate-spin text-trust" />}
+            {staffConfirmationMessage.guardFlags?.confirmation?.status === "repeat_requested" ? "환자가 다시 설명을 요청했습니다." : "중요 정보에 대한 환자 확인을 기다리는 중입니다."}
+          </p>
+          <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">{staffConfirmationMessage.sourceText || staffConfirmationMessage.text}</p>
         </section>
       ) : null}
 

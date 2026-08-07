@@ -41,6 +41,13 @@ enum GlossaryEntryType {
   verified_sentence
 }
 
+enum GlossaryLifecycleStatus {
+  draft
+  approved
+  active
+  retired
+}
+
 enum StaffRole {
   hospital_admin
   staff
@@ -125,24 +132,34 @@ model Hospital {
 }
 
 model GlossaryEntry {
-  id           String             @id @default(cuid())
-  scope        GlossaryScope
-  specialty    HospitalSpecialty?
-  hospitalId   String?
-  hospital     Hospital?          @relation(fields: [hospitalId], references: [id])
-  entryType    GlossaryEntryType  @default(term)
-  spokenForms  String[]
-  standardKo   String
-  translations Json
-  category     String?
-  note         String?
-  priority     Int                @default(100)
-  isActive     Boolean            @default(true)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  id            String                  @id @default(cuid())
+  scope         GlossaryScope
+  specialty     HospitalSpecialty?
+  hospitalId    String?
+  hospital      Hospital?               @relation(fields: [hospitalId], references: [id])
+  entryType     GlossaryEntryType       @default(term)
+  spokenForms   String[]
+  standardKo    String
+  translations  Json
+  category      String?
+  note          String?
+  priority      Int                     @default(100)
+  isActive      Boolean                 @default(true)
+  lineageId     String                  @default(cuid())
+  version       Int                     @default(1)
+  lifecycle     GlossaryLifecycleStatus @default(active)
+  approvedById  String?
+  approvedAt    DateTime?
+  activatedById String?
+  activatedAt   DateTime?
+  retiredAt     DateTime?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
 
+  @@unique([lineageId, version])
   @@index([scope, specialty, isActive])
   @@index([hospitalId, isActive])
+  @@index([lifecycle, updatedAt])
 }
 
 model HospitalQuickPhrase {

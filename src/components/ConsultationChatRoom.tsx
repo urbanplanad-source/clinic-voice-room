@@ -68,6 +68,15 @@ const replayCopy: Record<PatientLanguage, string> = {
   pt: "Ouvir novamente"
 };
 
+const confirmationCopy: Record<PatientLanguage, { title: string; confirm: string; repeat: string }> = {
+  zh: { title: "请确认重要信息", confirm: "我已确认", repeat: "请再说明一次" }, yue: { title: "請確認重要資料", confirm: "我已確認", repeat: "請再講一次" }, zh_tw: { title: "請確認重要資訊", confirm: "我已確認", repeat: "請再說明一次" },
+  ja: { title: "重要な内容をご確認ください", confirm: "確認しました", repeat: "もう一度説明してください" }, en: { title: "Please confirm the important details", confirm: "I confirm", repeat: "Please explain again" }, th: { title: "โปรดยืนยันข้อมูลสำคัญ", confirm: "ยืนยันแล้ว", repeat: "กรุณาอธิบายอีกครั้ง" },
+  ms: { title: "Sila sahkan maklumat penting", confirm: "Saya sahkan", repeat: "Sila terangkan lagi" }, mn: { title: "Чухал мэдээллийг баталгаажуулна уу", confirm: "Баталгаажууллаа", repeat: "Дахин тайлбарлана уу" }, ru: { title: "Подтвердите важные сведения", confirm: "Подтверждаю", repeat: "Объясните ещё раз" },
+  vi: { title: "Vui lòng xác nhận thông tin quan trọng", confirm: "Tôi xác nhận", repeat: "Vui lòng giải thích lại" }, id: { title: "Harap konfirmasi informasi penting", confirm: "Saya konfirmasi", repeat: "Tolong jelaskan lagi" }, tl: { title: "Pakikumpirma ang mahalagang detalye", confirm: "Kinukumpirma ko", repeat: "Pakipaliwanag muli" },
+  fr: { title: "Veuillez confirmer les informations importantes", confirm: "Je confirme", repeat: "Veuillez réexpliquer" }, es: { title: "Confirme los datos importantes", confirm: "Confirmo", repeat: "Explíquelo de nuevo" }, de: { title: "Bitte bestätigen Sie die wichtigen Angaben", confirm: "Ich bestätige", repeat: "Bitte noch einmal erklären" },
+  it: { title: "Confermi le informazioni importanti", confirm: "Confermo", repeat: "Spieghi di nuovo" }, pt: { title: "Confirme as informações importantes", confirm: "Confirmo", repeat: "Explique novamente" }
+};
+
 type RoomSnapshot = {
   id: string;
   status: RoomStatus;
@@ -145,6 +154,7 @@ export function ConsultationChatRoom({
   const [activeFeedbackMenuId, setActiveFeedbackMenuId] = useState("");
   const [feedbackSubmittingId, setFeedbackSubmittingId] = useState("");
   const [feedbackNotice, setFeedbackNotice] = useState("");
+  const [confirmationBusy, setConfirmationBusy] = useState(false);
   const chatScrollRef = useRef<HTMLElement | null>(null);
   const isComposingTextRef = useRef(false);
   const inactivityTimerRef = useRef<number | null>(null);
@@ -178,6 +188,7 @@ export function ConsultationChatRoom({
   const micEnabled = isMicEnabled(room.status, role);
   const browserAudioOutputEnabled = role === "staff";
   const lastIncomingMessage = messages.find((message) => message.speaker !== role && message.deliveryStatus !== "failed");
+  const pendingConfirmationMessage = role === "patient" ? messages.find((message) => message.speaker === "staff" && message.guardFlags?.confirmation?.status === "pending") : undefined;
   const replayLabel = role === "staff" ? "다시 듣기" : replayCopy[room.patientLanguage];
   const visibleQuickPhrases = useMemo(() => {
     if (quickPhraseStage === "all") return quickPhrases;
@@ -810,8 +821,11 @@ export function ConsultationChatRoom({
 
   useEffect(() => {
     return subscribeToTranslationMessages(room.id, (message) => {
-      if (message.speaker !== role) {
+      const isConfirmationUpdate = Boolean(message.guardFlags?.confirmation?.status);
+      if (message.speaker !== role || isConfirmationUpdate) {
         appendMessage(message);
+      }
+      if (message.speaker !== role) {
         playQueuedTranslatedSpeech(message);
         markIncomingMessagesRead([message]);
       }
@@ -1061,6 +1075,24 @@ export function ConsultationChatRoom({
     void submitTextMessage();
   }
 
+  async function submitPatientConfirmation(status: "confirmed" | "repeat_requested") {
+    if (!pendingConfirmationMessage || confirmationBusy) return;
+    setConfirmationBusy(true);
+    setError("");
+    const response = await fetch(`/api/rooms/${room.id}/messages/${pendingConfirmationMessage.id}/confirmation`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(roomToken ? { "x-room-token": roomToken } : {}) },
+      body: JSON.stringify({ status })
+    });
+    const data = await response.json().catch(() => null) as { message?: TranslationMessage; error?: string } | null;
+    setConfirmationBusy(false);
+    if (!response.ok || !data?.message) {
+      setError(data?.error || voiceText.busy);
+      return;
+    }
+    appendMessage(data.message);
+  }
+
   const activeSpeakingLabel = role === "patient" ? patientAutoStopSpeakingCopy[room.patientLanguage] : voiceText.speaking;
   const activeHelperText = role === "patient" && isSpeaking ? patientAutoStopHelperCopy[room.patientLanguage] : voiceText.helper;
 
@@ -1086,6 +1118,17 @@ export function ConsultationChatRoom({
 
       </header>
 
+      {pendingConfirmationMessage ? (
+        <section className="shrink-0 border-b-2 border-amber-300 bg-amber-50 px-3 py-3 md:px-6" role="alert">
+          <p className="flex items-center gap-2 text-base font-bold text-amber-950"><AlertTriangle size={20} />{confirmationCopy[room.patientLanguage].title}</p>
+          <p className="mt-1 line-clamp-2 text-sm font-semibold text-amber-900">{pendingConfirmationMessage.text}</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button type="button" disabled={confirmationBusy} onClick={() => void submitPatientConfirmation("confirmed")} className="min-h-12 rounded-xl bg-emerald-600 px-3 font-bold text-white disabled:opacity-60">{confirmationBusy ? <Loader2 className="mx-auto animate-spin" size={18} /> : confirmationCopy[room.patientLanguage].confirm}</button>
+            <button type="button" disabled={confirmationBusy} onClick={() => void submitPatientConfirmation("repeat_requested")} className="min-h-12 rounded-xl border-2 border-amber-500 bg-white px-3 font-bold text-amber-900 disabled:opacity-60">{confirmationCopy[room.patientLanguage].repeat}</button>
+          </div>
+        </section>
+      ) : null}
+
       <section ref={chatScrollRef} className="min-h-0 flex-1 overflow-y-auto bg-mist px-3 py-3 md:px-6 md:py-4" aria-live="polite">
         {chatMessages.length ? (
           <div className="space-y-3">
@@ -1095,6 +1138,7 @@ export function ConsultationChatRoom({
               const showGuardFlags = role === "staff" && !message.deliveryStatus;
               const numberMismatch = showGuardFlags && message.guardFlags?.numberCheck === "mismatch";
               const backTranslationStatus = showGuardFlags ? message.guardFlags?.backTranslation?.status : undefined;
+              const confirmationStatus = showGuardFlags ? message.guardFlags?.confirmation?.status : undefined;
               const sentAt = message.createdAt
                 ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(message.createdAt))
                 : "";
@@ -1188,6 +1232,7 @@ export function ConsultationChatRoom({
                         ) : null}
                       </div>
                     ) : null}
+                    {confirmationStatus ? <p className={`mt-2 rounded-lg px-2 py-1 text-[11px] font-bold ${mine ? "bg-white/15 text-white" : "bg-amber-50 text-amber-800"}`}>{confirmationStatus === "confirmed" ? "환자 확인 완료" : confirmationStatus === "repeat_requested" ? "환자가 다시 설명 요청" : "환자 확인 대기"}</p> : null}
                     {sentAt || metaText ? (
                       <span className={`mt-1 block text-[11px] font-bold ${mine ? "text-white/80" : "text-slate-400"}`}>
                         {[sentAt, metaText].filter(Boolean).join(" · ")}

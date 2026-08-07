@@ -9,6 +9,8 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
@@ -348,7 +350,9 @@ private data class StaffMessage(
     val sourceText: String,
     val text: String,
     val targetLanguage: String?,
-    val createdAt: String
+    val createdAt: String,
+    val confirmationStatus: String = "",
+    val confirmationCategories: List<String> = emptyList()
 )
 
 private data class LocalConversationTurn(
@@ -366,6 +370,7 @@ private data class StaffUiState(
     val loggedIn: Boolean = false,
     val staffName: String = "",
     val hospitalName: String = "",
+    val hospitalSpecialty: String = "general",
     val selectedLanguage: String = "zh",
     val selectedRoomMode: String = "procedure",
     val setupStep: String = SetupStepMode,
@@ -1416,6 +1421,7 @@ class MainActivity : ComponentActivity() {
     private val messageExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var messageCursor: String? = null
     private var messagePollingInitialized = false
+    private var confirmationPollCounter = 0
     private val seenMessageIds = mutableSetOf<String>()
     private var translationRealtimeClient: SupabaseTranslationRealtimeClient? = null
     private var translationRealtimeRoomId = ""
@@ -1521,7 +1527,9 @@ class MainActivity : ComponentActivity() {
                         onTextInputChange = { value -> updateState { it.copy(textInput = value) } },
                         onSubmitText = ::submitTextMessage,
                         onTtsEnabled = ::setTtsEnabled,
-                        onRequestMicPermission = ::requestMicPermissionIfMissing
+                        onRequestMicPermission = ::requestMicPermissionIfMissing,
+                        onPlayOfflinePhrase = ::playOfflineVerifiedPhrase,
+                        onDiagnostics = ::buildFieldDiagnostics
                     )
                 }
             }
@@ -1536,6 +1544,40 @@ class MainActivity : ComponentActivity() {
         startModeIdleWatcher()
         resumeRealtimeAndPollingAfterStart()
         if (uiState.value.loggedIn) scheduleLocalMetricOutboxFlush()
+    }
+
+    private fun buildFieldDiagnostics(): FieldDiagnostics {
+        val state = uiState.value
+        val pendingMetrics = synchronized(localMetricOutboxLock) { localMetricOutbox.size() }
+        val backendHost = runCatching {
+            normalizedBackendUrl(state.backendUrl).toHttpUrl().host
+        }.getOrDefault("주소 확인 필요")
+        return FieldDiagnostics(
+            versionName = BuildConfig.VERSION_NAME,
+            versionCode = BuildConfig.VERSION_CODE,
+            buildType = BuildConfig.BUILD_TYPE,
+            backendHost = backendHost,
+            sessionState = if (state.loggedIn) "로그인됨" else "로그인 전",
+            roomConnectionState = when {
+                state.room == null -> "통역방 없음"
+                state.connected -> "연결됨"
+                else -> "재연결 또는 대기 중"
+            },
+            microphonePermission = if (state.recordAudioGranted) "허용됨" else "허용 필요",
+            audioOutputs = detectedAudioOutputs(),
+            ttsState = state.ttsStatus.ifBlank { if (state.ttsEnabled) "사용" else "사용 안 함" },
+            pendingQualityMetrics = pendingMetrics,
+            lastExternalKey = state.lastKey,
+            deviceSummary = "${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}"
+        )
+    }
+
+    private fun detectedAudioOutputs(): String {
+        val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        val labels = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .mapNotNull { device -> audioOutputLabel(device.type) }
+            .distinct()
+        return labels.joinToString(", ").ifBlank { "시스템 기본 출력" }
     }
 
     override fun onStop() {
@@ -1717,6 +1759,7 @@ class MainActivity : ComponentActivity() {
                         loggedIn = true,
                         staffName = staff.optString("name", state.email),
                         hospitalName = hospital.optString("name", "병원"),
+                        hospitalSpecialty = hospital.optString("specialty", "general"),
                         password = "",
                         busy = false,
                         status = "로그인 유지됨. 통역 모드를 선택하세요."
@@ -2139,6 +2182,7 @@ class MainActivity : ComponentActivity() {
                         loggedIn = true,
                         staffName = staff.optString("name", state.email),
                         hospitalName = hospital.optString("name", "병원"),
+                        hospitalSpecialty = hospital.optString("specialty", "general"),
                         status = "로그인 완료. 통역 모드를 선택하세요.",
                         busy = false
                     )
@@ -2173,6 +2217,7 @@ class MainActivity : ComponentActivity() {
                     loggedIn = false,
                     staffName = "",
                     hospitalName = "",
+                    hospitalSpecialty = "general",
                     room = null,
                     setupStep = SetupStepMode,
                     connected = false,
@@ -2445,6 +2490,7 @@ class MainActivity : ComponentActivity() {
 
     private fun resetMessagePolling() {
         messagePollingInitialized = false
+        confirmationPollCounter = 0
         synchronized(seenMessageIds) {
             messageCursor = null
             seenMessageIds.clear()
@@ -2816,6 +2862,39 @@ class MainActivity : ComponentActivity() {
             }
         }
         messagePollingInitialized = true
+        confirmationPollCounter += 1
+        if (confirmationPollCounter >= 5) {
+            confirmationPollCounter = 0
+            runCatching { pollRoomConfirmations(room, backend) }
+                .onFailure { appendLog("환자 확인 상태 조회 실패: ${it.message}") }
+        }
+    }
+
+    private fun pollRoomConfirmations(room: RoomInfo, backend: String) {
+        val data = getJson("$backend/api/rooms/${room.id}/confirmations")
+        val confirmations = data.optJSONArray("confirmations") ?: return
+        val updates = mutableMapOf<String, Pair<String, List<String>>>()
+        for (index in 0 until confirmations.length()) {
+            val item = confirmations.optJSONObject(index) ?: continue
+            val messageId = item.optString("messageId")
+            val status = item.optString("status")
+            if (messageId.isBlank() || status.isBlank()) continue
+            val categories = item.optJSONArray("categories")?.let { values ->
+                buildList {
+                    for (categoryIndex in 0 until values.length()) {
+                        values.optString(categoryIndex).takeIf { it.isNotBlank() }?.let(::add)
+                    }
+                }
+            }.orEmpty()
+            updates[messageId] = status to categories
+        }
+        if (updates.isEmpty()) return
+        updateState { state ->
+            state.copy(messages = state.messages.map { message ->
+                val update = updates[message.id] ?: return@map message
+                message.copy(confirmationStatus = update.first, confirmationCategories = update.second)
+            })
+        }
     }
 
     private fun rememberMessage(message: JSONObject, advanceCursor: Boolean = true): Boolean {
@@ -2838,13 +2917,23 @@ class MainActivity : ComponentActivity() {
         } else {
             fallbackPatientLanguage ?: uiState.value.room?.patientLanguage ?: uiState.value.selectedLanguage
         }
+        val confirmation = message.optJSONObject("guardFlags")?.optJSONObject("confirmation")
+        val confirmationCategories = confirmation?.optJSONArray("categories")?.let { values ->
+            buildList {
+                for (index in 0 until values.length()) {
+                    values.optString(index).takeIf { it.isNotBlank() }?.let(::add)
+                }
+            }
+        }.orEmpty()
         return StaffMessage(
             id = message.optString("id", "message-${System.currentTimeMillis()}"),
             speaker = speaker,
             sourceText = if (speaker == "staff") normalizeKoreanSourceText(message.optString("sourceText")) else message.optString("sourceText"),
             text = normalizeClinicText(message.optString("text"), displayLanguage),
             targetLanguage = targetLanguage,
-            createdAt = message.optString("createdAt", System.currentTimeMillis().toString())
+            createdAt = message.optString("createdAt", System.currentTimeMillis().toString()),
+            confirmationStatus = confirmation?.optString("status").orEmpty(),
+            confirmationCategories = confirmationCategories
         )
     }
 
@@ -4578,6 +4667,25 @@ class MainActivity : ComponentActivity() {
         appendLog("번역 다시 듣기")
     }
 
+    private fun playOfflineVerifiedPhrase(phrase: OfflineVerifiedPhrase, patientLanguage: String) {
+        val translated = phrase.translated(patientLanguage)
+        if (translated.isNullOrBlank()) {
+            updateState { it.copy(status = "선택한 언어의 검토 완료 번역이 없습니다.") }
+            return
+        }
+        updateState {
+            it.copy(
+                selectedLanguage = patientLanguage,
+                sourceDraft = phrase.korean,
+                translatedDraft = translated,
+                lastMessageSpeaker = "staff",
+                status = "검토 완료 문구를 기기 음성으로 재생합니다."
+            )
+        }
+        speakTranslatedText(translated, patientLanguage)
+        appendLog("오프라인 검증 문구 재생: ${phrase.id}")
+    }
+
     private fun warmTtsForRoom(room: RoomInfo) {
         if (!uiState.value.ttsEnabled) return
         warmTtsLanguage(Locale.KOREA, "한국어")
@@ -5117,6 +5225,26 @@ private fun staffScreenOrder(screen: String): Int {
     }
 }
 
+private fun audioOutputLabel(type: Int): String? {
+    return when (type) {
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "내장 스피커"
+        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "수화부"
+        AudioDeviceInfo.TYPE_WIRED_HEADSET -> "유선 헤드셋"
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "유선 이어폰"
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_BLE_SPEAKER -> "블루투스"
+        AudioDeviceInfo.TYPE_USB_DEVICE,
+        AudioDeviceInfo.TYPE_USB_HEADSET,
+        AudioDeviceInfo.TYPE_USB_ACCESSORY -> "USB 오디오"
+        AudioDeviceInfo.TYPE_HDMI,
+        AudioDeviceInfo.TYPE_HDMI_ARC,
+        AudioDeviceInfo.TYPE_HDMI_EARC -> "HDMI"
+        else -> null
+    }
+}
+
 @Composable
 @OptIn(ExperimentalAnimationApi::class)
 private fun StaffAppScreen(
@@ -5147,12 +5275,20 @@ private fun StaffAppScreen(
     onTextInputChange: (String) -> Unit,
     onSubmitText: () -> Unit,
     onTtsEnabled: (Boolean) -> Unit,
-    onRequestMicPermission: () -> Unit
+    onRequestMicPermission: () -> Unit,
+    onPlayOfflinePhrase: (OfflineVerifiedPhrase, String) -> Unit,
+    onDiagnostics: () -> FieldDiagnostics
 ) {
     val room = state.room
     val screenKey = staffScreenKey(state)
     val debugTapCount = androidx.compose.runtime.remember { mutableStateOf(0) }
     val showDebugLogs = androidx.compose.runtime.remember { mutableStateOf(false) }
+    val showDiagnostics = androidx.compose.runtime.remember { mutableStateOf(false) }
+    val diagnostics = androidx.compose.runtime.remember { mutableStateOf<FieldDiagnostics?>(null) }
+    val openDiagnostics = {
+        diagnostics.value = onDiagnostics()
+        showDiagnostics.value = true
+    }
     val onStatusTap = {
         val next = debugTapCount.value + 1
         if (next >= 5) {
@@ -5222,15 +5358,19 @@ private fun StaffAppScreen(
                                     onBackendChange = onBackendChange,
                                     onEmailChange = onEmailChange,
                                      onPasswordChange = onPasswordChange,
-                                     onRememberEmailChange = onRememberEmailChange,
-                                     onLogin = onLogin,
-                                     onStatusTap = onStatusTap
+                                    onRememberEmailChange = onRememberEmailChange,
+                                    onLogin = onLogin,
+                                    onStatusTap = onStatusTap,
+                                    onDiagnostics = openDiagnostics
                                  )
 
                                 "mode" -> ModeSelectionScreen(
+                                    state = state,
                                     metrics = metrics,
                                     onRoomMode = onRoomMode,
-                                    onLogout = onLogout
+                                    onPlayOfflinePhrase = onPlayOfflinePhrase,
+                                    onLogout = onLogout,
+                                    onDiagnostics = openDiagnostics
                                 )
 
                                 "language" -> LanguageSelectionScreen(
@@ -5244,7 +5384,8 @@ private fun StaffAppScreen(
                                     state = state,
                                     metrics = metrics,
                                     onCopyLink = onCopyLink,
-                                    onEndRoom = onRequestEndRoom
+                                    onEndRoom = onRequestEndRoom,
+                                    onDiagnostics = openDiagnostics
                                 )
 
                                  "ended" -> {
@@ -5261,7 +5402,8 @@ private fun StaffAppScreen(
                                     )
                                     RoomActionBar(
                                         onCopyLink = onCopyLink,
-                                        onEndRoom = onRequestEndRoom
+                                        onEndRoom = onRequestEndRoom,
+                                        onDiagnostics = openDiagnostics
                                     )
                                 }
 
@@ -5279,7 +5421,8 @@ private fun StaffAppScreen(
                                     )
                                     RoomActionBar(
                                         onCopyLink = onCopyLink,
-                                        onEndRoom = onRequestEndRoom
+                                        onEndRoom = onRequestEndRoom,
+                                        onDiagnostics = openDiagnostics
                                     )
                                 }
                             }
@@ -5308,15 +5451,28 @@ private fun StaffAppScreen(
                 onDismiss = { showDebugLogs.value = false }
             )
         }
+        diagnostics.value?.let { snapshot ->
+            if (showDiagnostics.value) {
+                FieldDiagnosticsDialog(
+                    diagnostics = snapshot,
+                    onRefresh = { diagnostics.value = onDiagnostics() },
+                    onDismiss = { showDiagnostics.value = false }
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun ModeSelectionScreen(
+    state: StaffUiState,
     metrics: StaffLayoutMetrics,
     onRoomMode: (String) -> Unit,
-    onLogout: () -> Unit
+    onPlayOfflinePhrase: (OfflineVerifiedPhrase, String) -> Unit,
+    onLogout: () -> Unit,
+    onDiagnostics: () -> Unit
 ) {
+    val showPhrasebook = androidx.compose.runtime.remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)) {
         ModeLargeCard(
             metrics = metrics,
@@ -5348,12 +5504,202 @@ private fun ModeSelectionScreen(
             onClick = { onRoomMode(RoomModeLocalInterpreterExperimental) }
         )
 
-        MainScreenFooter(onLogout = onLogout)
+        ModeLargeCard(
+            metrics = metrics,
+            title = "검증 문구",
+            body = "진료과별 검토 완료 문구 · 오프라인 재생",
+            badge = "36개",
+            badgeColor = Mint,
+            icon = {
+                Icon(
+                    Icons.Outlined.ChatBubbleOutline,
+                    contentDescription = null,
+                    tint = Trust,
+                    modifier = Modifier.size(metrics.modeIconSize)
+                )
+            },
+            onClick = { showPhrasebook.value = true }
+        )
+
+        MainScreenFooter(onLogout = onLogout, onDiagnostics = onDiagnostics)
+    }
+
+    if (showPhrasebook.value) {
+        OfflineVerifiedPhrasebookDialog(
+            state = state,
+            onPlay = onPlayOfflinePhrase,
+            onDismiss = { showPhrasebook.value = false }
+        )
     }
 }
 
 @Composable
-private fun MainScreenFooter(onLogout: () -> Unit) {
+private fun OfflineVerifiedPhrasebookDialog(
+    state: StaffUiState,
+    onPlay: (OfflineVerifiedPhrase, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val query = androidx.compose.runtime.remember { mutableStateOf("") }
+    val languageCode = androidx.compose.runtime.remember(state.selectedLanguage) {
+        mutableStateOf(state.selectedLanguage)
+    }
+    val languageIndex = patientLanguages.indexOfFirst { it.code == languageCode.value }.coerceAtLeast(0)
+    val language = patientLanguages[languageIndex]
+    val available = offlineVerifiedPhrases.filter { phrase ->
+        phrase.specialty == null || phrase.specialty == state.hospitalSpecialty
+    }
+    val normalizedQuery = query.value.trim().lowercase(Locale.KOREAN)
+    val filtered = available.filter { phrase ->
+        normalizedQuery.isBlank() ||
+            phrase.korean.lowercase(Locale.KOREAN).contains(normalizedQuery) ||
+            phrase.category.lowercase(Locale.US).contains(normalizedQuery) ||
+            phrase.translated(languageCode.value).orEmpty().lowercase().contains(normalizedQuery)
+    }
+    val specialtyCount = available.count { it.specialty != null }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = Color.White
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("의료 검토 완료 문구", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
+                        Text(
+                            "오프라인 텍스트 · 설치된 기기 TTS로 재생",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SlateText
+                        )
+                    }
+                    TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text("닫기", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Surface(color = GreenTint, shape = RoundedCornerShape(12.dp)) {
+                    Text(
+                        if (specialtyCount > 0) "공통 문구와 ${available.first { it.specialty != null }.specialtyLabel} 전용 문구 ${available.size}개"
+                        else "공통 검증 문구 ${available.size}개 · 이 진료과 전용 검토 문구는 준비 중",
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                        color = Color(0xFF047857),
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            val next = if (languageIndex <= 0) patientLanguages.lastIndex else languageIndex - 1
+                            languageCode.value = patientLanguages[next].code
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) { Text("이전") }
+                    Surface(
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        color = BlueTint,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(language.ko, color = Trust, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                            Text(languageNativeLabel(language), color = Ink, fontWeight = FontWeight.Bold, maxLines = 1)
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            val next = if (languageIndex >= patientLanguages.lastIndex) 0 else languageIndex + 1
+                            languageCode.value = patientLanguages[next].code
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) { Text("다음") }
+                }
+
+                OutlinedTextField(
+                    value = query.value,
+                    onValueChange = { query.value = it },
+                    label = { Text("한국어·번역문·분류 검색") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (filtered.isEmpty()) {
+                        Text(
+                            "검색 결과가 없습니다.",
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                            color = SlateText,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                    filtered.forEach { phrase ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Panel),
+                            shape = RoundedCornerShape(14.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    StatusPill("의료 검토 완료", Mint)
+                                    StatusPill(phrase.specialtyLabel, Trust)
+                                    Text(phrase.category, color = SlateText, style = MaterialTheme.typography.bodySmall)
+                                }
+                                Text(phrase.korean, color = Ink, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    phrase.translated(languageCode.value).orEmpty(),
+                                    color = SlateText,
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Button(
+                                    onClick = { onPlay(phrase, languageCode.value) },
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Trust)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Text("  환자 언어로 재생", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MainScreenFooter(onLogout: () -> Unit, onDiagnostics: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -5367,19 +5713,26 @@ private fun MainScreenFooter(onLogout: () -> Unit) {
             fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.bodySmall
         )
-        TextButton(
-            onClick = onLogout,
-            modifier = Modifier
-                .defaultMinSize(minWidth = 1.dp, minHeight = 1.dp)
-                .heightIn(min = 28.dp),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-        ) {
-            Text(
-                "로그아웃",
-                color = SlateText,
-                fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.bodySmall
-            )
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(
+                onClick = onDiagnostics,
+                modifier = Modifier.heightIn(min = 48.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text("현장 진단", color = Trust, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+            }
+            TextButton(
+                onClick = onLogout,
+                modifier = Modifier.heightIn(min = 48.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    "로그아웃",
+                    color = SlateText,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
     }
 }
@@ -5826,6 +6179,104 @@ private fun DebugLogDialog(logs: List<String>, onDismiss: () -> Unit) {
                     ) {
                         Text("닫기", fontWeight = FontWeight.Bold)
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FieldDiagnosticsDialog(
+    diagnostics: FieldDiagnostics,
+    onRefresh: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val clipboard = LocalClipboardManager.current
+    val copied = androidx.compose.runtime.remember(diagnostics) { mutableStateOf(false) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding(),
+            color = Mist
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("현장 진단", color = Ink, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        "개인정보와 번역 내용 없이 앱 상태만 확인합니다.",
+                        color = SlateText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    diagnostics.rows().forEach { (label, value) ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.White, RoundedCornerShape(10.dp))
+                                .border(1.dp, Line, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(label, color = SlateText, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            Text(value, color = Ink, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+                Text(
+                    "문제가 생기면 새로고침 후 진단 정보를 복사해 전달하세요.",
+                    color = SlateText,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            copied.value = false
+                            onRefresh()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                    ) {
+                        Text("새로고침", fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = {
+                            clipboard.setText(AnnotatedString(diagnostics.copyText()))
+                            copied.value = true
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Trust, contentColor = Color.White)
+                    ) {
+                        Text(if (copied.value) "복사됨" else "진단 정보 복사", fontWeight = FontWeight.Bold)
+                    }
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                ) {
+                    Text("닫기", color = SlateText, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -6298,7 +6749,8 @@ private fun QrWaitingScreen(
     state: StaffUiState,
     metrics: StaffLayoutMetrics,
     onCopyLink: () -> Unit,
-    onEndRoom: () -> Unit
+    onEndRoom: () -> Unit,
+    onDiagnostics: () -> Unit
 ) {
     val room = state.room ?: return
     val qrBitmap = rememberQrBitmap(room.joinUrl)
@@ -6445,6 +6897,14 @@ private fun QrWaitingScreen(
         ) {
             Text("방 종료", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
         }
+        TextButton(
+            onClick = onDiagnostics,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+        ) {
+            Text("현장 진단", color = Trust, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -6508,13 +6968,23 @@ private fun PatientNoticePreview(roomMode: String, languageLabel: String) {
 }
 
 @Composable
-private fun RoomActionBar(onCopyLink: () -> Unit, onEndRoom: () -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        OutlinedButton(onClick = onCopyLink, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
-            Text("링크 복사", fontWeight = FontWeight.Bold)
+private fun RoomActionBar(onCopyLink: () -> Unit, onEndRoom: () -> Unit, onDiagnostics: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onCopyLink, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
+                Text("링크 복사", fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(onClick = onEndRoom, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
+                Text("방 종료", fontWeight = FontWeight.Bold, color = Coral)
+            }
         }
-        OutlinedButton(onClick = onEndRoom, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
-            Text("방 종료", fontWeight = FontWeight.Bold, color = Coral)
+        TextButton(
+            onClick = onDiagnostics,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+        ) {
+            Text("현장 진단", color = Trust, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -6620,7 +7090,8 @@ private fun LoginPanel(
     onPasswordChange: (String) -> Unit,
     onRememberEmailChange: (Boolean) -> Unit,
     onLogin: () -> Unit,
-    onStatusTap: () -> Unit
+    onStatusTap: () -> Unit,
+    onDiagnostics: () -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
     SectionCard("직원 로그인", metrics) {
@@ -6678,11 +7149,23 @@ private fun LoginPanel(
                 .fillMaxWidth()
                 .hiddenDebugTap(onStatusTap)
         )
-        TextButton(
-            onClick = { uriHandler.openUri("${normalizedBackendUrl(state.backendUrl)}/privacy") },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("개인정보처리방침", color = SlateText, fontWeight = FontWeight.Bold)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(
+                onClick = onDiagnostics,
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+            ) {
+                Text("현장 진단", color = Trust, fontWeight = FontWeight.Bold)
+            }
+            TextButton(
+                onClick = { uriHandler.openUri("${normalizedBackendUrl(state.backendUrl)}/privacy") },
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+            ) {
+                Text("개인정보처리방침", color = SlateText, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -7240,6 +7723,26 @@ private fun ConversationBubble(message: StaffMessage) {
             if (sentAt.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
                 Text(sentAt, color = subColor, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+            }
+            if (isStaff && message.confirmationStatus.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                val confirmationText = when (message.confirmationStatus) {
+                    "confirmed" -> "환자 확인 완료"
+                    "repeat_requested" -> "환자가 다시 설명 요청"
+                    else -> "환자 확인 대기"
+                }
+                val confirmationColor = when (message.confirmationStatus) {
+                    "confirmed" -> Color(0xFFDCFCE7)
+                    "repeat_requested" -> Color(0xFFFFE4E6)
+                    else -> Color(0xFFFEF3C7)
+                }
+                Text(
+                    confirmationText,
+                    color = Ink,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.background(confirmationColor, RoundedCornerShape(20.dp)).padding(horizontal = 10.dp, vertical = 5.dp)
+                )
             }
         }
     }

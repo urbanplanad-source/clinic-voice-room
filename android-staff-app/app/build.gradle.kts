@@ -46,6 +46,7 @@ android {
         targetSdk = 35
         versionCode = 50
         versionName = appVersionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -116,6 +117,10 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.zxing:core:3.5.3")
     testImplementation("junit:junit:4.13.2")
+
+    androidTestImplementation("androidx.test:core-ktx:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

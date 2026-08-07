@@ -948,6 +948,12 @@ const verifiedSentenceSeedSourceEntries: VerifiedSentenceSeedEntry[] = [
   }
 ];
 
+// Keeps the reviewed specialty attribution for offline phrasebook generation.
+// The existing export below intentionally flattens entries to global scope for
+// backward-compatible database seeding.
+export const verifiedSentenceSpecialtySeedEntries: VerifiedSentenceSeedEntry[] =
+  verifiedSentenceSeedSourceEntries;
+
 export const verifiedSentenceSeedEntries: VerifiedSentenceSeedEntry[] = verifiedSentenceSeedSourceEntries.map((entry) => ({
   ...entry,
   specialty: null,

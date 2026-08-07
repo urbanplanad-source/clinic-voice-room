@@ -14,6 +14,7 @@ class LocalMetricOutboxTest {
         outbox.enqueue("third")
 
         assertEquals(listOf("second", "third"), outbox.snapshot())
+        assertEquals(2, outbox.size())
     }
 
     @Test

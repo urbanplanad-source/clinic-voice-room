@@ -102,15 +102,26 @@ async function promoteAsset({ tx, admin, sample, data }: {
   const translations = translationPatch(sample, data.assetTranslation);
 
   if (existing) {
-    const entry = await tx.glossaryEntry.update({
-      where: { id: existing.id },
+    const latest = await tx.glossaryEntry.aggregate({ where: { lineageId: existing.lineageId }, _max: { version: true } });
+    const entry = await tx.glossaryEntry.create({
       data: {
+        scope: existing.scope,
+        specialty: existing.specialty,
+        hospitalId: existing.hospitalId,
+        entryType: existing.entryType,
         spokenForms: uniqueSpokenForms([...existing.spokenForms, ...spokenForms]),
         translations: { ...jsonStrings(existing.translations), ...translations },
-        category: existing.category || data.assetCategory?.trim() || undefined
+        standardKo: existing.standardKo,
+        category: existing.category || data.assetCategory?.trim() || undefined,
+        note: `Drafted from reviewed sample ${sample.id}`,
+        priority: existing.priority,
+        lineageId: existing.lineageId,
+        version: (latest._max.version ?? existing.version) + 1,
+        lifecycle: "draft",
+        isActive: false
       }
     });
-    return { entry, action: "merged" as const };
+    return { entry, action: "drafted" as const };
   }
 
   const entry = await tx.glossaryEntry.create({
@@ -123,7 +134,8 @@ async function promoteAsset({ tx, admin, sample, data }: {
       category: data.assetCategory?.trim() || (entryType === "term" ? "sample_term" : entryType === "verified_sentence" ? "sample_verified" : "sample_stt"),
       note: `Promoted from reviewed sample ${sample.id}`,
       priority: entryType === "verified_sentence" ? 40 : entryType === "term" ? 60 : 80,
-      isActive: true
+      isActive: false,
+      lifecycle: "draft"
     }
   });
   return { entry, action: "created" as const };

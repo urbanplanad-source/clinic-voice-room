@@ -24,5 +24,7 @@ internal class LocalMetricOutbox(
 
     fun clear() = payloads.clear()
 
+    fun size(): Int = payloads.size
+
     fun snapshot(): List<String> = payloads.toList()
 }

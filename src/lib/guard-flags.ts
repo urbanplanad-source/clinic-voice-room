@@ -11,8 +11,16 @@ export type BackTranslationGuard = {
   reason?: string;
 };
 
+export type PatientConfirmationGuard = {
+  required: true;
+  categories: string[];
+  status: "pending" | "confirmed" | "repeat_requested";
+  respondedAt?: string;
+};
+
 export type GuardFlags = Partial<NumberCheckGuard> & {
   backTranslation?: BackTranslationGuard;
+  confirmation?: PatientConfirmationGuard;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -47,6 +55,20 @@ export function parseGuardFlags(value: unknown): GuardFlags | undefined {
     }
   }
 
+  if (isRecord(value.confirmation) && value.confirmation.required === true) {
+    const status = value.confirmation.status;
+    if (status === "pending" || status === "confirmed" || status === "repeat_requested") {
+      flags.confirmation = {
+        required: true,
+        categories: Array.isArray(value.confirmation.categories)
+          ? value.confirmation.categories.filter((item): item is string => typeof item === "string")
+          : [],
+        status,
+        respondedAt: typeof value.confirmation.respondedAt === "string" ? value.confirmation.respondedAt : undefined
+      };
+    }
+  }
+
   return Object.keys(flags).length > 0 ? flags : undefined;
 }
 
@@ -57,6 +79,7 @@ export function mergeGuardFlags(existing: unknown, patch: GuardFlags | undefined
   return {
     ...current,
     ...patch,
-    backTranslation: patch.backTranslation ?? current.backTranslation
+    backTranslation: patch.backTranslation ?? current.backTranslation,
+    confirmation: patch.confirmation ?? current.confirmation
   };
 }

@@ -186,6 +186,7 @@ async function upsertCsvEntry(database: Prisma.TransactionClient, payload: Gloss
   const data = normalizePayloadForRole(payload, admin);
   const existing = await database.glossaryEntry.findFirst({
     where: {
+      lifecycle: "draft",
       scope: data.scope,
       entryType: data.entryType,
       standardKo: data.standardKo,
@@ -204,11 +205,11 @@ async function upsertCsvEntry(database: Prisma.TransactionClient, payload: Gloss
   if (conflict) throw new Error(`${conflict.spokenForm} is already mapped to ${conflict.standardKo}`);
 
   if (existing) {
-    await database.glossaryEntry.update({ where: { id: existing.id }, data });
+    await database.glossaryEntry.update({ where: { id: existing.id }, data: { ...data, isActive: false } });
     return "updated" as const;
   }
 
-  await database.glossaryEntry.create({ data });
+  await database.glossaryEntry.create({ data: { ...data, isActive: false, lifecycle: "draft" } });
   return "created" as const;
 }
 
@@ -298,7 +299,9 @@ export async function POST(request: Request) {
     }, { status: 409 });
   }
 
-  const entry = await prisma.glossaryEntry.create({ data });
+  const entry = await prisma.glossaryEntry.create({
+    data: { ...data, isActive: false, lifecycle: "draft" }
+  });
   clearGlossaryCache(data.hospitalId, data.specialty);
   return NextResponse.json({ entry });
 }

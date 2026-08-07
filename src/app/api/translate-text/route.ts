@@ -13,6 +13,7 @@ import { mergeGuardFlags, parseGuardFlags } from "@/lib/guard-flags";
 import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
 import { broadcastServerTranslationMessage } from "@/lib/supabase-realtime-server";
+import { pendingPatientConfirmationGuard } from "@/lib/high-risk-confirmation";
 
 const schema = z.object({
   roomId: z.string(),
@@ -100,6 +101,7 @@ export async function POST(request: Request) {
     if (quickPhrase && cachedTranslation) {
       const quickPhraseGlossaryData = await getGlossaryForHospital(room.hospitalId, room.hospital.specialty);
       const normalizedText = normalizeClinicTranslation(cachedTranslation, room.patientLanguage, quickPhraseGlossaryData);
+      const quickPhraseGuardFlags = pendingPatientConfirmationGuard(quickPhrase.ko, parsed.data.role);
       let message;
       try {
         message = await prisma.$transaction(async (tx) => {
@@ -115,7 +117,8 @@ export async function POST(request: Request) {
               speaker: parsed.data.role,
               sourceText: quickPhrase.ko,
               text: normalizedText,
-              targetLanguage: room.patientLanguage
+              targetLanguage: room.patientLanguage,
+              guardFlags: quickPhraseGuardFlags ? quickPhraseGuardFlags as Prisma.InputJsonObject : undefined
             }
           });
         });
@@ -176,6 +179,7 @@ export async function POST(request: Request) {
   const verifiedMatch = matchVerifiedSentence(parsed.data.text, targetLanguage, glossaryData);
   if (verifiedMatch) {
     const normalizedText = normalizeClinicTranslation(verifiedMatch.translatedText, targetLanguage, glossaryData);
+    const verifiedGuardFlags = pendingPatientConfirmationGuard(parsed.data.text, parsed.data.role);
     let message;
     try {
       message = await prisma.$transaction(async (tx) => {
@@ -191,7 +195,8 @@ export async function POST(request: Request) {
             speaker: parsed.data.role,
             sourceText: parsed.data.text,
             text: normalizedText,
-            targetLanguage
+            targetLanguage,
+            guardFlags: verifiedGuardFlags ? verifiedGuardFlags as Prisma.InputJsonObject : undefined
           }
         });
       });
@@ -283,13 +288,16 @@ export async function POST(request: Request) {
 
   const normalizedText = normalizeClinicTranslation(translation.translatedText, targetLanguage, glossaryData);
   const guardFlags = mergeGuardFlags(
-    translation.guardFlags,
-    pendingBackTranslationGuard({
-      sourceText: parsed.data.text,
-      role: parsed.data.role,
-      targetLanguage,
-      translationSource: "llm"
-    })
+    mergeGuardFlags(
+      translation.guardFlags,
+      pendingBackTranslationGuard({
+        sourceText: parsed.data.text,
+        role: parsed.data.role,
+        targetLanguage,
+        translationSource: "llm"
+      })
+    ),
+    pendingPatientConfirmationGuard(parsed.data.text, parsed.data.role)
   );
   let message;
   try {

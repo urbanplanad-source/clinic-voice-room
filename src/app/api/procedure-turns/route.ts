@@ -17,6 +17,7 @@ import { matchVerifiedSentence } from "@/lib/verified-sentences";
 import { broadcastServerTranslationMessage } from "@/lib/supabase-realtime-server";
 import { recordTranslationSample } from "@/lib/translation-samples";
 import { isClearlyNotKoreanTranslation } from "@/lib/translation-language-guard";
+import { pendingPatientConfirmationGuard } from "@/lib/high-risk-confirmation";
 
 type TargetLanguage = PatientLanguage | "ko";
 
@@ -74,7 +75,7 @@ async function translateProcedureSourceText(params: {
       translatedText: normalizeClinicTranslation(verifiedMatch.translatedText, targetLanguage, params.glossaryData),
       targetLanguage,
       model: "verified",
-      guardFlags: undefined,
+      guardFlags: pendingPatientConfirmationGuard(params.sourceText, params.role),
       translationSource: "verified" as const
     };
   }
@@ -124,13 +125,16 @@ async function translateProcedureSourceText(params: {
     return { response: NextResponse.json({ error: "Korean translation validation failed" }, { status: 502 }) };
   }
   const guardFlags = mergeGuardFlags(
-    translation.guardFlags,
-    pendingBackTranslationGuard({
-      sourceText: params.sourceText,
-      role: params.role,
-      targetLanguage,
-      translationSource: "llm"
-    })
+    mergeGuardFlags(
+      translation.guardFlags,
+      pendingBackTranslationGuard({
+        sourceText: params.sourceText,
+        role: params.role,
+        targetLanguage,
+        translationSource: "llm"
+      })
+    ),
+    pendingPatientConfirmationGuard(params.sourceText, params.role)
   );
 
   return {
@@ -245,13 +249,16 @@ async function handleRealtimeStaffMessage(request: Request) {
   }
 
   guardFlags = mergeGuardFlags(
-    guardFlags,
-    pendingBackTranslationGuard({
-      sourceText: parsed.data.sourceText,
-      role: parsed.data.role,
-      targetLanguage,
-      translationSource
-    })
+    mergeGuardFlags(
+      guardFlags,
+      pendingBackTranslationGuard({
+        sourceText: parsed.data.sourceText,
+        role: parsed.data.role,
+        targetLanguage,
+        translationSource
+      })
+    ),
+    pendingPatientConfirmationGuard(parsed.data.sourceText, parsed.data.role)
   );
 
   let savedMessage;

@@ -53,6 +53,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const { id } = await context.params;
   const existing = await loadAuthorizedEntry(id, admin);
   if (!existing) return NextResponse.json({ error: "Glossary entry not found" }, { status: 404 });
+  if (existing.lifecycle !== "draft") {
+    return NextResponse.json({ error: "승인 전 초안만 수정할 수 있습니다. 새 버전을 만들어 수정하세요." }, { status: 409 });
+  }
 
   const parsed = updateSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -132,7 +135,7 @@ export async function DELETE(_: Request, context: { params: Promise<{ id: string
 
   const entry = await prisma.glossaryEntry.update({
     where: { id },
-    data: { isActive: false }
+    data: { isActive: false, lifecycle: "retired", retiredAt: new Date() }
   });
   clearGlossaryCache(entry.hospitalId, entry.specialty);
 

@@ -28,7 +28,7 @@ The visible field UI now supports two staff workflows:
 - TTS uses Android media audio output/volume (`USAGE_MEDIA`). Staff control loudness with the phone's normal media volume, and any optional external speaker should be paired in Android system settings. The staff app does not request Bluetooth/nearby-device permission.
 - HID footpad/button toggle for Space, Enter, Numpad Enter, Media Play/Pause, and Headset Hook. Media Play/Pause and Headset Hook are handled through both activity key events and Android MediaSession media-button routing.
 - Mic permission recovery from the in-room mic panel.
-- Staff session restore through the server-issued `cvr_session` cookie when "??湲곌린?먯꽌 濡쒓렇???좎?" is enabled.
+- Staff session restore through the server-issued `cvr_session` cookie when "이 기기에서 로그인 유지" is enabled.
 - Active rooms hide logout and require a confirmation dialog before room termination, so staff do not accidentally leave a patient room open or end it with one stray tap.
 
 ## Architecture Boundary
@@ -58,7 +58,7 @@ If Realtime returns no text or errors, the same in-memory PCM turn is wrapped as
 - Android cleartext HTTP is disabled; production backend URLs must use `https://`.
 - The app auto-normalizes a backend value like `voice.insightmedi.co.kr` to `https://voice.insightmedi.co.kr`.
 - The Android app stores no staff password. When login persistence is enabled, it stores only the server-issued session cookie in app-private storage and verifies it with `/api/me` on app start.
-- Turning off `??湲곌린?먯꽌 濡쒓렇???좎?` or logging out clears the saved session cookie from the device.
+- Turning off `이 기기에서 로그인 유지` or logging out clears the saved session cookie from the device.
 
 ## Build
 
@@ -73,6 +73,14 @@ Build the installable, release-signed field APK with the protected keystore prom
 ```powershell
 powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\Documents\MediVoiceKeys\build-medivoice-field.ps1"
 ```
+
+Verify the final APK metadata, non-debuggable manifest, signing certificate, and SHA-256 checksum:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\scripts\verify-medivoice-field-artifact.ps1"
+```
+
+The verifier reads the expected `versionName` and `versionCode` from Gradle and writes a matching `.sha256.txt` file beside the APK. It does not read or print the signing-key password.
 
 Direct `assembleField` or `copyBrandedFieldApk` packaging now fails when the four release-signing environment variables are missing. This prevents a debug-signed APK from being mistaken for a field release.
 
@@ -129,6 +137,12 @@ Pinned build stack:
 
 `android.overridePathCheck=true` is set for Korean workspace paths.
 
+## Field Diagnostics
+
+`현장 진단` is available before login and on the mode-selection screen. Refresh it after reproducing a problem, then use `진단 정보 복사` when sending a support report.
+
+The copied report contains only operational metadata: app/build version, backend host, session/room connection state, microphone permission, detected audio outputs, TTS state, pending anonymous quality-metric count, last external key, and device/Android version. It excludes email, staff/hospital names, passwords, cookies, translation text, logs, and audio.
+
 ## Release Signing
 
 Do not commit keystores or passwords. For a signed release build, set these environment variables before running `:app:assembleRelease`:
@@ -154,8 +168,8 @@ Before field testing against `voice.insightmedi.co.kr`:
 5. Use the phone's normal media volume for TTS loudness. If a Bluetooth speaker is needed, pair it in Android system settings before opening the room. The staff app itself must not request Bluetooth/nearby-device permission.
 6. Grant microphone permission when the in-room mic panel asks for it. The app should not show a permission prompt immediately on login.
 7. Connect the USB-C or wired pin microphone.
-8. Confirm the mic button works. If microphone permission is missing, the in-room mic panel should show `留덉씠??沅뚰븳 ?덉슜`.
-9. With `??湲곌린?먯꽌 濡쒓렇???좎?` enabled, close and reopen the app.
+8. Confirm the mic button works. If microphone permission is missing, the in-room mic panel should show `마이크 권한 허용`.
+9. With `이 기기에서 로그인 유지` enabled, close and reopen the app.
 10. Pass: the app restores the staff session without asking for the password and shows the room creation screen.
 
 Recommended OpenAI env values:
@@ -206,12 +220,15 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.5` when unset. It 
 - Audio output: translated TTS should follow the phone's current media output route. Test once with the phone speaker, and optionally again after connecting an external speaker in Android system settings.
 - HID footpad/button: Space, Enter, Numpad Enter, Media Play/Pause, and Headset Hook should toggle the same mic button.
 - During translation/busy states, repeated footpad presses should not start a second recording.
-- If microphone permission is denied, enter a room and confirm the mic panel offers `留덉씠??沅뚰븳 ?덉슜`.
-- With an active room open, confirm the top logout button is not shown. End the room through the confirmed `諛?醫낅즺` action first.
+- If microphone permission is denied, enter a room and confirm the mic panel offers `마이크 권한 허용`.
+- With an active room open, confirm the top logout button is not shown. End the room through the confirmed `방 종료` action first.
 
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
+- Android v0.3.38 adds a privacy-safe field diagnostics screen, exposes pending anonymous quality-metric delivery state, compiles a launch/version instrumentation smoke test, verifies final APK metadata/signature/non-debuggable state, and generates a SHA-256 checksum beside the signed field APK.
+- v0.3.38 also includes a generated offline phrase pack of 36 reviewed, 17-language sentences. The phrasebook filters common and hospital-specialty content, searches Korean/translated text, and uses an installed device TTS voice without sending the phrase to the translation API.
+- Staff messages containing numbers, amounts, dates/times, doses/units/frequency, left/right laterality, or negation carry patient-confirmation metadata. QR patients can confirm or request another explanation; the Android conversation view polls the resulting status without storing extra free text or audio.
 - Android v0.3.21 retires consultation and the legacy stable face-to-face mode from the visible Android UI, promotes the fast face-to-face engine as `대면모드`, keeps procedure mode, and stores restoration notes for the retired modes in `docs/android-retired-modes-2026-06-27.md`.
 - Android v0.3.20 tightens XERF handling so Korean staff speech misheard as `셀프 리프팅` or translated as `Self lifting` is normalized to XERF in glossary, Realtime prompt guidance, and Android local face-to-face text correction.
 - Android v0.3.19 adds dermatology and plastic-surgery price-list terminology to the web glossary, Realtime prompts, and Android local normalization, covering common lifting devices, filler brands, toxin brands, skin boosters, peel care, acne-scar care, and body-area Botox names while excluding fixed price values from app logic.

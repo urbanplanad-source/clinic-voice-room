@@ -181,11 +181,26 @@ async function promoteSttHint({
   const existing = scopedRows.find((entry) => normalizeTranscriptionKey(entry.standardKo) === canonicalKey);
 
   if (existing) {
-    const entry = await tx.glossaryEntry.update({
-      where: { id: existing.id },
-      data: { spokenForms: uniqueSpokenForms([...existing.spokenForms, observed]) }
+    const latest = await tx.glossaryEntry.aggregate({ where: { lineageId: existing.lineageId }, _max: { version: true } });
+    const entry = await tx.glossaryEntry.create({
+      data: {
+        scope: existing.scope,
+        specialty: existing.specialty,
+        hospitalId: existing.hospitalId,
+        entryType: existing.entryType,
+        spokenForms: uniqueSpokenForms([...existing.spokenForms, observed]),
+        standardKo: existing.standardKo,
+        translations: existing.translations as Prisma.InputJsonValue,
+        category: existing.category,
+        note: `Drafted from reviewed sample ${sample.id}`,
+        priority: existing.priority,
+        lineageId: existing.lineageId,
+        version: (latest._max.version ?? existing.version) + 1,
+        lifecycle: "draft",
+        isActive: false
+      }
     });
-    return { entry, action: "merged" as const };
+    return { entry, action: "drafted" as const };
   }
 
   const entry = await tx.glossaryEntry.create({
@@ -198,7 +213,8 @@ async function promoteSttHint({
       category: category?.trim() || "sample_stt",
       note: `Promoted from reviewed sample ${sample.id}`,
       priority: 80,
-      isActive: true
+      isActive: false,
+      lifecycle: "draft"
     }
   });
   return { entry, action: "created" as const };
