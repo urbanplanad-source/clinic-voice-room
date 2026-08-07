@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AppFrame } from "@/components/AppFrame";
 import { legacyRoomTokenAccessEnabled } from "@/lib/legacy-room-token";
+import { PatientRoomUnavailable } from "@/components/PatientRoomUnavailable";
 import { prisma } from "@/lib/prisma";
 
 export default async function PatientRoomPage({
@@ -12,10 +13,7 @@ export default async function PatientRoomPage({
   if (!legacyRoomTokenAccessEnabled()) {
     return (
       <AppFrame narrow>
-        <section className="rounded-lg bg-white p-6 shadow-soft">
-          <h1 className="text-2xl font-bold">Room link expired</h1>
-          <p className="mt-3 text-slate-600">Please scan the latest QR code from the hospital staff.</p>
-        </section>
+        <PatientRoomUnavailable />
       </AppFrame>
     );
   }
@@ -28,9 +26,7 @@ export default async function PatientRoomPage({
   if (!room) {
     return (
       <AppFrame narrow>
-        <section className="rounded-lg bg-white p-6 shadow-soft">
-          <h1 className="text-2xl font-bold">Room not found</h1>
-        </section>
+        <PatientRoomUnavailable />
       </AppFrame>
     );
   }

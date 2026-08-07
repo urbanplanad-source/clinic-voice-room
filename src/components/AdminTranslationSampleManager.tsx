@@ -219,7 +219,7 @@ export function AdminTranslationSampleManager() {
     <div className="space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-bold text-trust">Translation Samples</p>
+          <p className="text-sm font-bold text-trust-text">Translation Samples</p>
           <h1 className="mt-1 text-[30px] font-bold leading-tight text-ink">음성 번역 검수</h1>
         </div>
         <button type="button" onClick={() => void loadSamples()} className="inline-flex h-11 items-center gap-2 rounded-lg bg-white px-4 text-sm font-bold text-ink shadow-sm">

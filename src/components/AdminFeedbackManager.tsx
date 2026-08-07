@@ -123,7 +123,7 @@ export function AdminFeedbackManager() {
     <div className="space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-bold text-trust">Translation Feedback</p>
+          <p className="text-sm font-bold text-trust-text">Translation Feedback</p>
           <h1 className="mt-1 text-[30px] font-bold leading-tight text-ink">Reported Sentences</h1>
         </div>
         <button type="button" onClick={() => void loadFeedback()} className="inline-flex h-11 items-center gap-2 rounded-lg bg-white px-4 text-sm font-bold text-ink shadow-sm">

@@ -9,6 +9,7 @@ import { type PatientLanguage } from "@/lib/languages";
 import type { RoomStatus } from "@/lib/room-state";
 import { subscribeToRoomUpdates } from "@/lib/supabase-realtime";
 import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
+import { EndRoomDialog } from "./EndRoomDialog";
 
 type StaffRoomProps = {
   room: {
@@ -123,6 +124,8 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
   const [copied, setCopied] = useState<"web" | "android" | null>(null);
   const [qrExpanded, setQrExpanded] = useState(false);
   const [returning, setReturning] = useState(false);
+  const [endDialogOpen, setEndDialogOpen] = useState(false);
+  const [endError, setEndError] = useState("");
   const [roomRealtimeHealthy, setRoomRealtimeHealthy] = useState(false);
   const connected = snapshot.status !== "waiting_for_patient";
   const copy = qrCopy[snapshot.patientLanguage] ?? defaultQrCopy;
@@ -195,10 +198,38 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
     window.setTimeout(() => setCopied(null), 1600);
   }
 
+  async function verifyRoomEnded() {
+    try {
+      const response = await fetch(`/api/rooms/${room.id}`, { cache: "no-store" });
+      const data = await response.json().catch(() => null) as { room?: typeof snapshot } | null;
+      if (response.ok && data?.room) {
+        setSnapshot(data.room);
+        return data.room.status === "ended";
+      }
+    } catch {
+      // Keep the QR visible until the room state can be verified.
+    }
+    return false;
+  }
+
   async function endRoomAndReturn() {
     if (returning) return;
     setReturning(true);
-    await fetch(`/api/rooms/${room.id}/end`, { method: "POST" }).catch(() => undefined);
+    setEndError("");
+    let ended = false;
+    try {
+      const response = await fetch(`/api/rooms/${room.id}/end`, { method: "POST" });
+      ended = response.ok;
+    } catch {
+      ended = false;
+    }
+    ended = ended || await verifyRoomEnded();
+    setReturning(false);
+    if (!ended) {
+      setEndError("네트워크 오류로 종료 여부를 확인하지 못했습니다. QR을 닫지 말고 상태를 다시 확인해주세요.");
+      return;
+    }
+    setEndDialogOpen(false);
     router.replace("/staff");
     router.refresh();
   }
@@ -212,7 +243,7 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
       <section className="rounded-lg bg-white px-4 py-4 text-center shadow-soft md:px-6">
         <div className="mb-3 text-left">
           <div className="min-w-0">
-            <p className="truncate text-xs font-bold text-trust md:text-sm">{snapshot.hospital.name}</p>
+            <p className="truncate text-xs font-bold text-trust-text md:text-sm">{snapshot.hospital.name}</p>
             <h1 className="mt-1 text-2xl font-bold leading-tight text-ink md:text-3xl">{copy.heading}</h1>
             <p className="mt-1 text-sm font-bold text-slate-500">{copy.instruction}</p>
           </div>
@@ -245,12 +276,12 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
             }}
           />
         </div>
-        <div className="mx-auto mt-3 grid h-9 w-9 place-items-center rounded-lg bg-blue-50 text-trust">
+        <div className="mx-auto mt-3 grid h-9 w-9 place-items-center rounded-lg bg-blue-50 text-trust-text">
           <PrimaryIcon size={20} />
         </div>
         <h2 className="mt-2 text-xl font-bold text-ink md:text-2xl">{copy.waiting}</h2>
         {isProcedureMode ? (
-          <p className="mx-auto mt-1 max-w-sm rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold leading-5 text-trust md:text-sm">
+          <p className="mx-auto mt-1 max-w-sm rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold leading-5 text-trust-text md:text-sm">
             환자 기기에서 이 QR을 스캔하면 시술 통역방으로 입장합니다.
           </p>
         ) : null}
@@ -265,8 +296,8 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
           {copied === (isProcedureMode ? "web" : primaryQrCopy.target) ? <Check size={18} /> : <Copy size={18} />}
           {isProcedureMode
             ? copied === "web"
-              ? "Patient link copied"
-              : "Copy patient link"
+              ? "환자 링크 복사됨"
+              : "환자 링크 복사"
             : copied === primaryQrCopy.target
               ? primaryQrCopy.copied
               : primaryQrCopy.button}
@@ -352,17 +383,18 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
         </div>
       </section>
 
-      <section className="rounded-lg bg-blue-50 px-4 py-3 text-sm font-bold text-trust">{copy.waiting}</section>
+      <section className="rounded-lg bg-blue-50 px-4 py-3 text-sm font-bold text-trust-text">{copy.waiting}</section>
 
       <button
         type="button"
-        onClick={endRoomAndReturn}
+        onClick={() => setEndDialogOpen(true)}
         disabled={returning}
         className="flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-rose-50 px-5 text-base font-bold text-rose-600 shadow-sm transition hover:bg-rose-100 disabled:opacity-50 md:h-16 md:text-lg"
       >
         {returning ? <Loader2 size={22} className="animate-spin" /> : <PhoneOff size={22} />}
         방 종료 후 직원 화면으로
       </button>
+      <EndRoomDialog open={endDialogOpen} ending={returning} error={endError} onCancel={() => { setEndDialogOpen(false); setEndError(""); }} onConfirm={() => void endRoomAndReturn()} onRetry={() => void verifyRoomEnded().then((ended) => { if (ended) { router.replace("/staff"); router.refresh(); } else setEndError("방이 아직 열려 있습니다. 네트워크를 확인한 뒤 종료를 다시 시도해주세요."); })} />
     </div>
   );
 }

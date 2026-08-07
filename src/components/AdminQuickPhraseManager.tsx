@@ -229,7 +229,7 @@ export function AdminQuickPhraseManager() {
     <div className="space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-bold text-trust">Quick Phrases</p>
+          <p className="text-sm font-bold text-trust-text">Quick Phrases</p>
           <h1 className="mt-1 text-[30px] font-bold leading-tight text-ink">Reusable Staff Phrases</h1>
         </div>
         <button type="button" onClick={() => void loadPhrases()} className="inline-flex h-11 items-center gap-2 rounded-lg bg-white px-4 text-sm font-bold text-ink shadow-sm">
@@ -269,7 +269,7 @@ export function AdminQuickPhraseManager() {
 
       <form onSubmit={createPhrase} className="rounded-lg bg-white p-5 shadow-soft">
         <div className="flex items-center gap-2">
-          <Plus size={19} className="text-trust" />
+          <Plus size={19} className="text-trust-text" />
           <h2 className="text-lg font-bold text-ink">New Phrase</h2>
         </div>
         <QuickPhraseFields

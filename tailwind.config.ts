@@ -8,8 +8,11 @@ const config: Config = {
         ink: "#191f28",
         mist: "#f7f8fa",
         trust: "#3182f6",
+        "trust-text": "#1d4ed8",
         mint: "#00a881",
+        "mint-text": "#047857",
         coral: "#f04452",
+        "coral-text": "#be123c",
         line: "#e5e8eb"
       },
       boxShadow: {

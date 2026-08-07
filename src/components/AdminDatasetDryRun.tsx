@@ -140,7 +140,7 @@ export function AdminDatasetDryRun() {
         <Link href="/admin/glossary" className="inline-flex min-h-12 shrink-0 items-center gap-2 border-b-2 border-transparent px-4 text-sm font-bold text-slate-500 hover:text-ink">
           <BookOpenText size={18} aria-hidden="true" /> 품질 자산
         </Link>
-        <span aria-current="page" className="inline-flex min-h-12 shrink-0 items-center gap-2 border-b-2 border-trust px-4 text-sm font-bold text-trust">
+        <span aria-current="page" className="inline-flex min-h-12 shrink-0 items-center gap-2 border-b-2 border-trust px-4 text-sm font-bold text-trust-text">
           <Database size={18} aria-hidden="true" /> 데이터셋 검수
         </span>
       </nav>
@@ -162,7 +162,7 @@ export function AdminDatasetDryRun() {
       <section aria-labelledby="dataset-upload-title" className="rounded-2xl bg-white p-5 shadow-soft sm:p-7">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-trust">1. 파일 선택</p>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-trust-text">1. 파일 선택</p>
             <h2 id="dataset-upload-title" className="mt-1 text-xl font-bold text-ink">검수할 최신 엑셀 3개</h2>
           </div>
           <p className="text-sm font-semibold text-slate-500">{selectedCount}/3개 선택됨</p>
@@ -176,7 +176,7 @@ export function AdminDatasetDryRun() {
                 <span>
                   <span className="flex items-center justify-between gap-3">
                     <span className="font-bold text-ink">{slot.label}</span>
-                    {file ? <CheckCircle2 className="text-emerald-600" size={20} aria-hidden="true" /> : <Upload className="text-slate-400 group-hover:text-trust" size={20} aria-hidden="true" />}
+                    {file ? <CheckCircle2 className="text-emerald-600" size={20} aria-hidden="true" /> : <Upload className="text-slate-400 group-hover:text-trust-text" size={20} aria-hidden="true" />}
                   </span>
                   <span className="mt-1 block text-xs font-semibold text-slate-500">{slot.description}</span>
                 </span>
@@ -205,7 +205,7 @@ export function AdminDatasetDryRun() {
           <section aria-labelledby="dataset-summary-title" className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-trust">2. 분석 결과</p>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-trust-text">2. 분석 결과</p>
                 <h2 id="dataset-summary-title" className="mt-1 text-xl font-bold text-ink">품질 자산 후보 요약</h2>
               </div>
               <button type="button" onClick={downloadDryRun} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-line bg-white px-4 text-sm font-bold text-ink shadow-sm hover:bg-slate-50">
@@ -249,7 +249,7 @@ export function AdminDatasetDryRun() {
             <div className="rounded-2xl bg-white p-5 shadow-soft sm:p-6">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-trust">4. 후보 탐색</p>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-trust-text">4. 후보 탐색</p>
                   <h2 className="mt-1 text-xl font-bold text-ink">통합 품질 자산</h2>
                 </div>
                 <p className="text-xs font-bold text-slate-500">{filteredCandidates.length}개</p>
@@ -275,7 +275,7 @@ export function AdminDatasetDryRun() {
                 {filteredCandidates.slice(0, 150).map((candidate) => (
                   <article key={candidate.key} className="rounded-xl border border-line px-4 py-4 transition hover:border-slate-300 hover:bg-slate-50/70">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-trust">{assetLabels[candidate.assetType]}</span>
+                      <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-trust-text">{assetLabels[candidate.assetType]}</span>
                       <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${riskTone(candidate.riskLevel)}`}>{candidate.riskLevel || "미분류"}</span>
                       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600">{candidate.scope === "global" ? "공통" : candidate.specialty ? specialtyLabels[candidate.specialty] : "진료과"}</span>
                     </div>

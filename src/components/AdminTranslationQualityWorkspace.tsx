@@ -229,7 +229,7 @@ export function AdminTranslationQualityWorkspace() {
 
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-bold text-trust">MediVoice Quality</p>
+          <p className="text-sm font-bold text-trust-text">MediVoice Quality</p>
           <h1 className="mt-1 text-[30px] font-bold leading-tight text-ink">증거 중심 번역 검수</h1>
           <p className="mt-2 text-sm font-semibold text-slate-500">원문과 번역을 비교하고 검증된 결과를 다음 번역의 품질 자산으로 연결합니다.</p>
         </div>
@@ -288,7 +288,7 @@ export function AdminTranslationQualityWorkspace() {
         <main className="min-w-0 overflow-hidden rounded-xl bg-white shadow-soft lg:flex lg:max-h-[calc(100vh-210px)] lg:flex-col">
           {!selected || !draft ? (
             <div className="flex min-h-[560px] flex-col items-center justify-center px-6 text-center">
-              <CheckCircle2 size={40} className="text-mint" aria-hidden="true" />
+              <CheckCircle2 size={40} className="text-mint-text" aria-hidden="true" />
               <h2 className="mt-4 text-xl font-bold text-ink">검수할 샘플이 없습니다</h2>
               <p className="mt-2 text-sm font-semibold text-slate-500">새 샘플이 수집되면 이 대기함에 표시됩니다.</p>
             </div>
@@ -360,7 +360,7 @@ export function AdminTranslationQualityWorkspace() {
                       const active = draft.assetType === type;
                       return (
                         <button key={type} type="button" disabled={disabled} onClick={() => chooseAsset(type)} className={`min-h-24 rounded-xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trust disabled:cursor-not-allowed disabled:opacity-40 ${active ? "border-trust bg-blue-50" : "border-line bg-white hover:border-blue-200 hover:bg-slate-50"}`}>
-                          <span className="flex items-center gap-2 text-sm font-bold text-ink">{active ? <CheckCircle2 size={18} className="text-trust" /> : <Database size={18} className="text-slate-400" />}{assetLabels[type].title}</span>
+                          <span className="flex items-center gap-2 text-sm font-bold text-ink">{active ? <CheckCircle2 size={18} className="text-trust-text" /> : <Database size={18} className="text-slate-400" />}{assetLabels[type].title}</span>
                           <span className="mt-2 block text-xs font-semibold leading-5 text-slate-500">{assetLabels[type].description}</span>
                         </button>
                       );
@@ -401,7 +401,7 @@ export function AdminTranslationQualityWorkspace() {
                       </div>
                       <div className="mt-4 grid gap-3 border-t border-line pt-4 sm:grid-cols-2">
                         <p className="flex items-center gap-2 text-sm font-bold text-emerald-700"><ShieldCheck size={18} /> 저장 시 중복·별칭 충돌 자동 검사</p>
-                        <p className="flex items-center gap-2 text-sm font-bold text-trust"><ArrowRight size={18} /> 승인 후 다음 번역부터 적용</p>
+                        <p className="flex items-center gap-2 text-sm font-bold text-trust-text"><ArrowRight size={18} /> 승인 후 다음 번역부터 적용</p>
                       </div>
                     </div>
                   ) : null}
@@ -427,7 +427,7 @@ export function AdminTranslationQualityWorkspace() {
 }
 
 function Step({ number, title, subtitle, active }: { number: string; title: string; subtitle: string; active: boolean }) {
-  return <div className={`flex min-w-0 items-center gap-2 ${active ? "text-trust" : "text-slate-400"}`}><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-bold ${active ? "bg-trust text-white" : "bg-slate-100 text-slate-500"}`}>{number}</span><span className="min-w-0"><span className="block truncate text-sm font-bold">{title}</span><span className="hidden truncate text-xs font-semibold text-slate-400 sm:block">{subtitle}</span></span></div>;
+  return <div className={`flex min-w-0 items-center gap-2 ${active ? "text-trust-text" : "text-slate-400"}`}><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-bold ${active ? "bg-trust text-white" : "bg-slate-100 text-slate-500"}`}>{number}</span><span className="min-w-0"><span className="block truncate text-sm font-bold">{title}</span><span className="hidden truncate text-xs font-semibold text-slate-400 sm:block">{subtitle}</span></span></div>;
 }
 
 function EvidenceColumn({ label, value, tone = "plain" }: { label: string; value: string; tone?: "plain" | "blue" }) {

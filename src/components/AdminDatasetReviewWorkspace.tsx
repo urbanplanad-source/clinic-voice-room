@@ -194,6 +194,11 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
     setFeedback(`${conflict.label} 충돌 결정을 저장했습니다.`);
   }
 
+  function focusFirstIncomplete() {
+    const targetId = !reviewer.trim() ? "dataset-reviewer-name" : !selectedDecision?.reviewedStandardKo.trim() ? "reviewed-standard-ko" : !selectedDecision?.medicalApproved ? "medical-approved" : !selectedDecision?.languageQaApproved ? "language-qa-approved" : unresolvedRelatedConflicts.length ? "conflict-reviewer-name" : "review-note";
+    document.getElementById(targetId)?.focus();
+  }
+
   function setCandidateStatus(status: CandidateReviewStatus) {
     if (!selectedCandidate || !selectedDecision) return;
     const next = { ...selectedDecision, reviewer: selectedDecision.reviewer || reviewer };
@@ -252,7 +257,7 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
           <label className="block">
             <span className="mb-1 block text-xs font-bold text-slate-300">검토자 이름</span>
-            <input value={reviewer} onChange={(event) => setReviewer(event.target.value)} placeholder="예: 홍길동 원장" className="h-11 w-full rounded-xl border border-slate-600 bg-slate-900 px-3 text-sm font-semibold text-white outline-none placeholder:text-slate-500 focus:border-blue-400 sm:w-52" />
+            <input id="dataset-reviewer-name" value={reviewer} onChange={(event) => setReviewer(event.target.value)} placeholder="예: 홍길동 원장" className="h-11 w-full rounded-xl border border-slate-600 bg-slate-900 px-3 text-sm font-semibold text-white outline-none placeholder:text-slate-500 focus:border-blue-400 sm:w-52" />
           </label>
           <button type="button" onClick={exportReviewPackage} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-bold text-slate-900 hover:bg-blue-50">
             <Download size={17} aria-hidden="true" /> 검토 JSON 내보내기
@@ -296,7 +301,7 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
 
         <div className={`mt-4 flex flex-col gap-3 rounded-xl border px-4 py-4 sm:flex-row sm:items-end sm:justify-between ${reviewer.trim() ? "border-emerald-200 bg-emerald-50" : "border-blue-200 bg-blue-50"}`}>
           <div className="flex items-start gap-3">
-            <UserRoundCheck className={`mt-0.5 shrink-0 ${reviewer.trim() ? "text-emerald-600" : "text-trust"}`} size={19} aria-hidden="true" />
+            <UserRoundCheck className={`mt-0.5 shrink-0 ${reviewer.trim() ? "text-emerald-600" : "text-trust-text"}`} size={19} aria-hidden="true" />
             <div>
               <p className="text-sm font-bold text-ink">공통 검토자</p>
               <p className="mt-1 text-xs font-semibold text-slate-600">한 번 입력하면 아래 모든 충돌 결정과 문장 검토에 사용됩니다.</p>
@@ -367,7 +372,7 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
         <div className="border-b border-line lg:border-b-0 lg:border-r">
           <div className="border-b border-line p-4">
             <div className="flex items-center gap-2">
-              <ClipboardCheck className="text-trust" size={20} aria-hidden="true" />
+              <ClipboardCheck className="text-trust-text" size={20} aria-hidden="true" />
               <h3 className="font-bold text-ink">검토 대기열</h3>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_140px] lg:grid-cols-1 xl:grid-cols-[minmax(0,1fr)_140px]">
@@ -390,7 +395,7 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
                     <span className="line-clamp-2 text-sm font-bold leading-5 text-ink">{decision?.reviewedStandardKo || candidate.standardKo}</span>
                     <span className="mt-1 block truncate text-xs font-semibold text-slate-500">{assetLabels[candidate.assetType]} · {candidate.riskLevel || "미분류"}</span>
                   </span>
-                  <ChevronRight className={`mt-1 shrink-0 ${selected ? "text-trust" : "text-slate-300"}`} size={16} aria-hidden="true" />
+                  <ChevronRight className={`mt-1 shrink-0 ${selected ? "text-trust-text" : "text-slate-300"}`} size={16} aria-hidden="true" />
                 </button>
               );
             })}
@@ -405,7 +410,7 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${candidateRiskTone(selectedCandidate.riskLevel)}`}>{selectedCandidate.riskLevel || "미분류"}</span>
-                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-trust">{assetLabels[selectedDecision.assetType]}</span>
+                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-trust-text">{assetLabels[selectedDecision.assetType]}</span>
                     {requiresSecondReview(selectedCandidate, selectedDecision.assetType) ? <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-800">이중 승인</span> : null}
                   </div>
                   <p className="mt-2 text-xs font-semibold text-slate-500">{selectedCandidate.sourceIds.join(" · ")}</p>
@@ -422,7 +427,7 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
 
               <label className="block">
                 <span className="mb-1 block text-xs font-bold text-slate-600">검토된 한국어 기준문장</span>
-                <textarea value={selectedDecision.reviewedStandardKo} onChange={(event) => patchCandidate(selectedCandidate, { reviewedStandardKo: event.target.value, status: "pending" })} rows={3} className="w-full rounded-xl border border-line bg-white px-4 py-3 text-base font-bold leading-7 text-ink outline-none focus:border-trust" />
+                <textarea id="reviewed-standard-ko" value={selectedDecision.reviewedStandardKo} onChange={(event) => patchCandidate(selectedCandidate, { reviewedStandardKo: event.target.value, status: "pending" })} rows={3} className="w-full rounded-xl border border-line bg-white px-4 py-3 text-base font-bold leading-7 text-ink outline-none focus:border-trust" />
               </label>
 
               <div className="grid gap-3 sm:grid-cols-2">
@@ -443,11 +448,11 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 ${selectedDecision.medicalApproved ? "border-emerald-300 bg-emerald-50" : "border-line bg-slate-50"}`}>
-                  <input type="checkbox" checked={selectedDecision.medicalApproved} onChange={(event) => patchCandidate(selectedCandidate, { medicalApproved: event.target.checked, status: "pending" })} className="mt-1 size-4 accent-emerald-600" />
+                  <input id="medical-approved" type="checkbox" checked={selectedDecision.medicalApproved} onChange={(event) => patchCandidate(selectedCandidate, { medicalApproved: event.target.checked, status: "pending" })} className="mt-1 size-4 accent-emerald-600" />
                   <span><span className="block text-sm font-bold text-ink">의료 내용 확인</span><span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">의미, 금기, 수치와 진료 상황을 확인했습니다.</span></span>
                 </label>
                 <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 ${selectedDecision.languageQaApproved ? "border-violet-300 bg-violet-50" : "border-line bg-slate-50"}`}>
-                  <input type="checkbox" checked={selectedDecision.languageQaApproved} onChange={(event) => patchCandidate(selectedCandidate, { languageQaApproved: event.target.checked, status: "pending" })} className="mt-1 size-4 accent-violet-600" />
+                  <input id="language-qa-approved" type="checkbox" checked={selectedDecision.languageQaApproved} onChange={(event) => patchCandidate(selectedCandidate, { languageQaApproved: event.target.checked, status: "pending" })} className="mt-1 size-4 accent-violet-600" />
                   <span><span className="block text-sm font-bold text-ink">언어·안전 QA</span><span className="mt-1 block text-xs font-semibold leading-5 text-slate-500">방향, 부정, 질문·명령 및 필수어를 확인했습니다.</span></span>
                 </label>
               </div>
@@ -465,13 +470,13 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
 
               <label className="block">
                 <span className="mb-1 block text-xs font-bold text-slate-600">검토 사유 및 수정 메모</span>
-                <textarea value={selectedDecision.note} onChange={(event) => patchCandidate(selectedCandidate, { note: event.target.value })} rows={3} placeholder="승인 근거, 수정할 내용 또는 반려 사유를 기록" className="w-full rounded-xl border border-line bg-white px-4 py-3 text-sm font-medium leading-6 outline-none focus:border-trust" />
+                <textarea id="review-note" value={selectedDecision.note} onChange={(event) => patchCandidate(selectedCandidate, { note: event.target.value })} rows={3} placeholder="승인 근거, 수정할 내용 또는 반려 사유를 기록" className="w-full rounded-xl border border-line bg-white px-4 py-3 text-sm font-medium leading-6 outline-none focus:border-trust" />
               </label>
 
               {approvalBlockers.length ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
                   <p className="text-xs font-bold text-amber-900">승인 전 확인</p>
-                  <ul className="mt-2 space-y-1 text-sm font-semibold text-amber-800">{approvalBlockers.map((blocker) => <li key={blocker}>· {blocker}</li>)}</ul>
+                  <ul className="mt-2 space-y-1 text-sm font-semibold text-amber-800">{approvalBlockers.map((blocker) => <li key={blocker}>· {blocker}</li>)}</ul><button type="button" onClick={focusFirstIncomplete} className="mt-3 min-h-11 rounded-lg bg-white px-4 text-sm font-bold text-amber-900 shadow-sm">첫 미완료 항목으로 이동</button>
                 </div>
               ) : (
                 <p className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800"><BadgeCheck size={18} aria-hidden="true" /> 한국어 마스터 승인 조건을 충족했습니다.</p>

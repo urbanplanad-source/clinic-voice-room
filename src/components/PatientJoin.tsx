@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, MessageSquareText, Mic, ShieldCheck } from "lucide-react";
+import { ArrowRight, ChevronDown, Loader2, MessageSquareText, Mic, ShieldCheck } from "lucide-react";
 import { languageLabels, type PatientLanguage } from "@/lib/languages";
 import type { RoomStatus } from "@/lib/room-state";
 import { broadcastRoomUpdate } from "@/lib/supabase-realtime";
@@ -183,6 +183,24 @@ const copy: Record<
   }
 };
 
+const patientEntryStateCopy: Record<PatientLanguage, { noAccount: string; processing: string }> = {
+  zh: { noAccount: "无需账户", processing: "正在进入，请稍候" }, yue: { noAccount: "毋須帳戶", processing: "正在進入，請稍候" }, zh_tw: { noAccount: "不需帳號", processing: "正在進入，請稍候" },
+  ja: { noAccount: "アカウント不要", processing: "入室処理中です" }, en: { noAccount: "No account needed", processing: "Entering the room" }, th: { noAccount: "ไม่ต้องมีบัญชี", processing: "กำลังเข้าห้อง" },
+  vi: { noAccount: "Không cần tài khoản", processing: "Đang vào phòng" }, id: { noAccount: "Tanpa akun", processing: "Sedang masuk" }, ms: { noAccount: "Tanpa akaun", processing: "Sedang masuk" },
+  tl: { noAccount: "Walang account", processing: "Pumapasok sa room" }, mn: { noAccount: "Бүртгэл хэрэггүй", processing: "Өрөөнд нэвтэрч байна" }, ru: { noAccount: "Без учетной записи", processing: "Вход в комнату" },
+  fr: { noAccount: "Aucun compte requis", processing: "Entrée dans la salle" }, es: { noAccount: "Sin cuenta", processing: "Entrando en la sala" }, de: { noAccount: "Kein Konto nötig", processing: "Raum wird geöffnet" },
+  it: { noAccount: "Nessun account", processing: "Accesso alla stanza" }, pt: { noAccount: "Sem conta", processing: "Entrando na sala" }
+};
+
+export const patientUnavailableCopy: Record<PatientLanguage, { title: string; body: string; recovery: string }> = {
+  zh: { title: "无法使用此翻译室", body: "此翻译室已结束、二维码已过期或网络连接失败。", recovery: "请向工作人员索取新的二维码。" }, yue: { title: "此翻譯室未能使用", body: "翻譯室已結束、QR Code 已過期或網絡連線失敗。", recovery: "請向職員索取新的 QR Code。" }, zh_tw: { title: "此翻譯室無法使用", body: "翻譯室已結束、QR Code 已過期或網路連線失敗。", recovery: "請向工作人員索取新的 QR Code。" },
+  ja: { title: "この通訳室は利用できません", body: "通訳室が終了したか、QRコードの期限切れ、またはネットワークエラーです。", recovery: "スタッフに新しいQRコードを依頼してください。" }, en: { title: "This interpretation room is unavailable", body: "The room has ended, the QR code expired, or the network connection failed.", recovery: "Please ask the staff for a new QR code." }, th: { title: "ไม่สามารถใช้ห้องล่ามนี้ได้", body: "ห้องสิ้นสุดแล้ว QR หมดอายุ หรือเครือข่ายขัดข้อง", recovery: "กรุณาขอ QR ใหม่จากเจ้าหน้าที่" },
+  vi: { title: "Không thể sử dụng phòng phiên dịch này", body: "Phòng đã kết thúc, mã QR hết hạn hoặc có lỗi mạng.", recovery: "Vui lòng yêu cầu nhân viên cung cấp mã QR mới." }, id: { title: "Ruang interpretasi ini tidak tersedia", body: "Ruang telah berakhir, QR kedaluwarsa, atau terjadi gangguan jaringan.", recovery: "Minta kode QR baru kepada staf." }, ms: { title: "Bilik interpretasi ini tidak tersedia", body: "Bilik telah tamat, QR telah luput atau terdapat masalah rangkaian.", recovery: "Minta kod QR baharu daripada staf." },
+  tl: { title: "Hindi magagamit ang interpretation room", body: "Tapos na ang room, expired ang QR, o may problema sa network.", recovery: "Humingi ng bagong QR code sa staff." }, mn: { title: "Орчуулгын өрөөг ашиглах боломжгүй", body: "Өрөө дууссан, QR кодын хугацаа дууссан эсвэл сүлжээний алдаа гарсан.", recovery: "Ажилтнаас шинэ QR код авна уу." }, ru: { title: "Этот кабинет перевода недоступен", body: "Сеанс завершен, QR-код истек или произошла ошибка сети.", recovery: "Попросите сотрудника выдать новый QR-код." },
+  fr: { title: "Cette salle d’interprétation est indisponible", body: "La session est terminée, le QR code a expiré ou le réseau est indisponible.", recovery: "Demandez un nouveau QR code au personnel." }, es: { title: "Esta sala de interpretación no está disponible", body: "La sesión terminó, el QR caducó o hubo un error de red.", recovery: "Solicite al personal un nuevo código QR." }, de: { title: "Dieser Dolmetschraum ist nicht verfügbar", body: "Die Sitzung ist beendet, der QR-Code ist abgelaufen oder es liegt ein Netzwerkfehler vor.", recovery: "Bitten Sie das Personal um einen neuen QR-Code." },
+  it: { title: "Questa sala di interpretariato non è disponibile", body: "La sessione è terminata, il QR è scaduto o si è verificato un errore di rete.", recovery: "Chiedi allo staff un nuovo codice QR." }, pt: { title: "Esta sala de interpretação não está disponível", body: "A sessão terminou, o QR expirou ou ocorreu um erro de rede.", recovery: "Peça à equipe um novo QR code." }
+};
+
 const turnTakingNotice: Partial<Record<PatientLanguage, string>> = {
   zh: "请一次只由一位说话。轮到您时再按麦克风。",
   yue: "請一次只由一位說話。輪到您時再按麥克風。",
@@ -210,6 +228,7 @@ export function PatientJoin({
 }) {
   const text = copy[room.patientLanguage];
   const turnNotice = turnTakingNotice[room.patientLanguage] ?? turnTakingNotice.en;
+  const stateCopy = patientEntryStateCopy[room.patientLanguage];
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [joinedRoom, setJoinedRoom] = useState<{
@@ -264,7 +283,7 @@ export function PatientJoin({
           </div>
           <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-xs font-bold">
             <ShieldCheck size={15} />
-            Guest
+            {stateCopy.noAccount}
           </span>
         </div>
         <p className="mt-3 text-base font-semibold leading-7 text-slate-300">
@@ -273,40 +292,46 @@ export function PatientJoin({
       </div>
 
       <div className="m-6 rounded-lg border border-blue-100 bg-blue-50 p-4 text-center sm:m-7">
-        <p className="text-xs font-bold text-trust">{text.languageLabel}</p>
-        <p className="mt-1 text-lg font-bold text-ink">{languageLabels[room.patientLanguage].native}</p>
+        <p className="text-xs font-bold text-trust-text">{text.languageLabel}</p>
+        <p className="mt-1 break-words text-lg font-bold text-ink">{languageLabels[room.patientLanguage].native}</p>
+        <div className="mt-4 flex items-start gap-3 rounded-lg border border-blue-200 bg-white px-4 py-3 text-left">
+          <MessageSquareText size={20} className="mt-0.5 shrink-0 text-trust-text" aria-hidden="true" />
+          <p className="text-sm font-semibold leading-6 text-slate-700">{text.consent}</p>
+        </div>
         <button
           onClick={enterRoom}
           disabled={loading}
           className="mt-4 flex h-16 w-full items-center justify-center gap-2 rounded-lg bg-trust px-4 text-xl font-bold text-white shadow-soft transition hover:bg-blue-600 disabled:opacity-50"
         >
-          {loading ? "..." : text.button}
-          <ArrowRight size={22} />
+          {loading ? <><Loader2 size={22} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />{stateCopy.processing}</> : <>{text.button}<ArrowRight size={22} aria-hidden="true" /></>}
         </button>
-        {error ? <p className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
+        {error ? <p className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-coral-text" role="alert">{error}</p> : null}
       </div>
 
-      <div className="mx-6 space-y-3 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 text-sm font-semibold leading-6 text-slate-700 sm:mx-7">
+      <details className="group mx-6 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 text-sm font-semibold leading-6 text-slate-700 sm:mx-7">
+        <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 font-bold text-trust-text">개인정보 및 이용 안내<ChevronDown size={20} className="transition group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" /></summary>
+        <div className="mt-3 space-y-3">
         <div className="flex gap-3">
-          <ShieldCheck size={20} className="mt-0.5 shrink-0 text-trust" />
+          <ShieldCheck size={20} className="mt-0.5 shrink-0 text-trust-text" />
           <p>{roomMode === "procedure" ? text.procedureBody : text.body}</p>
         </div>
         <div className="flex gap-3">
-          <MessageSquareText size={20} className="mt-0.5 shrink-0 text-trust" />
+          <MessageSquareText size={20} className="mt-0.5 shrink-0 text-trust-text" />
           <p>{text.consent}</p>
         </div>
         <div className="flex gap-3">
-          <MessageSquareText size={20} className="mt-0.5 shrink-0 text-trust" />
+          <MessageSquareText size={20} className="mt-0.5 shrink-0 text-trust-text" />
           <p>{turnNotice}</p>
         </div>
-      </div>
+        </div>
+      </details>
 
       <div className="m-6 flex items-center justify-between rounded-lg bg-slate-50 px-4 py-4 sm:m-7">
         <div>
           <p className="text-xs font-bold text-slate-500">{text.languageLabel}</p>
           <p className="mt-1 text-lg font-bold text-ink">{languageLabels[room.patientLanguage].native}</p>
         </div>
-        <div className="grid h-11 w-11 place-items-center rounded-lg bg-blue-50 text-trust">
+        <div className="grid h-11 w-11 place-items-center rounded-lg bg-blue-50 text-trust-text">
           {roomMode === "procedure" ? <Mic size={22} /> : <MessageSquareText size={22} />}
         </div>
       </div>

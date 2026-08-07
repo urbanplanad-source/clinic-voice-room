@@ -20,7 +20,7 @@ export function BackButton({ href = "/staff", label = "뒤로가기" }: { href?:
       onClick={goBack}
       className="mb-4 inline-flex h-11 items-center gap-2 rounded-lg bg-white px-4 text-sm font-bold text-ink shadow-sm transition hover:bg-slate-50"
     >
-      <ArrowLeft size={18} className="text-trust" />
+      <ArrowLeft size={18} className="text-trust-text" />
       {label}
     </button>
   );

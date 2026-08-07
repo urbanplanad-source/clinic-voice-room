@@ -10,7 +10,9 @@ import { isClearlyNotKoreanTranslation } from "@/lib/translation-language-guard"
 import type { GuardFlags } from "@/lib/guard-flags";
 import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
 import { speechLanguageByPatientLanguage } from "@/lib/speech";
-import { ConsultationChatRoom } from "@/components/ConsultationChatRoom";
+import { ConsultationChatRoom, patientReplayCopy, patientRetryCopy } from "@/components/ConsultationChatRoom";
+import { EndRoomDialog } from "@/components/EndRoomDialog";
+import { ImportantConfirmationPanel, type ConfirmationActionStatus } from "@/components/ImportantConfirmationPanel";
 import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 import { patientAutoStopHelperCopy, patientAutoStopSpeakingCopy, startVoiceAutoStop } from "@/lib/web-voice-auto-stop";
 import {
@@ -746,6 +748,11 @@ function ProcedureVoiceRoom({
   const [backWarning, setBackWarning] = useState(false);
   const [confirmationBusy, setConfirmationBusy] = useState(false);
   const [confirmationError, setConfirmationError] = useState("");
+  const [confirmationStatus, setConfirmationStatus] = useState<ConfirmationActionStatus>("idle");
+  const [lastConfirmationAction, setLastConfirmationAction] = useState<"confirmed" | "repeat_requested">("confirmed");
+  const [confirmationNotice, setConfirmationNotice] = useState("");
+  const [endDialogOpen, setEndDialogOpen] = useState(false);
+  const [endError, setEndError] = useState("");
   const [roomRealtimeHealthy, setRoomRealtimeHealthy] = useState(false);
   const [messageRealtimeHealthy, setMessageRealtimeHealthy] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
@@ -827,26 +834,40 @@ function ProcedureVoiceRoom({
 
   async function submitPatientConfirmation(status: "confirmed" | "repeat_requested") {
     if (!patientConfirmationMessage || confirmationBusy) return;
+    setLastConfirmationAction(status);
     setConfirmationBusy(true);
+    setConfirmationStatus("submitting");
     setConfirmationError("");
-    const response = await fetch(
-      `/api/rooms/${room.id}/messages/${patientConfirmationMessage.id}/confirmation`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(roomToken ? { "x-room-token": roomToken } : {})
-        },
-        body: JSON.stringify({ status })
-      }
-    );
-    const data = await response.json().catch(() => null) as { message?: TranslationMessage; error?: string } | null;
-    setConfirmationBusy(false);
-    if (!response.ok || !data?.message) {
-      setConfirmationError(data?.error || copy.errors.busy);
-      return;
+    try {
+      const response = await fetch(
+        `/api/rooms/${room.id}/messages/${patientConfirmationMessage.id}/confirmation`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(roomToken ? { "x-room-token": roomToken } : {}) },
+          body: JSON.stringify({ status })
+        }
+      );
+      const data = await response.json().catch(() => null) as { message?: TranslationMessage; error?: string } | null;
+      if (!response.ok || !data?.message) throw new Error(data?.error || copy.errors.busy);
+      setMessages((current) => current.map((message) => message.id === data.message?.id ? data.message : message));
+      setConfirmationStatus(status);
+      setConfirmationNotice(status === "confirmed" ? patientConfirmationCopy.confirm : patientConfirmationCopy.repeat);
+      window.setTimeout(() => setConfirmationNotice(""), 3500);
+    } catch (caught) {
+      setConfirmationStatus("failed");
+      setConfirmationError(caught instanceof Error ? caught.message : copy.errors.busy);
+    } finally {
+      setConfirmationBusy(false);
     }
-    setMessages((current) => current.map((message) => message.id === data.message?.id ? data.message : message));
+  }
+
+  function replayPatientConfirmation() {
+    if (!patientConfirmationMessage || !("speechSynthesis" in window)) return;
+    const utterance = new SpeechSynthesisUtterance(patientConfirmationMessage.text);
+    utterance.lang = speechLanguageByPatientLanguage[room.patientLanguage];
+    utterance.rate = 0.9;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
   }
 
   const triggerHardwareToggle = useCallback(() => {
@@ -1091,12 +1112,32 @@ function ProcedureVoiceRoom({
     return true;
   }, [flushUsage, room.id, room.status, stopPlayback]);
 
+  const verifyRoomEnded = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/rooms/${room.id}`, { cache: "no-store" });
+      const data = await response.json().catch(() => null) as { room?: RoomSnapshot } | null;
+      if (response.ok && data?.room) {
+        setRoom((current) => ({ ...current, ...data.room }));
+        return data.room.status === "ended";
+      }
+    } catch {
+      // Keep the room visible when its final state cannot be verified.
+    }
+    return false;
+  }, [room.id]);
+
   const endRoomAndReturn = useCallback(async () => {
+    setEndError("");
     const ended = await endRoom();
-    if (!ended) return;
+    const verifiedEnded = ended || await verifyRoomEnded();
+    if (!verifiedEnded) {
+      setEndError("네트워크 오류로 종료 여부를 확인하지 못했습니다. 방을 닫지 말고 상태를 다시 확인해주세요.");
+      return;
+    }
+    setEndDialogOpen(false);
     router.replace("/staff");
     router.refresh();
-  }, [endRoom, router]);
+  }, [endRoom, router, verifyRoomEnded]);
 
   const markActivity = useCallback(() => {
     if (inactivityTimerRef.current) window.clearTimeout(inactivityTimerRef.current);
@@ -1824,7 +1865,7 @@ function ProcedureVoiceRoom({
       {role === "staff" && !kioskMode ? (
         <header className="rounded-lg bg-white p-5 shadow-sm">
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
+            <p className="truncate text-sm font-bold text-trust-text">{room.hospital?.name ?? "Clinic Voice Room"}</p>
             <h1 className="mt-2 text-[28px] font-bold leading-tight text-ink">{title}</h1>
           </div>
         </header>
@@ -1834,7 +1875,7 @@ function ProcedureVoiceRoom({
         <section className="rounded-lg bg-white p-5 shadow-sm">
         {isConnectingRealtime ? (
           <article className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4">
-            <p className="text-xs font-bold text-trust">{copy.connecting.title}</p>
+            <p className="text-xs font-bold text-trust-text">{copy.connecting.title}</p>
             <p className="mt-2 text-lg font-bold leading-7 text-ink">{copy.connecting.body}</p>
             <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">{copy.connecting.hint}</p>
           </article>
@@ -1842,7 +1883,7 @@ function ProcedureVoiceRoom({
 
         {displayText ? (
           <article className="rounded-lg bg-blue-50 px-4 py-5">
-            <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust">{displayLabel}</p>
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust-text">{displayLabel}</p>
             <p className="mt-2 text-2xl font-bold leading-8 text-ink">{displayText}</p>
             {latestGuardFlags?.numberCheck === "mismatch" || latestBackTranslationStatus === "pending" || latestBackTranslationStatus === "pass" || latestBackTranslationStatus === "fail" ? (
               <div className="mt-3 space-y-2 rounded-lg bg-white/80 px-3 py-2 text-sm font-bold text-amber-800">
@@ -1881,40 +1922,30 @@ function ProcedureVoiceRoom({
       ) : null}
 
       {patientConfirmationMessage ? (
-        <section className="rounded-xl border-2 border-amber-300 bg-amber-50 p-5 shadow-sm" role="alert">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 shrink-0 text-amber-700" size={24} />
-            <div>
-              <h2 className="text-xl font-bold leading-7 text-amber-950">{patientConfirmationCopy.title}</h2>
-              <p className="mt-2 text-base font-semibold leading-7 text-amber-900">{patientConfirmationCopy.body}</p>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              disabled={confirmationBusy}
-              onClick={() => void submitPatientConfirmation("confirmed")}
-              className="min-h-14 rounded-xl bg-emerald-600 px-4 text-base font-bold text-white disabled:opacity-60"
-            >
-              {confirmationBusy ? <Loader2 className="mx-auto animate-spin" size={20} /> : patientConfirmationCopy.confirm}
-            </button>
-            <button
-              type="button"
-              disabled={confirmationBusy}
-              onClick={() => void submitPatientConfirmation("repeat_requested")}
-              className="min-h-14 rounded-xl border-2 border-amber-500 bg-white px-4 text-base font-bold text-amber-900 disabled:opacity-60"
-            >
-              {patientConfirmationCopy.repeat}
-            </button>
-          </div>
-          {confirmationError ? <p className="mt-3 text-sm font-bold text-rose-700">{confirmationError}</p> : null}
-        </section>
+        <ImportantConfirmationPanel
+          title={patientConfirmationCopy.title}
+          body={patientConfirmationCopy.body}
+          sentence={patientConfirmationMessage.text}
+          categories={patientConfirmationMessage.guardFlags?.confirmation?.categories ?? []}
+          confirmLabel={patientConfirmationCopy.confirm}
+          repeatLabel={patientConfirmationCopy.repeat}
+          replayLabel={patientReplayCopy[room.patientLanguage]}
+          retryLabel={patientRetryCopy[room.patientLanguage]}
+          status={confirmationStatus}
+          error={confirmationError}
+          onConfirm={() => void submitPatientConfirmation("confirmed")}
+          onRepeat={() => void submitPatientConfirmation("repeat_requested")}
+          onReplay={replayPatientConfirmation}
+          onRetry={() => void submitPatientConfirmation(lastConfirmationAction)}
+        />
       ) : null}
 
+      {confirmationNotice ? <p role="status" aria-live="assertive" className="rounded-lg border-2 border-emerald-300 bg-emerald-50 px-4 py-3 text-center text-base font-bold text-mint-text">{confirmationNotice}</p> : null}
+
       {staffConfirmationMessage ? (
-        <section className={`rounded-xl border-2 p-4 shadow-sm ${staffConfirmationMessage.guardFlags?.confirmation?.status === "repeat_requested" ? "border-rose-300 bg-rose-50" : "border-blue-200 bg-blue-50"}`}>
+        <section role="alert" aria-live="assertive" className={`sticky top-2 z-30 rounded-lg border-2 p-4 shadow-soft ${staffConfirmationMessage.guardFlags?.confirmation?.status === "repeat_requested" ? "border-rose-400 bg-rose-50" : "border-blue-300 bg-blue-50"}`}>
           <p className="flex items-center gap-2 text-base font-bold text-ink">
-            {staffConfirmationMessage.guardFlags?.confirmation?.status === "repeat_requested" ? <AlertTriangle size={20} className="text-rose-600" /> : <Loader2 size={20} className="animate-spin text-trust" />}
+            {staffConfirmationMessage.guardFlags?.confirmation?.status === "repeat_requested" ? <AlertTriangle size={20} className="text-rose-600" /> : <Loader2 size={20} className="animate-spin text-trust-text" />}
             {staffConfirmationMessage.guardFlags?.confirmation?.status === "repeat_requested" ? "환자가 다시 설명을 요청했습니다." : "중요 정보에 대한 환자 확인을 기다리는 중입니다."}
           </p>
           <p className="mt-2 text-sm font-semibold leading-6 text-slate-700">{staffConfirmationMessage.sourceText || staffConfirmationMessage.text}</p>
@@ -1924,11 +1955,11 @@ function ProcedureVoiceRoom({
       <section className="rounded-lg bg-white p-5 text-center shadow-soft">
         <div className="mx-auto mb-5 max-w-md rounded-lg bg-slate-50 px-4 py-3">
           <p className="text-base font-semibold leading-7 text-slate-700 md:text-lg md:leading-8">{procedureGuideText}</p>
-          {hardwareLabel ? <p className="mt-2 text-sm font-bold text-trust">{hardwareLabel}</p> : null}
+          {hardwareLabel ? <p className="mt-2 text-sm font-bold text-trust-text">{hardwareLabel}</p> : null}
         </div>
         <button
           type="button"
-          disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
+          disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking) || (staffConfirmationMessage?.guardFlags?.confirmation?.status === "pending" && !isSpeaking)}
           onClick={isSpeaking ? stopSpeaking : startSpeaking}
           className={`tap-highlight-none mx-auto grid h-44 w-44 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 md:h-52 md:w-52 ${
             isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
@@ -1946,7 +1977,7 @@ function ProcedureVoiceRoom({
 
       {role === "staff" ? (
         <button
-          onClick={endRoomAndReturn}
+          onClick={() => room.status === "ended" ? void endRoomAndReturn() : setEndDialogOpen(true)}
           disabled={busy && room.status !== "ended"}
           className="flex h-14 w-full items-center justify-center gap-2 rounded-lg bg-white px-4 font-bold text-rose-600 shadow-sm transition hover:bg-rose-50 disabled:opacity-50"
         >
@@ -1954,6 +1985,7 @@ function ProcedureVoiceRoom({
           {room.status === "ended" ? "직원 화면으로" : "시술 종료 후 직원 화면으로"}
         </button>
       ) : null}
+      <EndRoomDialog open={endDialogOpen} ending={busy} error={endError} onCancel={() => { setEndDialogOpen(false); setEndError(""); }} onConfirm={() => void endRoomAndReturn()} onRetry={() => void verifyRoomEnded().then((ended) => { if (ended) void endRoomAndReturn(); else setEndError("방이 아직 열려 있습니다. 네트워크를 확인한 뒤 종료를 다시 시도해주세요."); })} />
     </div>
   );
 }

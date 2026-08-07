@@ -402,7 +402,7 @@ export function StaffTextTranslator({
                 clearGeneratedResults();
                 setError("");
               }}
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-50 hover:text-coral"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-50 hover:text-coral-text"
               aria-label="입력 지우기"
               title="입력 지우기"
             >
@@ -440,7 +440,7 @@ export function StaffTextTranslator({
               <Volume2 size={22} />
             </button>
             <div className="flex items-center justify-end px-4 text-sm font-bold text-slate-500 md:text-base">
-              <span className={characters > maxCharacters ? "text-coral" : ""}>
+              <span className={characters > maxCharacters ? "text-coral-text" : ""}>
                 {characters}
               </span>
               <span className="text-slate-400">/{maxCharacters}</span>
@@ -465,7 +465,7 @@ export function StaffTextTranslator({
           <button
             type="button"
             onClick={swapLanguages}
-            className="grid h-12 w-12 place-items-center rounded-lg border border-line bg-white text-slate-500 shadow-sm transition hover:border-trust hover:text-trust"
+            className="grid h-12 w-12 place-items-center rounded-lg border border-line bg-white text-slate-500 shadow-sm transition hover:border-trust hover:text-trust-text"
             aria-label="언어 바꾸기"
             title="언어 바꾸기"
           >
@@ -499,8 +499,8 @@ export function StaffTextTranslator({
                   onClick={() => updateTargetLanguage(language)}
                   className={`h-9 rounded-lg px-3 text-xs font-bold transition ${
                     targetLanguage === language
-                      ? "bg-blue-50 text-trust"
-                      : "bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-trust"
+                      ? "bg-blue-50 text-trust-text"
+                      : "bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-trust-text"
                   }`}
                 >
                   {compactLanguageDisplay(language)}
@@ -520,7 +520,7 @@ export function StaffTextTranslator({
                 <div>{output}</div>
                 {shouldShowPolishedSource ? (
                   <div className="rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-sm font-semibold leading-6 text-slate-600">
-                    <span className="mb-1 block text-xs font-bold text-trust">
+                    <span className="mb-1 block text-xs font-bold text-trust-text">
                       번역 기준 한국어
                     </span>
                     <span className="whitespace-pre-wrap">
@@ -554,7 +554,7 @@ export function StaffTextTranslator({
               title="번역문 복사"
             >
               {copied ? (
-                <Check size={22} className="text-mint" />
+                <Check size={22} className="text-mint-text" />
               ) : (
                 <Clipboard size={22} />
               )}
@@ -569,7 +569,7 @@ export function StaffTextTranslator({
       <section className="overflow-hidden rounded-lg border border-line bg-white shadow-soft">
         <div className="flex min-h-14 items-center justify-between gap-3 border-b border-line px-4 py-3 md:px-5">
           <div className="flex min-w-0 items-center gap-2">
-            <MessageSquareReply size={20} className="shrink-0 text-trust" />
+            <MessageSquareReply size={20} className="shrink-0 text-trust-text" />
             <h2 className="truncate text-base font-bold text-ink md:text-lg">
               예상 답변
             </h2>
@@ -587,7 +587,7 @@ export function StaffTextTranslator({
               title="예상 답변 복사"
             >
               {replyCopied ? (
-                <Check size={19} className="text-mint" />
+                <Check size={19} className="text-mint-text" />
               ) : (
                 <Clipboard size={19} />
               )}
@@ -611,7 +611,7 @@ export function StaffTextTranslator({
             </div>
             <div className="p-5 md:p-6">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-xs font-bold text-trust">
+                <p className="text-xs font-bold text-trust-text">
                   {translationLanguageLabels[sourceLanguage].ko} 답변
                 </p>
                 <button
@@ -637,7 +637,7 @@ export function StaffTextTranslator({
             <button
               type="button"
               onClick={retryReplySuggestion}
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line text-slate-500 transition hover:border-trust hover:text-trust"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-line text-slate-500 transition hover:border-trust hover:text-trust-text"
               aria-label="예상 답변 다시 만들기"
               title="예상 답변 다시 만들기"
             >

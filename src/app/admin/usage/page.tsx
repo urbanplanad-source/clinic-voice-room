@@ -18,7 +18,7 @@ export default async function AdminUsagePage() {
     <AppFrame backHref="/staff">
       <div className="space-y-6">
         <header>
-          <p className="text-sm font-bold text-trust">Internal Admin</p>
+          <p className="text-sm font-bold text-trust-text">Internal Admin</p>
           <h1 className="mt-1 text-[30px] font-bold leading-tight">사용량 대시보드</h1>
         </header>
 

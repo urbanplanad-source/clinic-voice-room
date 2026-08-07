@@ -368,7 +368,7 @@ export function AdminGlossaryManager() {
     <div className="space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-bold text-trust">Glossary</p>
+          <p className="text-sm font-bold text-trust-text">Glossary</p>
           <h1 className="mt-1 text-[30px] font-bold leading-tight text-ink">용어 관리</h1>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -420,7 +420,7 @@ export function AdminGlossaryManager() {
 
       <form onSubmit={createEntry} className="rounded-lg bg-white p-5 shadow-soft">
         <div className="flex items-center gap-2">
-          <Plus size={19} className="text-trust" />
+          <Plus size={19} className="text-trust-text" />
           <h2 className="text-lg font-bold text-ink">새 항목</h2>
         </div>
         <GlossaryFields draft={draft} hospitals={hospitals} onChange={updateDraft} onTranslationChange={(key, value) => updateTranslation("new", key, value)} />
@@ -525,7 +525,7 @@ function TranscriptionPreviewPanel({
     <section className="rounded-lg bg-white p-5 shadow-soft">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
-          <Eye size={19} className="text-trust" />
+          <Eye size={19} className="text-trust-text" />
           <div>
             <h2 className="text-lg font-bold text-ink">실제 STT 프롬프트</h2>
             <p className="text-xs font-semibold text-slate-500">{preview?.hospital.name ?? "병원 기준을 불러오는 중"}</p>

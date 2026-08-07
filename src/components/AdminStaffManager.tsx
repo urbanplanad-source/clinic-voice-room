@@ -197,7 +197,7 @@ export function AdminStaffManager() {
     <div className="space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-bold text-trust">Internal Admin</p>
+          <p className="text-sm font-bold text-trust-text">Internal Admin</p>
           <h1 className="mt-1 text-[30px] font-bold leading-tight text-ink">직원 계정 관리</h1>
         </div>
         <a
@@ -211,7 +211,7 @@ export function AdminStaffManager() {
 
       <form onSubmit={saveStaff} className="rounded-lg bg-white p-5 shadow-soft sm:p-6">
         <div className="flex items-center gap-3">
-          <div className="grid h-11 w-11 place-items-center rounded-lg bg-blue-50 text-trust">
+          <div className="grid h-11 w-11 place-items-center rounded-lg bg-blue-50 text-trust-text">
             <UserPlus size={22} />
           </div>
           <div>

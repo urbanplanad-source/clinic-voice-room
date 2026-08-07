@@ -1,5 +1,6 @@
 import { AppFrame } from "@/components/AppFrame";
 import { PatientJoin } from "@/components/PatientJoin";
+import { PatientRoomUnavailable } from "@/components/PatientRoomUnavailable";
 import { legacyRoomTokenAccessEnabled } from "@/lib/legacy-room-token";
 import { prisma } from "@/lib/prisma";
 
@@ -26,18 +27,11 @@ export default async function PatientJoinPage({
   });
 
   if (!room || room.status === "ended") {
-    return (
-      <AppFrame narrow backHref="/staff">
-        <section className="rounded-lg bg-white p-6 shadow-soft">
-          <h1 className="text-2xl font-bold">Room not available</h1>
-          <p className="mt-3 text-slate-600">This interpretation room has ended or cannot be found.</p>
-        </section>
-      </AppFrame>
-    );
+    return <AppFrame narrow><PatientRoomUnavailable language={room?.patientLanguage} /></AppFrame>;
   }
 
   return (
-    <AppFrame narrow backHref="/staff">
+    <AppFrame narrow>
       <PatientJoin
         joinCode={joinCode}
         room={{

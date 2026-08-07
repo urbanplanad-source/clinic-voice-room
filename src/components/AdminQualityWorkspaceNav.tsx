@@ -22,12 +22,12 @@ export function AdminQualityWorkspaceNav({ active, queueCount }: { active: Quali
             key={item.key}
             href={item.href}
             aria-current={selected ? "page" : undefined}
-            className={`inline-flex min-h-12 shrink-0 items-center gap-2 border-b-2 px-4 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trust focus-visible:ring-offset-2 ${selected ? "border-trust text-trust" : "border-transparent text-slate-500 hover:text-ink"}`}
+            className={`inline-flex min-h-12 shrink-0 items-center gap-2 border-b-2 px-4 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-trust focus-visible:ring-offset-2 ${selected ? "border-trust text-trust-text" : "border-transparent text-slate-500 hover:text-ink"}`}
           >
             <Icon size={18} aria-hidden="true" />
             {item.label}
             {item.key === "samples" && typeof queueCount === "number" ? (
-              <span className={`rounded-full px-2 py-0.5 text-xs ${selected ? "bg-blue-50 text-trust" : "bg-slate-100 text-slate-600"}`}>{queueCount}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs ${selected ? "bg-blue-50 text-trust-text" : "bg-slate-100 text-slate-600"}`}>{queueCount}</span>
             ) : null}
           </Link>
         );

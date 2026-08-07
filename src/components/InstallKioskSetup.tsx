@@ -85,7 +85,7 @@ export function InstallKioskSetup({
                   type="button"
                   onClick={() => setPatientLanguage(language)}
                   className={`min-h-[58px] rounded-lg border px-1.5 py-1.5 text-center transition sm:min-h-[62px] md:min-h-[70px] md:px-2 md:py-2 ${
-                    active ? "border-trust bg-blue-50 text-trust" : "border-line bg-white text-slate-600 hover:bg-slate-50"
+                    active ? "border-trust bg-blue-50 text-trust-text" : "border-line bg-white text-slate-600 hover:bg-slate-50"
                   }`}
                   aria-pressed={active}
                 >

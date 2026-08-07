@@ -48,7 +48,7 @@ export function LoginForm() {
   return (
     <form onSubmit={submit} className="space-y-7 rounded-lg bg-white p-6 shadow-soft sm:p-7">
       <div className="space-y-2">
-        <p className="text-sm font-bold text-trust">Clinic Voice Room</p>
+        <p className="text-sm font-bold text-trust-text">Clinic Voice Room</p>
         <h1 className="text-[28px] font-bold leading-tight text-ink">병원 통역실 로그인</h1>
       </div>
 

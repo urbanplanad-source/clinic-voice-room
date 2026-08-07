@@ -79,7 +79,7 @@ export function DualHardwareKioskRoom({
       <main className="grid min-h-dvh place-items-center bg-slate-950 p-6 text-white">
         <section className="w-full max-w-md rounded-lg bg-white p-6 text-ink shadow-soft">
           <div className="flex items-center gap-3">
-            <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-50 text-trust">
+            <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-50 text-trust-text">
               {joinState === "joining" ? <Loader2 size={26} className="animate-spin" /> : <AlertTriangle size={26} />}
             </span>
             <div>
@@ -110,7 +110,7 @@ export function DualHardwareKioskRoom({
           </div>
         </div>
         <div className="hidden shrink-0 gap-2 text-sm font-bold text-slate-500 md:flex">
-          <span className="rounded-lg bg-blue-50 px-3 py-2 text-trust">상담사 PageUp / F8</span>
+          <span className="rounded-lg bg-blue-50 px-3 py-2 text-trust-text">상담사 PageUp / F8</span>
           <span className="rounded-lg bg-emerald-50 px-3 py-2 text-emerald-700">고객 PageDown / F9</span>
         </div>
       </div>
@@ -122,7 +122,7 @@ export function DualHardwareKioskRoom({
               <p className="text-xs font-bold uppercase text-slate-500">Staff Monitor</p>
               <h2 className="text-2xl font-bold text-ink">상담사</h2>
             </div>
-            <span className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-bold text-trust">PageUp · F8</span>
+            <span className="rounded-lg bg-blue-50 px-3 py-2 text-sm font-bold text-trust-text">PageUp · F8</span>
           </div>
           <VoiceRoom
             initialRoom={joinedRoom}

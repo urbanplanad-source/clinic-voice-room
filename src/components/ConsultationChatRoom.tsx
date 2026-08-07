@@ -22,6 +22,8 @@ import {
   consultationTextCopy
 } from "@/lib/consultation-templates";
 import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
+import { EndRoomDialog } from "@/components/EndRoomDialog";
+import { ImportantConfirmationPanel, type ConfirmationActionStatus } from "@/components/ImportantConfirmationPanel";
 import { patientAutoStopHelperCopy, patientAutoStopSpeakingCopy, startVoiceAutoStop } from "@/lib/web-voice-auto-stop";
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
@@ -48,7 +50,7 @@ const voiceCopy: Record<PatientLanguage, { ready: string; speaking: string; wait
   pt: { ready: "Toque e fale", speaking: "Toque novamente para terminar", waiting: "Aguarde", helper: "A consulta deve começar por voz. O texto fica como opção de apoio.", micError: "O microfone não está disponível. Permita o acesso ao microfone no navegador.", busy: "A outra pessoa está falando. Tente novamente em instantes.", fallback: "Se a voz não funcionar bem, digite aqui." }
 };
 
-const replayCopy: Record<PatientLanguage, string> = {
+export const patientReplayCopy: Record<PatientLanguage, string> = {
   zh: "重新播放",
   yue: "重新播放",
   zh_tw: "重新播放",
@@ -66,6 +68,26 @@ const replayCopy: Record<PatientLanguage, string> = {
   de: "Erneut anhören",
   it: "Riascolta",
   pt: "Ouvir novamente"
+};
+
+export const patientRetryCopy: Record<PatientLanguage, string> = {
+  zh: "重试",
+  yue: "再試一次",
+  zh_tw: "重試",
+  ja: "もう一度試す",
+  en: "Try again",
+  th: "ลองอีกครั้ง",
+  ms: "Cuba lagi",
+  mn: "Дахин оролдох",
+  ru: "Повторить",
+  vi: "Thử lại",
+  id: "Coba lagi",
+  tl: "Subukan muli",
+  fr: "Réessayer",
+  es: "Intentar de nuevo",
+  de: "Erneut versuchen",
+  it: "Riprova",
+  pt: "Tentar novamente"
 };
 
 const confirmationCopy: Record<PatientLanguage, { title: string; confirm: string; repeat: string }> = {
@@ -155,6 +177,12 @@ export function ConsultationChatRoom({
   const [feedbackSubmittingId, setFeedbackSubmittingId] = useState("");
   const [feedbackNotice, setFeedbackNotice] = useState("");
   const [confirmationBusy, setConfirmationBusy] = useState(false);
+  const [confirmationStatus, setConfirmationStatus] = useState<ConfirmationActionStatus>("idle");
+  const [confirmationError, setConfirmationError] = useState("");
+  const [lastConfirmationAction, setLastConfirmationAction] = useState<"confirmed" | "repeat_requested">("confirmed");
+  const [confirmationNotice, setConfirmationNotice] = useState("");
+  const [endDialogOpen, setEndDialogOpen] = useState(false);
+  const [endError, setEndError] = useState("");
   const chatScrollRef = useRef<HTMLElement | null>(null);
   const isComposingTextRef = useRef(false);
   const inactivityTimerRef = useRef<number | null>(null);
@@ -189,7 +217,8 @@ export function ConsultationChatRoom({
   const browserAudioOutputEnabled = role === "staff";
   const lastIncomingMessage = messages.find((message) => message.speaker !== role && message.deliveryStatus !== "failed");
   const pendingConfirmationMessage = role === "patient" ? messages.find((message) => message.speaker === "staff" && message.guardFlags?.confirmation?.status === "pending") : undefined;
-  const replayLabel = role === "staff" ? "다시 듣기" : replayCopy[room.patientLanguage];
+  const staffConfirmationMessage = role === "staff" ? messages.find((message) => message.speaker === "staff" && ["pending", "repeat_requested"].includes(message.guardFlags?.confirmation?.status ?? "")) : undefined;
+  const replayLabel = role === "staff" ? "다시 듣기" : patientReplayCopy[room.patientLanguage];
   const visibleQuickPhrases = useMemo(() => {
     if (quickPhraseStage === "all") return quickPhrases;
     return quickPhrases.filter((phrase) => phrase.stage === quickPhraseStage || phrase.stage === null);
@@ -379,12 +408,32 @@ export function ConsultationChatRoom({
     return true;
   }, [room.id, room.status]);
 
+  const verifyRoomEnded = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/rooms/${room.id}`, { cache: "no-store" });
+      const data = await response.json().catch(() => null) as { room?: RoomSnapshot } | null;
+      if (response.ok && data?.room) {
+        setRoom((current) => ({ ...current, ...data.room }));
+        return data.room.status === "ended";
+      }
+    } catch {
+      // Keep the room visible until the final state is known.
+    }
+    return false;
+  }, [room.id]);
+
   const endRoomAndReturn = useCallback(async () => {
+    setEndError("");
     const ended = await endRoom();
-    if (!ended) return;
+    const verifiedEnded = ended || await verifyRoomEnded();
+    if (!verifiedEnded) {
+      setEndError("네트워크 오류로 종료 여부를 확인하지 못했습니다. 방을 닫지 말고 상태를 다시 확인해주세요.");
+      return;
+    }
+    setEndDialogOpen(false);
     router.replace("/staff");
     router.refresh();
-  }, [endRoom, router]);
+  }, [endRoom, router, verifyRoomEnded]);
 
   const markActivity = useCallback(() => {
     if (inactivityTimerRef.current) window.clearTimeout(inactivityTimerRef.current);
@@ -1077,20 +1126,37 @@ export function ConsultationChatRoom({
 
   async function submitPatientConfirmation(status: "confirmed" | "repeat_requested") {
     if (!pendingConfirmationMessage || confirmationBusy) return;
+    setLastConfirmationAction(status);
     setConfirmationBusy(true);
-    setError("");
-    const response = await fetch(`/api/rooms/${room.id}/messages/${pendingConfirmationMessage.id}/confirmation`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(roomToken ? { "x-room-token": roomToken } : {}) },
-      body: JSON.stringify({ status })
-    });
-    const data = await response.json().catch(() => null) as { message?: TranslationMessage; error?: string } | null;
-    setConfirmationBusy(false);
-    if (!response.ok || !data?.message) {
-      setError(data?.error || voiceText.busy);
-      return;
+    setConfirmationStatus("submitting");
+    setConfirmationError("");
+    try {
+      const response = await fetch(`/api/rooms/${room.id}/messages/${pendingConfirmationMessage.id}/confirmation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(roomToken ? { "x-room-token": roomToken } : {}) },
+        body: JSON.stringify({ status })
+      });
+      const data = await response.json().catch(() => null) as { message?: TranslationMessage; error?: string } | null;
+      if (!response.ok || !data?.message) throw new Error(data?.error || voiceText.busy);
+      appendMessage(data.message);
+      setConfirmationStatus(status);
+      setConfirmationNotice(status === "confirmed" ? confirmationCopy[room.patientLanguage].confirm : confirmationCopy[room.patientLanguage].repeat);
+      window.setTimeout(() => setConfirmationNotice(""), 3500);
+    } catch (caught) {
+      setConfirmationStatus("failed");
+      setConfirmationError(caught instanceof Error ? caught.message : voiceText.busy);
+    } finally {
+      setConfirmationBusy(false);
     }
-    appendMessage(data.message);
+  }
+
+  function replayPatientConfirmation() {
+    if (!pendingConfirmationMessage || !("speechSynthesis" in window)) return;
+    const utterance = new SpeechSynthesisUtterance(pendingConfirmationMessage.text);
+    utterance.lang = speechLanguageByPatientLanguage[room.patientLanguage];
+    utterance.rate = 0.9;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
   }
 
   const activeSpeakingLabel = role === "patient" ? patientAutoStopSpeakingCopy[room.patientLanguage] : voiceText.speaking;
@@ -1101,11 +1167,11 @@ export function ConsultationChatRoom({
       <header className="shrink-0 border-b border-line bg-white px-3 py-2 md:px-6 md:py-2.5">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-xs font-bold text-trust">{room.hospital?.name ?? "Clinic Voice Room"}</p>
+            <p className="truncate text-xs font-bold text-trust-text">{room.hospital?.name ?? "Clinic Voice Room"}</p>
             <h1 className="mt-0.5 truncate text-base font-bold text-ink md:text-lg">{title}</h1>
           </div>
           {role === "patient" ? (
-            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1.5 text-[11px] font-bold text-trust md:gap-2 md:px-3 md:py-1.5 md:text-xs">
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1.5 text-[11px] font-bold text-trust-text md:gap-2 md:px-3 md:py-1.5 md:text-xs">
               <span className="h-2 w-2 rounded-full bg-trust" />
               {room.status === "ended" ? copy.statusEnded : copy.statusChat}
             </span>
@@ -1119,13 +1185,15 @@ export function ConsultationChatRoom({
       </header>
 
       {pendingConfirmationMessage ? (
-        <section className="shrink-0 border-b-2 border-amber-300 bg-amber-50 px-3 py-3 md:px-6" role="alert">
-          <p className="flex items-center gap-2 text-base font-bold text-amber-950"><AlertTriangle size={20} />{confirmationCopy[room.patientLanguage].title}</p>
-          <p className="mt-1 line-clamp-2 text-sm font-semibold text-amber-900">{pendingConfirmationMessage.text}</p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button type="button" disabled={confirmationBusy} onClick={() => void submitPatientConfirmation("confirmed")} className="min-h-12 rounded-xl bg-emerald-600 px-3 font-bold text-white disabled:opacity-60">{confirmationBusy ? <Loader2 className="mx-auto animate-spin" size={18} /> : confirmationCopy[room.patientLanguage].confirm}</button>
-            <button type="button" disabled={confirmationBusy} onClick={() => void submitPatientConfirmation("repeat_requested")} className="min-h-12 rounded-xl border-2 border-amber-500 bg-white px-3 font-bold text-amber-900 disabled:opacity-60">{confirmationCopy[room.patientLanguage].repeat}</button>
-          </div>
+        <ImportantConfirmationPanel title={confirmationCopy[room.patientLanguage].title} sentence={pendingConfirmationMessage.text} categories={pendingConfirmationMessage.guardFlags?.confirmation?.categories ?? []} confirmLabel={confirmationCopy[room.patientLanguage].confirm} repeatLabel={confirmationCopy[room.patientLanguage].repeat} replayLabel={patientReplayCopy[room.patientLanguage]} retryLabel={patientRetryCopy[room.patientLanguage]} status={confirmationStatus} error={confirmationError} onConfirm={() => void submitPatientConfirmation("confirmed")} onRepeat={() => void submitPatientConfirmation("repeat_requested")} onReplay={replayPatientConfirmation} onRetry={() => void submitPatientConfirmation(lastConfirmationAction)} />
+      ) : null}
+
+      {confirmationNotice ? <p role="status" aria-live="assertive" className="mx-4 rounded-lg border-2 border-emerald-300 bg-emerald-50 px-4 py-3 text-center text-base font-bold text-mint-text">{confirmationNotice}</p> : null}
+
+      {staffConfirmationMessage ? (
+        <section role="alert" aria-live="assertive" className={`sticky top-0 z-30 shrink-0 border-b-2 px-4 py-3 ${staffConfirmationMessage.guardFlags?.confirmation?.status === "repeat_requested" ? "border-rose-400 bg-rose-50" : "border-blue-300 bg-blue-50"}`}>
+          <p className="flex items-center gap-2 text-sm font-bold text-ink">{staffConfirmationMessage.guardFlags?.confirmation?.status === "repeat_requested" ? <AlertTriangle size={19} className="text-coral-text" aria-hidden="true" /> : <Loader2 size={19} className="animate-spin text-trust-text motion-reduce:animate-none" aria-hidden="true" />}{staffConfirmationMessage.guardFlags?.confirmation?.status === "repeat_requested" ? "환자가 다시 설명을 요청했습니다. 같은 내용을 더 쉽게 설명해주세요." : "중요 정보에 대한 환자 확인을 기다리는 중입니다."}</p>
+          <p className="mt-1 whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-slate-700">{staffConfirmationMessage.sourceText || staffConfirmationMessage.text}</p>
         </section>
       ) : null}
 
@@ -1153,7 +1221,7 @@ export function ConsultationChatRoom({
               return (
                 <article key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                   {!mine ? (
-                    <div className="mr-2 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-green-100 text-xs font-bold text-mint">
+                    <div className="mr-2 grid h-9 w-9 shrink-0 place-items-center rounded-full bg-green-100 text-xs font-bold text-mint-text">
                       {message.speaker === "staff" ? "S" : "P"}
                     </div>
                   ) : null}
@@ -1266,7 +1334,7 @@ export function ConsultationChatRoom({
         ) : (
           <div className="flex h-full min-h-[180px] items-center justify-center text-center md:min-h-[260px]">
             <div>
-              <div className="mx-auto grid h-11 w-11 place-items-center rounded-full bg-green-100 text-sm font-bold text-mint md:h-14 md:w-14 md:text-lg">AI</div>
+              <div className="mx-auto grid h-11 w-11 place-items-center rounded-full bg-green-100 text-sm font-bold text-mint-text md:h-14 md:w-14 md:text-lg">AI</div>
               <p className="mt-3 text-sm font-bold text-ink md:mt-4 md:text-base">{role === "staff" ? "고객의 메시지가 여기에 표시됩니다." : copy.title}</p>
               <p className="mt-1.5 text-xs font-semibold leading-5 text-slate-500 md:mt-2 md:text-sm md:leading-6">{role === "staff" ? "고객 응답에 맞춰 안내하세요." : copy.empty}</p>
             </div>
@@ -1278,7 +1346,7 @@ export function ConsultationChatRoom({
         <div className="mb-2 rounded-2xl bg-slate-50 p-3 text-center md:p-4">
           <button
             type="button"
-            disabled={room.status === "ended" || (voiceBusy && !isSpeaking) || (!micEnabled && !isSpeaking)}
+            disabled={room.status === "ended" || (voiceBusy && !isSpeaking) || (!micEnabled && !isSpeaking) || (staffConfirmationMessage?.guardFlags?.confirmation?.status === "pending" && !isSpeaking)}
             onClick={isSpeaking ? stopVoiceTurn : startVoiceTurn}
             className={`tap-highlight-none mx-auto grid h-20 w-20 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 md:h-24 md:w-24 ${
               isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
@@ -1296,7 +1364,7 @@ export function ConsultationChatRoom({
             <button
               type="button"
               onClick={replayLastIncomingMessage}
-              className="mx-auto mt-3 inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-trust shadow-sm transition hover:bg-blue-50 md:h-10 md:px-4 md:text-sm"
+              className="mx-auto mt-3 inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-trust-text shadow-sm transition hover:bg-blue-50 md:h-10 md:px-4 md:text-sm"
               aria-label={replayLabel}
               title={replayLabel}
             >
@@ -1310,7 +1378,7 @@ export function ConsultationChatRoom({
           <div className="mb-2 rounded-lg bg-slate-50 p-2.5 md:p-3">
             <div className="flex items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2 text-xs font-bold text-slate-600">
-                <ClipboardList size={16} className="shrink-0 text-trust" />
+                <ClipboardList size={16} className="shrink-0 text-trust-text" />
                 <span className="truncate">Quick phrases</span>
               </div>
               <select
@@ -1386,7 +1454,7 @@ export function ConsultationChatRoom({
         {error ? <p className="mt-2 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
         {role === "staff" ? (
           <button
-            onClick={endRoomAndReturn}
+            onClick={() => room.status === "ended" ? void endRoomAndReturn() : setEndDialogOpen(true)}
             disabled={ending}
             className="mt-2 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-rose-50 px-4 text-sm font-bold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50 md:mt-3 md:h-14 md:text-base"
           >
@@ -1396,12 +1464,14 @@ export function ConsultationChatRoom({
         ) : null}
       </footer>
 
+      <EndRoomDialog open={endDialogOpen} ending={ending} error={endError} onCancel={() => { setEndDialogOpen(false); setEndError(""); }} onConfirm={() => void endRoomAndReturn()} onRetry={() => void verifyRoomEnded().then((ended) => { if (ended) void endRoomAndReturn(); else setEndError("방이 아직 열려 있습니다. 네트워크를 확인한 뒤 종료를 다시 시도해주세요."); })} />
+
       {feedbackTarget ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/35 p-4 sm:items-center">
           <div className="w-full max-w-md rounded-lg bg-white p-4 shadow-soft">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-bold text-trust">Translation feedback</p>
+                <p className="text-sm font-bold text-trust-text">Translation feedback</p>
                 <h2 className="mt-0.5 text-lg font-bold text-ink">번역 신고</h2>
               </div>
               <button
