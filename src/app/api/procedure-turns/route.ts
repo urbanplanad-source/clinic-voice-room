@@ -17,7 +17,6 @@ import { matchVerifiedSentence } from "@/lib/verified-sentences";
 import { broadcastServerTranslationMessage } from "@/lib/supabase-realtime-server";
 import { recordTranslationSample } from "@/lib/translation-samples";
 import { isClearlyNotKoreanTranslation } from "@/lib/translation-language-guard";
-import { pendingPatientConfirmationGuard } from "@/lib/high-risk-confirmation";
 
 type TargetLanguage = PatientLanguage | "ko";
 
@@ -75,7 +74,7 @@ async function translateProcedureSourceText(params: {
       translatedText: normalizeClinicTranslation(verifiedMatch.translatedText, targetLanguage, params.glossaryData),
       targetLanguage,
       model: "verified",
-      guardFlags: pendingPatientConfirmationGuard(params.sourceText, params.role),
+      guardFlags: undefined,
       translationSource: "verified" as const
     };
   }
@@ -125,7 +124,6 @@ async function translateProcedureSourceText(params: {
     return { response: NextResponse.json({ error: "Korean translation validation failed" }, { status: 502 }) };
   }
   const guardFlags = mergeGuardFlags(
-    mergeGuardFlags(
       translation.guardFlags,
       pendingBackTranslationGuard({
         sourceText: params.sourceText,
@@ -133,9 +131,7 @@ async function translateProcedureSourceText(params: {
         targetLanguage,
         translationSource: "llm"
       })
-    ),
-    pendingPatientConfirmationGuard(params.sourceText, params.role)
-  );
+    );
 
   return {
     translatedText: normalizedText,
@@ -249,7 +245,6 @@ async function handleRealtimeStaffMessage(request: Request) {
   }
 
   guardFlags = mergeGuardFlags(
-    mergeGuardFlags(
       guardFlags,
       pendingBackTranslationGuard({
         sourceText: parsed.data.sourceText,
@@ -257,9 +252,7 @@ async function handleRealtimeStaffMessage(request: Request) {
         targetLanguage,
         translationSource
       })
-    ),
-    pendingPatientConfirmationGuard(parsed.data.sourceText, parsed.data.role)
-  );
+    );
 
   let savedMessage;
   try {

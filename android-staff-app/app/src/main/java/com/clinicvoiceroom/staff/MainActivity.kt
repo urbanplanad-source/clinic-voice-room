@@ -21,9 +21,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Base64
@@ -56,6 +53,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -88,6 +86,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -361,8 +360,6 @@ private data class StaffMessage(
     val text: String,
     val targetLanguage: String?,
     val createdAt: String,
-    val confirmationStatus: String = "",
-    val confirmationCategories: List<String> = emptyList()
 )
 
 private data class LocalConversationTurn(
@@ -1432,9 +1429,7 @@ class MainActivity : ComponentActivity() {
     private val messageExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var messageCursor: String? = null
     private var messagePollingInitialized = false
-    private var confirmationPollCounter = 0
     private val seenMessageIds = mutableSetOf<String>()
-    private val notifiedRepeatRequestIds = mutableSetOf<String>()
     private var translationRealtimeClient: SupabaseTranslationRealtimeClient? = null
     private var translationRealtimeRoomId = ""
     private val roomPollRunnable = object : Runnable {
@@ -2506,7 +2501,6 @@ class MainActivity : ComponentActivity() {
 
     private fun resetMessagePolling() {
         messagePollingInitialized = false
-        confirmationPollCounter = 0
         synchronized(seenMessageIds) {
             messageCursor = null
             seenMessageIds.clear()
@@ -2878,55 +2872,6 @@ class MainActivity : ComponentActivity() {
             }
         }
         messagePollingInitialized = true
-        confirmationPollCounter += 1
-        if (confirmationPollCounter >= 5) {
-            confirmationPollCounter = 0
-            runCatching { pollRoomConfirmations(room, backend) }
-                .onFailure { appendLog("환자 확인 상태 조회 실패: ${it.message}") }
-        }
-    }
-
-    private fun pollRoomConfirmations(room: RoomInfo, backend: String) {
-        val data = getJson("$backend/api/rooms/${room.id}/confirmations")
-        val confirmations = data.optJSONArray("confirmations") ?: return
-        val updates = mutableMapOf<String, Pair<String, List<String>>>()
-        for (index in 0 until confirmations.length()) {
-            val item = confirmations.optJSONObject(index) ?: continue
-            val messageId = item.optString("messageId")
-            val status = item.optString("status")
-            if (messageId.isBlank() || status.isBlank()) continue
-            val categories = item.optJSONArray("categories")?.let { values ->
-                buildList {
-                    for (categoryIndex in 0 until values.length()) {
-                        values.optString(categoryIndex).takeIf { it.isNotBlank() }?.let(::add)
-                    }
-                }
-            }.orEmpty()
-            updates[messageId] = status to categories
-            if (status == "repeat_requested") notifyRepeatRequest(messageId)
-        }
-        if (updates.isEmpty()) return
-        updateState { state ->
-            state.copy(messages = state.messages.map { message ->
-                val update = updates[message.id] ?: return@map message
-                message.copy(confirmationStatus = update.first, confirmationCategories = update.second)
-            })
-        }
-    }
-
-    private fun notifyRepeatRequest(messageId: String) {
-        if (!notifiedRepeatRequestIds.add(messageId)) return
-        runOnUiThread {
-            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-            } else {
-                @Suppress("DEPRECATION")
-                getSystemService(VIBRATOR_SERVICE) as Vibrator
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) vibrator.vibrate(VibrationEffect.createOneShot(180L, VibrationEffect.DEFAULT_AMPLITUDE))
-            else { @Suppress("DEPRECATION") vibrator.vibrate(180L) }
-        }
-        appendLog("환자 재설명 요청 알림: $messageId")
     }
 
     private fun rememberMessage(message: JSONObject, advanceCursor: Boolean = true): Boolean {
@@ -2949,23 +2894,13 @@ class MainActivity : ComponentActivity() {
         } else {
             fallbackPatientLanguage ?: uiState.value.room?.patientLanguage ?: uiState.value.selectedLanguage
         }
-        val confirmation = message.optJSONObject("guardFlags")?.optJSONObject("confirmation")
-        val confirmationCategories = confirmation?.optJSONArray("categories")?.let { values ->
-            buildList {
-                for (index in 0 until values.length()) {
-                    values.optString(index).takeIf { it.isNotBlank() }?.let(::add)
-                }
-            }
-        }.orEmpty()
         return StaffMessage(
             id = message.optString("id", "message-${System.currentTimeMillis()}"),
             speaker = speaker,
             sourceText = if (speaker == "staff") normalizeKoreanSourceText(message.optString("sourceText")) else message.optString("sourceText"),
             text = normalizeClinicText(message.optString("text"), displayLanguage),
             targetLanguage = targetLanguage,
-            createdAt = message.optString("createdAt", System.currentTimeMillis().toString()),
-            confirmationStatus = confirmation?.optString("status").orEmpty(),
-            confirmationCategories = confirmationCategories
+            createdAt = message.optString("createdAt", System.currentTimeMillis().toString())
         )
     }
 
@@ -4711,11 +4646,11 @@ class MainActivity : ComponentActivity() {
                 sourceDraft = phrase.korean,
                 translatedDraft = translated,
                 lastMessageSpeaker = "staff",
-                status = "검토 완료 문구를 기기 음성으로 재생합니다."
+                status = "저장된 안내 문장을 기기 음성으로 재생합니다."
             )
         }
         speakTranslatedText(translated, patientLanguage)
-        appendLog("오프라인 검증 문구 재생: ${phrase.id}")
+        appendLog("비상용 안내 문장 재생: ${phrase.id}")
     }
 
     private fun warmTtsForRoom(room: RoomInfo) {
@@ -5354,28 +5289,29 @@ private fun StaffAppScreen(
                 onTtsEnabled = onTtsEnabled,
                 onRequestMicPermission = onRequestMicPermission,
                 onStatusTap = onStatusTap,
-                onOpenPhrasebook = { showPhrasebook.value = true }
             )
         } else {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .then(if (screenKey == "language") Modifier else Modifier.verticalScroll(rememberScrollState()))
                     .padding(horizontal = metrics.outerHorizontalPadding, vertical = metrics.outerVerticalPadding),
                 contentAlignment = Alignment.TopCenter
             ) {
                 Column(
                     modifier = Modifier
                         .widthIn(max = metrics.contentMaxWidth)
-                        .fillMaxWidth(),
+                        .fillMaxWidth()
+                        .then(if (screenKey == "language") Modifier.fillMaxHeight() else Modifier),
                     verticalArrangement = Arrangement.spacedBy(metrics.screenSpacing)
                 ) {
-                    if (screenKey != "conversation" && screenKey != "ended") {
+                    if (screenKey != "conversation" && screenKey != "ended" && screenKey != "language") {
                         Header(state, metrics)
                     }
 
                     AnimatedContent(
                         targetState = screenKey,
+                        modifier = if (screenKey == "language") Modifier.weight(1f) else Modifier,
                         label = "staff-flow-screen",
                         transitionSpec = {
                             val forward = staffScreenOrder(targetState) >= staffScreenOrder(initialState)
@@ -5383,7 +5319,7 @@ private fun StaffAppScreen(
                                 .togetherWith(slideOutHorizontally(animationSpec = tween(180)) { width -> if (forward) -width / 5 else width / 5 } + fadeOut(tween(140)))
                         }
                     ) { screen ->
-                        Column(verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)) {
+                        Column(modifier = if (screen == "language") Modifier.fillMaxSize() else Modifier, verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)) {
                             when (screen) {
                                 "login" -> LoginPanel(
                                     state = state,
@@ -5437,7 +5373,6 @@ private fun StaffAppScreen(
                                     RoomActionBar(
                                         onCopyLink = onCopyLink,
                                         onEndRoom = onRequestEndRoom,
-                                        onOpenPhrasebook = { showPhrasebook.value = true },
                                         onDiagnostics = openDiagnostics
                                     )
                                 }
@@ -5457,7 +5392,6 @@ private fun StaffAppScreen(
                                     RoomActionBar(
                                         onCopyLink = onCopyLink,
                                         onEndRoom = onRequestEndRoom,
-                                        onOpenPhrasebook = { showPhrasebook.value = true },
                                         onDiagnostics = openDiagnostics
                                     )
                                 }
@@ -5542,10 +5476,18 @@ private fun ModeSelectionScreen(
             onClick = { onRoomMode(RoomModeLocalInterpreterExperimental) }
         )
 
+        HorizontalDivider(color = Line, thickness = 1.dp)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "인터넷 장애 시 사용하세요",
+            color = SlateText,
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.bodySmall
+        )
         ModeLargeCard(
             metrics = metrics,
-            title = "검증 문구",
-            body = "진료과별 검토 완료 문구 · 오프라인 재생",
+            title = "비상용 안내 문장",
+            body = "저장된 문장을 환자 언어로 재생",
             badge = "36개",
             badgeColor = Mint,
             icon = {
@@ -5610,8 +5552,8 @@ private fun OfflineVerifiedPhrasebookDialog(
             Column(modifier = Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("검증 문구", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
-                        Text("의료 검토 완료 · 오프라인 텍스트", style = MaterialTheme.typography.bodySmall, color = SlateText)
+                        Text("비상용 안내 문장", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
+                        Text("인터넷 장애 시 저장된 문장을 찾아 재생하세요.", style = MaterialTheme.typography.bodySmall, color = SlateText)
                     }
                     TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("닫기", fontWeight = FontWeight.Bold) }
                 }
@@ -5950,36 +5892,77 @@ private fun qrWaitingBody(languageCode: String): String {
 }
 
 @Composable
-private fun LanguageSelectionScreen(state: StaffUiState, metrics: StaffLayoutMetrics, onLanguage: (String) -> Unit, onCreateRoom: () -> Unit) {
-    val query = androidx.compose.runtime.remember { mutableStateOf("") }
-    val normalized = query.value.trim().lowercase(Locale.getDefault())
-    val filtered = patientLanguages.filter { option -> normalized.isBlank() || option.ko.lowercase(Locale.KOREAN).contains(normalized) || languageNativeLabel(option).lowercase(Locale.getDefault()).contains(normalized) || languageEnglishLabel(option.code).lowercase(Locale.US).contains(normalized) }
+private fun LanguageSelectionScreen(
+    state: StaffUiState,
+    metrics: StaffLayoutMetrics,
+    onLanguage: (String) -> Unit,
+    onCreateRoom: () -> Unit
+) {
     val selected = patientLanguages.firstOrNull { it.code == state.selectedLanguage } ?: patientLanguages.first()
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)) {
-        Column(modifier = Modifier.padding(metrics.cardPadding), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(languageRoomTitle(state.selectedRoomMode), color = Ink, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("환자가 사용하는 언어를 선택하세요.", color = SlateText, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-            if (state.recentLanguages.isNotEmpty()) {
-                Text("최근 사용", color = Ink, fontWeight = FontWeight.Bold)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    state.recentLanguages.mapNotNull { code -> patientLanguages.firstOrNull { it.code == code } }.forEach { option ->
-                        OutlinedButton(onClick = { onLanguage(option.code) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (option.code == state.selectedLanguage) BlueTint else Color.White)) { Text(option.ko, textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, maxLines = 2) }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val columnCount = if (maxWidth > maxHeight) 6 else 3
+        val languageRows = patientLanguages.chunked(columnCount)
+        Card(
+            modifier = Modifier.fillMaxSize(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    "Please choose your language.",
+                    color = Ink,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "아래에서 사용하는 언어를 선택하세요.",
+                    color = SlateText,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Column(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    languageRows.forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            row.forEach { language ->
+                                LanguageTile(
+                                    metrics = metrics,
+                                    language = language,
+                                    selected = state.selectedLanguage == language.code,
+                                    onClick = { onLanguage(language.code) },
+                                    modifier = Modifier.weight(1f).fillMaxHeight()
+                                )
+                            }
+                            repeat(columnCount - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
                     }
                 }
-            }
-            OutlinedTextField(value = query.value, onValueChange = { query.value = it }, label = { Text("언어 검색") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = if (metrics.isTablet) 520.dp else 360.dp), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 8.dp)) {
-                items(filtered, key = { it.code }) { option ->
-                    val active = option.code == state.selectedLanguage
-                    OutlinedButton(onClick = { onLanguage(option.code) }, modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp), colors = ButtonDefaults.outlinedButtonColors(containerColor = if (active) BlueTint else Color.White, contentColor = if (active) Trust else Ink)) {
-                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.Start) { Text(option.ko, fontWeight = FontWeight.Bold); Text(languageNativeLabel(option), color = SlateText, fontWeight = FontWeight.SemiBold) }
-                        if (active) { Icon(Icons.Filled.Check, contentDescription = null, tint = Trust); Text(" 선택됨", color = Trust, fontWeight = FontWeight.Bold) }
-                    }
+                Button(
+                    onClick = onCreateRoom,
+                    enabled = !state.busy,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Trust, contentColor = Color.White)
+                ) {
+                    Icon(Icons.Filled.Check, contentDescription = null)
+                    Spacer(Modifier.widthIn(min = 8.dp))
+                    Text(
+                        if (state.busy) "생성 중..." else "${languageNativeLabel(selected)} 선택 완료 · Confirm",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-            }
-            Button(onClick = onCreateRoom, enabled = !state.busy, modifier = Modifier.fillMaxWidth().heightIn(min = metrics.primaryButtonHeight), shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.buttonColors(containerColor = Trust, contentColor = Color.White)) {
-                Icon(Icons.Outlined.Translate, contentDescription = null)
-                Text(if (state.busy) "생성 중..." else "${selected.ko} ${modeKoreanLabel(state.selectedRoomMode)} 통역방 만들기", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
             }
         }
     }
@@ -5996,7 +5979,7 @@ private fun LanguageTile(
     Button(
         onClick = onClick,
         modifier = modifier
-            .height(metrics.languageTileHeight)
+            .heightIn(min = 48.dp)
             .border(
                 width = if (selected) 2.dp else 1.dp,
                 color = if (selected) Trust else Line,
@@ -6222,7 +6205,6 @@ private fun LocalInterpreterScreen(
     onTtsEnabled: (Boolean) -> Unit,
     onRequestMicPermission: () -> Unit,
     onStatusTap: () -> Unit,
-    onOpenPhrasebook: () -> Unit
 ) {
     val language = patientLanguages.firstOrNull { it.code == state.selectedLanguage } ?: patientLanguages.first()
     val patientActive = state.speaking && state.localTurnDirection == LocalDirectionPatientToKo
@@ -6291,7 +6273,6 @@ private fun LocalInterpreterScreen(
                 onTtsEnabled = onTtsEnabled,
                 onExit = onExit,
                 onStatusTap = onStatusTap,
-                onOpenPhrasebook = onOpenPhrasebook
             )
 
             LocalInterpreterHalf(
@@ -6606,7 +6587,6 @@ private fun LocalInterpreterControlStrip(
     onTtsEnabled: (Boolean) -> Unit,
     onExit: () -> Unit,
     onStatusTap: () -> Unit,
-    onOpenPhrasebook: () -> Unit
 ) {
     val experimentalMode = isExperimentalLocalInterpreterMode(state.selectedRoomMode)
     Row(
@@ -6642,7 +6622,6 @@ private fun LocalInterpreterControlStrip(
                 modifier = Modifier.hiddenDebugTap(onStatusTap)
             )
         }
-        OutlinedButton(onClick = onOpenPhrasebook, enabled = !state.busy && !state.speaking && !state.ttsPlaybackActive, shape = RoundedCornerShape(10.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) { Icon(Icons.Outlined.ChatBubbleOutline, contentDescription = null, modifier = Modifier.size(18.dp)); Spacer(Modifier.widthIn(min = 4.dp)); Text("문구", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1) }
         if (experimentalMode) {
             OutlinedButton(
                 onClick = onShowSummary,
@@ -6668,7 +6647,7 @@ private fun LocalInterpreterControlStrip(
             onClick = onExit,
             enabled = !state.busy && !state.speaking && !state.ttsPlaybackActive
         ) {
-            Text("나가기", color = Color.White, fontWeight = FontWeight.Bold)
+            Text("나가기", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
         }
     }
 }
@@ -6897,22 +6876,19 @@ private fun PatientNoticePreview(roomMode: String, languageLabel: String) {
 }
 
 @Composable
-private fun RoomActionBar(onCopyLink: () -> Unit, onEndRoom: () -> Unit, onOpenPhrasebook: () -> Unit, onDiagnostics: () -> Unit) {
+private fun RoomActionBar(onCopyLink: () -> Unit, onEndRoom: () -> Unit, onDiagnostics: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(onClick = onCopyLink, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
                 Text("링크 복사", fontWeight = FontWeight.Bold)
             }
-            OutlinedButton(onClick = onOpenPhrasebook, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Text("검증 문구", fontWeight = FontWeight.Bold, color = Trust) }
             OutlinedButton(onClick = onEndRoom, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
                 Text("방 종료", fontWeight = FontWeight.Bold, color = Coral)
             }
         }
         TextButton(
             onClick = onDiagnostics,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp)
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
         ) {
             Text("현장 진단", color = Trust, fontWeight = FontWeight.Bold)
         }
@@ -7340,10 +7316,6 @@ private fun ModeChoiceButton(
     }
 }
 
-private fun confirmationCategoryLabel(category: String): String = when (category) {
-    "number" -> "숫자"; "amount" -> "금액"; "date_time" -> "날짜·시간"; "dose_unit_frequency" -> "용량·단위·횟수"; "laterality" -> "좌우 방향"; "negation" -> "부정·금지"; else -> category
-}
-
 @Composable
 private fun TranslationPanel(
     state: StaffUiState,
@@ -7357,9 +7329,7 @@ private fun TranslationPanel(
 ) {
     val room = state.room
     val patientReady = room?.patientJoinedAt != null && room.status != "ended"
-    val confirmationMessage = state.messages.firstOrNull { it.speaker == "staff" && (it.confirmationStatus == "pending" || it.confirmationStatus == "repeat_requested") }
-    val confirmationPending = confirmationMessage?.confirmationStatus == "pending"
-    val canSpeak = patientReady && canStaffStartTurn(room.status) && state.recordAudioGranted && !state.busy && !state.ttsPlaybackActive && !confirmationPending
+    val canSpeak = patientReady && canStaffStartTurn(room.status) && state.recordAudioGranted && !state.busy && !state.ttsPlaybackActive
     val patientSpeaking = room?.status == "patient_speaking"
     val showingPatientTurn = state.lastMessageSpeaker == "patient"
     val sourceLabel = if (showingPatientTurn) "환자 발화" else "한국어 인식"
@@ -7367,16 +7337,6 @@ private fun TranslationPanel(
     val sourcePlaceholder = if (showingPatientTurn) "환자가 말하면 원문이 표시됩니다." else "말하면 한국어 원문이 표시됩니다."
     val translatedPlaceholder = if (showingPatientTurn) "환자 발화의 한국어 번역이 표시됩니다." else "번역 결과가 표시되고 직원폰에서 재생됩니다."
     val isConsultation = room?.roomMode == "consultation"
-    confirmationMessage?.let { message ->
-        Surface(color = if (message.confirmationStatus == "repeat_requested") Color(0xFFFFE4E6) else BlueTint, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().border(2.dp, if (message.confirmationStatus == "repeat_requested") Coral else Trust, RoundedCornerShape(8.dp))) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Text(if (message.confirmationStatus == "repeat_requested") "환자가 다시 설명을 요청했습니다." else "중요 정보에 대한 환자 확인을 기다리는 중입니다.", color = Ink, fontWeight = FontWeight.Bold)
-                Text(message.sourceText.ifBlank { message.text }, color = SlateText, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                if (message.confirmationCategories.isNotEmpty()) Text(message.confirmationCategories.joinToString(" · ") { confirmationCategoryLabel(it) }, color = if (message.confirmationStatus == "repeat_requested") Coral else Trust, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-    }
     if (isConsultation) {
         SectionCard("상담 통역", metrics) {
             AutoPlayBar(state = state, onTtsEnabled = onTtsEnabled)
@@ -7397,7 +7357,7 @@ private fun TranslationPanel(
             TextFallbackBox(
                 value = state.textInput,
                 metrics = metrics,
-                enabled = patientReady && canStaffSendText(room.status) && !state.busy && !state.speaking && !confirmationPending,
+                enabled = patientReady && canStaffSendText(room.status) && !state.busy && !state.speaking,
                 onValueChange = onTextInputChange,
                 onSubmit = onSubmitText
             )
@@ -7669,26 +7629,6 @@ private fun ConversationBubble(message: StaffMessage) {
             if (sentAt.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
                 Text(sentAt, color = subColor, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-            }
-            if (isStaff && message.confirmationStatus.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                val confirmationText = when (message.confirmationStatus) {
-                    "confirmed" -> "환자 확인 완료"
-                    "repeat_requested" -> "환자가 다시 설명 요청"
-                    else -> "환자 확인 대기"
-                }
-                val confirmationColor = when (message.confirmationStatus) {
-                    "confirmed" -> Color(0xFFDCFCE7)
-                    "repeat_requested" -> Color(0xFFFFE4E6)
-                    else -> Color(0xFFFEF3C7)
-                }
-                Text(
-                    confirmationText,
-                    color = Ink,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.background(confirmationColor, RoundedCornerShape(20.dp)).padding(horizontal = 10.dp, vertical = 5.dp)
-                )
             }
         }
     }

@@ -20,12 +20,20 @@ describe("MediVoice UI safety contracts", () => {
     expect(dialog).toContain("상태 다시 확인");
   });
 
-  it("keeps Android phrasebook virtualization and in-room access", () => {
+  it("keeps the emergency phrasebook virtualized and outside active interpretation", () => {
     const android = readFileSync(new URL("../../android-staff-app/app/src/main/java/com/clinicvoiceroom/staff/MainActivity.kt", import.meta.url), "utf8");
     expect(android).toContain("LazyColumn");
     expect(android).toContain("delay(250)");
-    expect(android).toContain("onOpenPhrasebook");
-    expect(android).toContain("recentLanguages");
-    expect(android).toContain("환자가 다시 설명을 요청했습니다.");
+    expect(android).toContain("비상용 안내 문장");
+    expect(android).toContain("Please choose your language.");
+    expect(android).toContain("val columnCount = if (maxWidth > maxHeight) 6 else 3");
+    expect(android).toContain("선택 완료 · Confirm");
+    expect(android).toContain('.then(if (screenKey == "language") Modifier else Modifier.verticalScroll');
+    expect(android).not.toContain("confirmationStatus");
+  });
+
+  it("does not require patient taps for procedure-room messages", () => {
+    const route = readFileSync(new URL("../app/api/procedure-turns/route.ts", import.meta.url), "utf8");
+    expect(route).not.toContain("pendingPatientConfirmationGuard");
   });
 });
