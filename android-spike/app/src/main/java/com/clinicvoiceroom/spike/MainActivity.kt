@@ -6,14 +6,16 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.KeyEvent
-import android.view.WindowManager
 import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import androidx.activity.ComponentActivity
@@ -72,7 +74,6 @@ import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
 import org.webrtc.DataChannel
 import org.webrtc.IceCandidate
-import org.webrtc.audio.AudioDeviceModule
 import org.webrtc.audio.JavaAudioDeviceModule
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
@@ -96,7 +97,6 @@ class MainActivity : ComponentActivity() {
     private val http = OkHttpClient.Builder()
         .cookieJar(InMemoryCookieJar())
         .build()
-    private var webRtcClient: OpenAiTranslationWebRtcClient? = null
     private var mediaSession: MediaSession? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
     private var lastMediaKeyCode: Int? = null
     private var lastMediaKeyEventTime: Long = 0L
     private val translationDirection = mutableStateOf("patient_to_staff")
+    private val outputRoute = mutableStateOf(StoreTranslationForegroundService.OUTPUT_PHONE)
     private val staffRemoteDeviceId = mutableStateOf<Int?>(null)
     private val patientRemoteDeviceId = mutableStateOf<Int?>(null)
     private val remoteRegistrationTarget = mutableStateOf<String?>(null)
@@ -117,10 +118,13 @@ class MainActivity : ComponentActivity() {
     @Volatile
     private var desiredMicEnabled = false
 
-    private val requestAudioPermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        appendLog("RECORD_AUDIO permission: $granted")
+    private val requestRuntimePermissions = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        appendLog("RECORD_AUDIO permission: ${result[Manifest.permission.RECORD_AUDIO] == true}")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            appendLog("POST_NOTIFICATIONS permission: ${result[Manifest.permission.POST_NOTIFICATIONS] == true}")
+        }
     }
 
     private val logs = mutableStateListOf<String>()
@@ -129,14 +133,26 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        MediaButtonEventRouter.setHandler(::handleMediaKeyEvent)
-        configureAudio()
-        configureMediaSession()
+        StoreTranslationForegroundService.setUiCallbacks(
+            ::appendLog,
+            ::appendTranscriptDelta,
+            ::finishTranscript
+        )
         applyLaunchIntent(intent)
 
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            requestAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
+        val permissions = buildList {
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                add(Manifest.permission.RECORD_AUDIO)
+            }
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        if (permissions.isNotEmpty()) {
+            requestRuntimePermissions.launch(permissions.toTypedArray())
         }
 
         setContent {
@@ -146,6 +162,7 @@ class MainActivity : ComponentActivity() {
                         logs = logs,
                         transcriptMessages = transcriptMessages,
                         direction = translationDirection.value,
+                        outputRoute = outputRoute.value,
                         staffRemoteDeviceId = staffRemoteDeviceId.value,
                         patientRemoteDeviceId = patientRemoteDeviceId.value,
                         remoteRegistrationTarget = remoteRegistrationTarget.value,
@@ -155,6 +172,11 @@ class MainActivity : ComponentActivity() {
                         roomToken = roomTokenState.value,
                         onLog = ::appendLog,
                         onSwitchDirection = ::switchTranslationDirection,
+                        onOutputRouteChanged = { nextRoute ->
+                            outputRoute.value = nextRoute
+                            StoreTranslationForegroundService.setOutputRoute(nextRoute)
+                            appendLog("requested output route=$nextRoute")
+                        },
                         onModeChanged = { nextMode ->
                             roomMode.value = nextMode
                             appendLog("room mode=$nextMode")
@@ -199,24 +221,21 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onConnect = { token ->
-                            executor.execute {
-                                runCatching {
-                                    webRtcClient?.close()
-                                    webRtcClient = OpenAiTranslationWebRtcClient(applicationContext, ::appendLog, ::appendTranscriptDelta, ::finishTranscript)
-                                    webRtcClient?.connect(token)
-                                    webRtcClient?.setMicEnabled(roomMode.value != "consultation")
-                                }.onFailure {
-                                    appendLog("connect error: ${it.message}")
-                                }
+                            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                                appendLog("connect blocked: microphone permission is not granted")
+                            } else {
+                                StoreTranslationForegroundService.start(
+                                    this,
+                                    token,
+                                    roomMode.value != "consultation",
+                                    outputRoute.value
+                                )
                             }
                         },
                         onDisconnect = {
-                            executor.execute {
-                                webRtcClient?.close()
-                                webRtcClient = null
-                                connectedDirection = null
-                                appendLog("disconnected")
-                            }
+                            StoreTranslationForegroundService.stop(this)
+                            connectedDirection = null
+                            appendLog("disconnected")
                         }
                     )
                 }
@@ -224,10 +243,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (handleRemoteKeyEvent(event)) return true
         if (handleMediaKeyEvent(event, "activity")) return true
-        return super.dispatchKeyEvent(event)
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (handleRemoteKeyEvent(event)) return true
+        if (handleMediaKeyEvent(event, "activity")) return true
+        return super.onKeyUp(keyCode, event)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -237,12 +262,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        webRtcClient?.close()
-        MediaButtonEventRouter.setHandler(null)
-        abandonAudioFocus()
-        mediaSession?.isActive = false
-        mediaSession?.release()
-        mediaSession = null
+        StoreTranslationForegroundService.clearUiCallbacks()
         executor.shutdownNow()
         super.onDestroy()
     }
@@ -412,6 +432,10 @@ class MainActivity : ComponentActivity() {
     private fun handleMediaKeyEvent(event: KeyEvent, source: String): Boolean {
         if (!isMediaButton(event.keyCode)) return false
 
+        if (StoreTranslationForegroundService.isRunning()) {
+            return StoreTranslationForegroundService.handleExternalMediaButton(event, source)
+        }
+
         appendLog("media button $source: ${describeKeyEvent(event)}")
         if (event.action != KeyEvent.ACTION_UP) return true
 
@@ -485,9 +509,9 @@ class MainActivity : ComponentActivity() {
                 connectForDirection(direction, micEnabled = true)
             } else if (action == KeyEvent.ACTION_UP) {
                 lastMediaKeyCode = 0
-                lastMediaKeyEventTime = System.currentTimeMillis()
+                lastMediaKeyEventTime = SystemClock.uptimeMillis()
                 desiredMicEnabled = false
-                webRtcClient?.setMicEnabled(false)
+                StoreTranslationForegroundService.setMicEnabled(false)
                 appendLog("ptt mic off")
             }
             return
@@ -495,7 +519,7 @@ class MainActivity : ComponentActivity() {
 
         if (action == KeyEvent.ACTION_UP) {
             lastMediaKeyCode = 0
-            lastMediaKeyEventTime = System.currentTimeMillis()
+            lastMediaKeyEventTime = SystemClock.uptimeMillis()
             setTranslationDirection(direction)
             connectForDirection(direction, micEnabled = true)
         }
@@ -513,8 +537,8 @@ class MainActivity : ComponentActivity() {
 
         executor.execute {
             runCatching {
-                if (connectedDirection == direction && webRtcClient != null) {
-                    webRtcClient?.setMicEnabled(desiredMicEnabled)
+                if (connectedDirection == direction && StoreTranslationForegroundService.isRunning()) {
+                    StoreTranslationForegroundService.setMicEnabled(desiredMicEnabled)
                     appendLog("direction session reused: $direction mic=$desiredMicEnabled")
                     return@execute
                 }
@@ -522,12 +546,14 @@ class MainActivity : ComponentActivity() {
                 appendLog("direction session connecting: $direction")
                 val role = if (direction == "staff_to_patient") "staff" else "patient"
                 val token = requestToken(backendUrl, roomId, roomToken, role, direction)
-                webRtcClient?.close()
-                webRtcClient = OpenAiTranslationWebRtcClient(applicationContext, ::appendLog, ::appendTranscriptDelta, ::finishTranscript)
-                webRtcClient?.connect(token)
+                StoreTranslationForegroundService.start(
+                    this,
+                    token,
+                    desiredMicEnabled,
+                    outputRoute.value
+                )
                 connectedDirection = direction
-                webRtcClient?.setMicEnabled(desiredMicEnabled)
-                appendLog("direction session connected: $direction mic=$desiredMicEnabled")
+                appendLog("direction background service requested: $direction mic=$desiredMicEnabled")
             }.onFailure {
                 appendLog("direction connect error: ${it.message}")
             }
@@ -644,6 +670,7 @@ class MainActivity : ComponentActivity() {
             .put("roomId", effectiveRoomId)
             .put("role", role)
             .put("roomToken", normalizedRoomToken)
+            .put("translationSession", true)
             .also { body ->
                 if (direction != null) body.put("direction", direction)
             }
@@ -720,7 +747,7 @@ class MainActivity : ComponentActivity() {
         val stamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
         runOnUiThread {
             logs.add(0, "[$stamp] $message")
-            while (logs.size > 300) logs.removeLast()
+            while (logs.size > 300) logs.removeAt(logs.lastIndex)
         }
     }
 
@@ -732,7 +759,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 transcriptMessages.add(0, "... $currentTranscript")
             }
-            while (transcriptMessages.size > 20) transcriptMessages.removeLast()
+            while (transcriptMessages.size > 20) transcriptMessages.removeAt(transcriptMessages.lastIndex)
         }
     }
 
@@ -747,7 +774,7 @@ class MainActivity : ComponentActivity() {
                 transcriptMessages.add(0, finalText)
             }
             currentTranscript = ""
-            while (transcriptMessages.size > 20) transcriptMessages.removeLast()
+            while (transcriptMessages.size > 20) transcriptMessages.removeAt(transcriptMessages.lastIndex)
         }
     }
 }
@@ -757,6 +784,7 @@ private fun SpikeScreen(
     logs: List<String>,
     transcriptMessages: List<String>,
     direction: String,
+    outputRoute: String,
     staffRemoteDeviceId: Int?,
     patientRemoteDeviceId: Int?,
     remoteRegistrationTarget: String?,
@@ -766,6 +794,7 @@ private fun SpikeScreen(
     roomToken: String,
     onLog: (String) -> Unit,
     onSwitchDirection: () -> Unit,
+    onOutputRouteChanged: (String) -> Unit,
     onModeChanged: (String) -> Unit,
     onBackendUrlChanged: (String) -> Unit,
     onRoomIdChanged: (String) -> Unit,
@@ -919,6 +948,33 @@ private fun SpikeScreen(
                     helper = "한 번에 한 사람씩 말합니다"
                 )
 
+                SectionCard(title = "음성 출력") {
+                    Text(
+                        "화면이 꺼져도 선택한 장치로 번역 음성이 재생됩니다.",
+                        color = Color(0xFF64748B),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        ModeButton(
+                            label = "휴대폰 스피커",
+                            active = outputRoute == StoreTranslationForegroundService.OUTPUT_PHONE,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onOutputRouteChanged(StoreTranslationForegroundService.OUTPUT_PHONE) }
+                        )
+                        ModeButton(
+                            label = "블루투스 스피커",
+                            active = outputRoute == StoreTranslationForegroundService.OUTPUT_BLUETOOTH,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onOutputRouteChanged(StoreTranslationForegroundService.OUTPUT_BLUETOOTH) }
+                        )
+                    }
+                    Text(
+                        "블루투스는 통화 오디오를 지원하는 장치가 연결되어 있어야 합니다.",
+                        color = Color(0xFF64748B),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
                 if (roomMode == "procedure") {
                     SectionCard(title = "시술 리모컨") {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -964,6 +1020,26 @@ private fun SpikeScreen(
             }
 
             SectionCard(title = "운영 설정") {
+                Text("번역 음성 출력", color = Color(0xFF334155), fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    ModeButton(
+                        label = "휴대폰",
+                        active = outputRoute == StoreTranslationForegroundService.OUTPUT_PHONE,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onOutputRouteChanged(StoreTranslationForegroundService.OUTPUT_PHONE) }
+                    )
+                    ModeButton(
+                        label = "블루투스",
+                        active = outputRoute == StoreTranslationForegroundService.OUTPUT_BLUETOOTH,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onOutputRouteChanged(StoreTranslationForegroundService.OUTPUT_BLUETOOTH) }
+                    )
+                }
+                Text(
+                    "블루투스 스피커는 통역 시작 전에 선택하세요.",
+                    color = Color(0xFF64748B),
+                    style = MaterialTheme.typography.bodySmall
+                )
                 OutlinedTextField(
                     value = staffEmail,
                     onValueChange = { staffEmail = it },
@@ -1394,18 +1470,20 @@ private class InMemoryCookieJar : CookieJar {
     }
 }
 
-private class OpenAiTranslationWebRtcClient(
+internal class OpenAiTranslationWebRtcClient(
     private val context: Context,
     private val log: (String) -> Unit,
     private val onTranscriptDelta: (String) -> Unit,
-    private val onTranscriptDone: (String) -> Unit
+    private val onTranscriptDone: (String) -> Unit,
+    private val preferredInputDevice: AudioDeviceInfo? = null,
+    private val useMediaPlaybackOutput: Boolean = false
 ) {
     private val http = OkHttpClient()
     private var factory: PeerConnectionFactory? = null
     private var peerConnection: PeerConnection? = null
     private var audioSource: AudioSource? = null
     private var audioTrack: AudioTrack? = null
-    private var audioDeviceModule: AudioDeviceModule? = null
+    private var audioDeviceModule: JavaAudioDeviceModule? = null
     private var dataChannel: DataChannel? = null
     private var currentOutputText = ""
 
@@ -1415,9 +1493,23 @@ private class OpenAiTranslationWebRtcClient(
         WebRtcRuntime.initialize(context, log)
 
         audioDeviceModule = JavaAudioDeviceModule.builder(context)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(
+                        if (useMediaPlaybackOutput) AudioAttributes.USAGE_MEDIA
+                        else AudioAttributes.USAGE_VOICE_COMMUNICATION
+                    )
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
             .setUseHardwareAcousticEchoCanceler(true)
             .setUseHardwareNoiseSuppressor(true)
             .createAudioDeviceModule()
+
+        preferredInputDevice?.let { device ->
+            audioDeviceModule?.setPreferredInputDevice(device)
+            log("preferred input requested device=${device.productName} type=${device.type}")
+        }
 
         factory = PeerConnectionFactory.builder()
             .setAudioDeviceModule(audioDeviceModule)

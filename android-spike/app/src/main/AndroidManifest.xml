@@ -3,16 +3,26 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="false"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.ClinicVoiceRoomSpike"
-        android:label="Clinic Voice Room"
+        android:label="매장 통역 실험판"
         android:supportsRtl="true">
+        <service
+            android:name=".StoreTranslationForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone|mediaPlayback"
+            android:stopWithTask="false" />
+
         <receiver
             android:name=".EarbudMediaButtonReceiver"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>

@@ -29,7 +29,19 @@ describe("MediVoice UI safety contracts", () => {
     expect(android).toContain("val columnCount = if (maxWidth > maxHeight) 6 else 3");
     expect(android).toContain("선택 완료 · Confirm");
     expect(android).toContain('.then(if (screenKey == "language") Modifier else Modifier.verticalScroll');
+    expect(android).toContain("Role.RadioButton");
+    expect(android).toContain("isNetworkConnectionRequired");
+    expect(android).not.toContain("selectedLanguage = patientLanguage");
     expect(android).not.toContain("confirmationStatus");
+  });
+
+  it("discloses limited translation-text retention in the patient language", () => {
+    const join = readFileSync(new URL("./PatientJoin.tsx", import.meta.url), "utf8");
+    const privacy = readFileSync(new URL("../app/privacy/page.tsx", import.meta.url), "utf8");
+    expect(join).toContain("patientPrivacyCopy");
+    expect(join).toContain("privacyCopy.retention");
+    expect(join).toContain("quality and safety review");
+    expect(privacy).toContain("기본 30일");
   });
 
   it("does not require patient taps for procedure-room messages", () => {

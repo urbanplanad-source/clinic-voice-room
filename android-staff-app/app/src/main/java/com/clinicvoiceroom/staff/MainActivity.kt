@@ -106,7 +106,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -4642,14 +4647,13 @@ class MainActivity : ComponentActivity() {
         }
         updateState {
             it.copy(
-                selectedLanguage = patientLanguage,
                 sourceDraft = phrase.korean,
                 translatedDraft = translated,
                 lastMessageSpeaker = "staff",
-                status = "저장된 안내 문장을 기기 음성으로 재생합니다."
+                status = "저장된 안내 문장을 오프라인 음성으로 재생합니다."
             )
         }
-        speakTranslatedText(translated, patientLanguage)
+        speakTranslatedText(translated, patientLanguage, requireOfflineVoice = true)
         appendLog("비상용 안내 문장 재생: ${phrase.id}")
     }
 
@@ -4671,10 +4675,11 @@ class MainActivity : ComponentActivity() {
     private fun speakTranslatedText(
         text: String,
         patientLanguage: String,
-        onStarted: (() -> Unit)? = null
+        onStarted: (() -> Unit)? = null,
+        requireOfflineVoice: Boolean = false
     ) {
         val language = patientLanguages.firstOrNull { it.code == patientLanguage } ?: patientLanguages.first()
-        speakText(text, language.ttsLocale, language.ko, onStarted)
+        speakText(text, language.ttsLocale, language.ko, onStarted, requireOfflineVoice)
     }
 
     private fun speakKoreanText(text: String, onStarted: (() -> Unit)? = null) {
@@ -4685,7 +4690,8 @@ class MainActivity : ComponentActivity() {
         text: String,
         locale: Locale,
         label: String,
-        onStarted: (() -> Unit)? = null
+        onStarted: (() -> Unit)? = null,
+        requireOfflineVoice: Boolean = false
     ) {
         if (!uiState.value.ttsEnabled || text.isBlank()) return
         val tts = textToSpeech ?: return
@@ -4694,6 +4700,32 @@ class MainActivity : ComponentActivity() {
             updateState { it.copy(ttsStatus = "$label TTS 미지원") }
             appendLog("TTS 미지원: $label")
             return
+        }
+        if (requireOfflineVoice) {
+            val offlineVoice = tts.voices.orEmpty()
+                .asSequence()
+                .filter { voice ->
+                    !voice.isNetworkConnectionRequired &&
+                        voice.locale.language.equals(locale.language, ignoreCase = true)
+                }
+                .maxByOrNull { voice ->
+                    when {
+                        voice.locale.toLanguageTag().equals(locale.toLanguageTag(), ignoreCase = true) -> 2
+                        voice.locale.country.equals(locale.country, ignoreCase = true) -> 1
+                        else -> 0
+                    }
+                }
+            if (offlineVoice == null) {
+                updateState {
+                    it.copy(
+                        ttsStatus = "$label 오프라인 TTS 없음",
+                        status = "$label 오프라인 음성팩이 없어 문장만 표시합니다. 기기 설정에서 음성팩을 설치해 주세요."
+                    )
+                }
+                appendLog("오프라인 TTS 음성팩 없음: $label")
+                return
+            }
+            tts.voice = offlineVoice
         }
         val utteranceId = "$TtsSpeechUtterancePrefix-${System.currentTimeMillis()}"
         activeTtsUtteranceId = utteranceId
@@ -5901,6 +5933,7 @@ private fun LanguageSelectionScreen(
     val selected = patientLanguages.firstOrNull { it.code == state.selectedLanguage } ?: patientLanguages.first()
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val columnCount = if (maxWidth > maxHeight) 6 else 3
+        val compactLayout = maxHeight < 500.dp || LocalDensity.current.fontScale > 1.3f
         val languageRows = patientLanguages.chunked(columnCount)
         Card(
             modifier = Modifier.fillMaxSize(),
@@ -5918,12 +5951,14 @@ private fun LanguageSelectionScreen(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                Text(
-                    "아래에서 사용하는 언어를 선택하세요.",
-                    color = SlateText,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold
-                )
+                if (!compactLayout) {
+                    Text(
+                        "아래에서 사용하는 언어를 선택하세요.",
+                        color = SlateText,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 Column(
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -5938,6 +5973,7 @@ private fun LanguageSelectionScreen(
                                     metrics = metrics,
                                     language = language,
                                     selected = state.selectedLanguage == language.code,
+                                    showEnglishLabel = !compactLayout,
                                     onClick = { onLanguage(language.code) },
                                     modifier = Modifier.weight(1f).fillMaxHeight()
                                 )
@@ -5973,6 +6009,7 @@ private fun LanguageTile(
     metrics: StaffLayoutMetrics,
     language: PatientLanguageOption,
     selected: Boolean,
+    showEnglishLabel: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -5980,6 +6017,10 @@ private fun LanguageTile(
         onClick = onClick,
         modifier = modifier
             .heightIn(min = 48.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.RadioButton
+                this.selected = selected
+            }
             .border(
                 width = if (selected) 2.dp else 1.dp,
                 color = if (selected) Trust else Line,
@@ -5993,23 +6034,37 @@ private fun LanguageTile(
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text(
-                languageNativeLabel(language),
-                fontWeight = FontWeight.Bold,
-                style = if (metrics.isTablet) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                languageEnglishLabel(language.code),
-                fontWeight = FontWeight.Bold,
-                style = if (metrics.isTablet) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+        Box(Modifier.fillMaxSize()) {
+            if (selected) {
+                Icon(
+                    Icons.Filled.Check,
+                    contentDescription = null,
+                    modifier = Modifier.align(Alignment.TopEnd).size(18.dp)
+                )
+            }
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    languageNativeLabel(language),
+                    fontWeight = FontWeight.Bold,
+                    style = if (metrics.isTablet) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2
+                )
+                if (showEnglishLabel) {
+                    Text(
+                        languageEnglishLabel(language.code),
+                        fontWeight = FontWeight.Bold,
+                        style = if (metrics.isTablet) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }

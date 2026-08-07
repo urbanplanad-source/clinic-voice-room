@@ -183,6 +183,26 @@ const copy: Record<
   }
 };
 
+
+const patientPrivacyCopy: Record<PatientLanguage, { detailsLabel: string; retention: string }> = {
+  zh: { detailsLabel: "隐私与使用说明", retention: "每次翻译的原文和译文可能会在限定期限内保存，用于质量与安全检查。" },
+  yue: { detailsLabel: "私隱及使用說明", retention: "每次翻譯嘅原文同譯文可能會喺限定期間內保存，用作質素及安全檢查。" },
+  zh_tw: { detailsLabel: "隱私與使用說明", retention: "每次翻譯的原文與譯文可能會在限定期間內保存，用於品質與安全檢查。" },
+  ja: { detailsLabel: "プライバシーと利用案内", retention: "翻訳ごとの原文と翻訳文は、品質・安全確認のため一定期間保存される場合があります。" },
+  en: { detailsLabel: "Privacy and use information", retention: "The source and translated text for each translation may be retained for a limited period for quality and safety review." },
+  th: { detailsLabel: "ข้อมูลความเป็นส่วนตัวและการใช้งาน", retention: "ข้อความต้นฉบับและคำแปลของแต่ละครั้งอาจถูกเก็บไว้เป็นระยะเวลาจำกัดเพื่อตรวจสอบคุณภาพและความปลอดภัย" },
+  ms: { detailsLabel: "Maklumat privasi dan penggunaan", retention: "Teks sumber dan terjemahan bagi setiap terjemahan mungkin disimpan untuk tempoh terhad bagi semakan kualiti dan keselamatan." },
+  tl: { detailsLabel: "Impormasyon sa privacy at paggamit", retention: "Maaaring panatilihin sa limitadong panahon ang source at translated text ng bawat salin para sa pagsusuri ng kalidad at kaligtasan." },
+  mn: { detailsLabel: "Нууцлал ба ашиглалтын мэдээлэл", retention: "Орчуулга бүрийн эх болон орчуулсан бичвэрийг чанар, аюулгүй байдлын хяналтад зориулан хязгаарлагдмал хугацаанд хадгалж болно." },
+  ru: { detailsLabel: "Конфиденциальность и использование", retention: "Исходный и переведенный текст каждого перевода может храниться ограниченное время для проверки качества и безопасности." },
+  vi: { detailsLabel: "Thông tin quyền riêng tư và sử dụng", retention: "Văn bản gốc và bản dịch của từng lượt có thể được lưu trong thời gian giới hạn để kiểm tra chất lượng và an toàn." },
+  id: { detailsLabel: "Informasi privasi dan penggunaan", retention: "Teks sumber dan terjemahan untuk setiap terjemahan dapat disimpan dalam waktu terbatas untuk peninjauan kualitas dan keamanan." },
+  fr: { detailsLabel: "Confidentialité et utilisation", retention: "Le texte source et sa traduction peuvent être conservés pendant une durée limitée à des fins de contrôle de qualité et de sécurité." },
+  es: { detailsLabel: "Privacidad e información de uso", retention: "El texto original y su traducción pueden conservarse durante un período limitado para revisar la calidad y la seguridad." },
+  de: { detailsLabel: "Datenschutz und Nutzung", retention: "Ausgangstext und Übersetzung können für eine begrenzte Zeit zur Qualitäts- und Sicherheitsprüfung gespeichert werden." },
+  it: { detailsLabel: "Privacy e informazioni sull'uso", retention: "Il testo originale e la traduzione possono essere conservati per un periodo limitato per controlli di qualità e sicurezza." },
+  pt: { detailsLabel: "Privacidade e informações de uso", retention: "O texto original e a tradução podem ser mantidos por um período limitado para análise de qualidade e segurança." }
+};
 const patientEntryStateCopy: Record<PatientLanguage, { noAccount: string; processing: string }> = {
   zh: { noAccount: "无需账户", processing: "正在进入，请稍候" }, yue: { noAccount: "毋須帳戶", processing: "正在進入，請稍候" }, zh_tw: { noAccount: "不需帳號", processing: "正在進入，請稍候" },
   ja: { noAccount: "アカウント不要", processing: "入室処理中です" }, en: { noAccount: "No account needed", processing: "Entering the room" }, th: { noAccount: "ไม่ต้องมีบัญชี", processing: "กำลังเข้าห้อง" },
@@ -229,6 +249,7 @@ export function PatientJoin({
   const text = copy[room.patientLanguage];
   const turnNotice = turnTakingNotice[room.patientLanguage] ?? turnTakingNotice.en;
   const stateCopy = patientEntryStateCopy[room.patientLanguage];
+  const privacyCopy = patientPrivacyCopy[room.patientLanguage];
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [joinedRoom, setJoinedRoom] = useState<{
@@ -296,7 +317,10 @@ export function PatientJoin({
         <p className="mt-1 break-words text-lg font-bold text-ink">{languageLabels[room.patientLanguage].native}</p>
         <div className="mt-4 flex items-start gap-3 rounded-lg border border-blue-200 bg-white px-4 py-3 text-left">
           <MessageSquareText size={20} className="mt-0.5 shrink-0 text-trust-text" aria-hidden="true" />
-          <p className="text-sm font-semibold leading-6 text-slate-700">{text.consent}</p>
+          <div className="space-y-2 text-sm font-semibold leading-6 text-slate-700">
+            <p>{text.consent}</p>
+            <p>{privacyCopy.retention}</p>
+          </div>
         </div>
         <button
           onClick={enterRoom}
@@ -309,15 +333,18 @@ export function PatientJoin({
       </div>
 
       <details className="group mx-6 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 text-sm font-semibold leading-6 text-slate-700 sm:mx-7">
-        <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 font-bold text-trust-text">개인정보 및 이용 안내<ChevronDown size={20} className="transition group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" /></summary>
+        <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 font-bold text-trust-text">{privacyCopy.detailsLabel}<ChevronDown size={20} className="transition group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" /></summary>
         <div className="mt-3 space-y-3">
         <div className="flex gap-3">
           <ShieldCheck size={20} className="mt-0.5 shrink-0 text-trust-text" />
           <p>{roomMode === "procedure" ? text.procedureBody : text.body}</p>
         </div>
         <div className="flex gap-3">
-          <MessageSquareText size={20} className="mt-0.5 shrink-0 text-trust-text" />
-          <p>{text.consent}</p>
+          <MessageSquareText size={20} className="mt-0.5 shrink-0 text-trust-text" aria-hidden="true" />
+          <div className="space-y-2">
+            <p>{text.consent}</p>
+            <p>{privacyCopy.retention}</p>
+          </div>
         </div>
         <div className="flex gap-3">
           <MessageSquareText size={20} className="mt-0.5 shrink-0 text-trust-text" />
