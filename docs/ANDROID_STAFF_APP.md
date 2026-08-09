@@ -87,7 +87,7 @@ Direct `assembleField` or `copyBrandedFieldApk` packaging now fails when the fou
 Installable field APK after the signed build:
 
 ```text
-android-staff-app/app/build/outputs/apk/field/medivoice-0.3.38-field.apk
+android-staff-app/app/build/outputs/apk/field/medivoice-0.3.39-field.apk
 ```
 Release build sanity check:
 
@@ -120,8 +120,8 @@ Do not install or distribute the unsigned release APK. Use it only to verify rel
 
 Current app version:
 
-- versionName: `0.3.38`
-- versionCode: `50`
+- versionName: `0.3.39`
+- versionCode: `51`
 
 Pinned build stack:
 
@@ -131,8 +131,8 @@ Pinned build stack:
 - Compose BOM: 2024.12.01
 - minSdk: 26
 - compileSdk/targetSdk: 35
-- Google Play field APK: `android-staff-app/app/build/outputs/apk/field/medivoice-0.3.38-field.apk`
-- Google Play release AAB filename after bundle build: `android-staff-app/app/build/outputs/bundle/release/medivoice-0.3.38-release.aab`
+- Google Play field APK: `android-staff-app/app/build/outputs/apk/field/medivoice-0.3.39-field.apk`
+- Google Play release AAB filename after bundle build: `android-staff-app/app/build/outputs/bundle/release/medivoice-0.3.39-release.aab`
 - Store privacy policy page draft: `/privacy`
 
 `android.overridePathCheck=true` is set for Korean workspace paths.
@@ -226,6 +226,7 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.5` when unset. It 
 ## Known Release Notes
 
 - Android v1 is online-only and requires the deployed Next.js backend.
+- Android v0.3.39 adds a semantic Material 3 color theme, stable microphone-level feedback, and a conservative no-voice notice after 2.5 seconds only when no speech has been detected. Existing STT, auto-stop, translation, validation, and TTS thresholds are unchanged.
 - Android v0.3.38 adds a privacy-safe field diagnostics screen, exposes pending anonymous quality-metric delivery state, compiles a launch/version instrumentation smoke test, verifies final APK metadata/signature/non-debuggable state, and generates a SHA-256 checksum beside the signed field APK.
 - v0.3.38 also includes a generated offline phrase pack of 36 reviewed, 17-language sentences. The phrasebook filters common and hospital-specialty content, searches Korean/translated text, and uses an installed device TTS voice without sending the phrase to the translation API.
 - Staff messages containing numbers, amounts, dates/times, doses/units/frequency, left/right laterality, or negation carry patient-confirmation metadata. QR patients can confirm or request another explanation; the Android conversation view polls the resulting status without storing extra free text or audio.
@@ -260,5 +261,5 @@ The server defaults `OPENAI_TEXT_TRANSLATION_MODEL` to `gpt-5.5` when unset. It 
 - Android v0.2.3 makes Android and web staff QR links both include `?mode=consultation|procedure` for clearer field-test handoff. The server still uses `TranslationRoom.roomMode` as the source of truth.
 - Android v0.2.2 puts the active translation panel before room metadata after the patient joins, so staff see chat/mic controls first.
 - Android v0.2.1 and later use the phone's normal media volume/output route for TTS and request no Bluetooth permission.
-- The v0.3.38 field APK is non-debuggable, and Field packaging is blocked unless the release signing environment is complete. Verify the signing certificate before device distribution.
+- The v0.3.39 field APK is non-debuggable, and Field packaging is blocked unless the release signing environment is complete. Verify the signing certificate before device distribution.
 - A real two-phone field test is required before marking the app production-ready.

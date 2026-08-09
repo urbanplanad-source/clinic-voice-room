@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, ClipboardList, Flag, Loader2, Mic, PhoneOff, Send, Volume2, X } from "lucide-react";
-import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
+import { languageLabels, patientLanguageTags, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
 import { normalizeClinicTranslation } from "@/lib/clinic-glossary";
@@ -24,7 +24,7 @@ import {
 import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 import { EndRoomDialog } from "@/components/EndRoomDialog";
 import { ImportantConfirmationPanel, type ConfirmationActionStatus } from "@/components/ImportantConfirmationPanel";
-import { patientAutoStopHelperCopy, patientAutoStopSpeakingCopy, startVoiceAutoStop } from "@/lib/web-voice-auto-stop";
+import { patientAutoStopHelperCopy, patientAutoStopSpeakingCopy, patientNoVoiceCopy, startVoiceAutoStop, type VoiceLevelBucket } from "@/lib/web-voice-auto-stop";
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 const CONSULTATION_TRANSLATION_QUIET_MS = 500;
@@ -165,6 +165,7 @@ export function ConsultationChatRoom({
   const [textSubmitting, setTextSubmitting] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [speakingStartedAt, setSpeakingStartedAt] = useState<number | null>(null);
+  const [noVoiceWarning, setNoVoiceWarning] = useState(false);
   const [error, setError] = useState("");
   const [ending, setEnding] = useState(false);
   const [roomRealtimeHealthy, setRoomRealtimeHealthy] = useState(false);
@@ -194,6 +195,7 @@ export function ConsultationChatRoom({
   const mediaChunksRef = useRef<Blob[]>([]);
   const recordingModeRef = useRef<RecordingMode | null>(null);
   const voiceAutoStopCleanupRef = useRef<() => void>(() => undefined);
+  const micLevelRingRef = useRef<HTMLSpanElement | null>(null);
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
   const realtimePreconnectStartedRef = useRef(false);
   const stopVoiceTurnRef = useRef<() => Promise<void>>(async () => undefined);
@@ -497,10 +499,18 @@ export function ConsultationChatRoom({
     return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
   }
 
-  function stopVoiceAutoStop() {
+  const updateMicLevel = useCallback((bucket: VoiceLevelBucket) => {
+    const ring = micLevelRingRef.current;
+    if (!ring) return;
+    ring.style.opacity = bucket === 0 ? "0.25" : String(0.35 + bucket * 0.13);
+    ring.style.transform = `scale(${1 + bucket * 0.035})`;
+  }, []);
+  const stopVoiceAutoStop = useCallback(() => {
     voiceAutoStopCleanupRef.current();
     voiceAutoStopCleanupRef.current = () => undefined;
-  }
+    updateMicLevel(0);
+    setNoVoiceWarning(false);
+  }, [updateMicLevel]);
 
   function beginUploadRecording(stream: MediaStream, mode: RecordingMode) {
     const recorder = createAudioRecorder(stream);
@@ -517,7 +527,9 @@ export function ConsultationChatRoom({
     voiceAutoStopCleanupRef.current = startVoiceAutoStop(stream, {
       onStop: () => {
         void stopVoiceTurnRef.current();
-      }
+      },
+      onLevel: updateMicLevel,
+      onNoVoiceChange: setNoVoiceWarning
     });
   }
 
@@ -1010,7 +1022,7 @@ export function ConsultationChatRoom({
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
-  }, [stopPlayback]);
+  }, [stopPlayback, stopVoiceAutoStop]);
 
   async function submitTextMessage(textOverride?: string, quickPhraseId?: string) {
     const sourceText = (textOverride ?? textInput).trim();
@@ -1163,7 +1175,7 @@ export function ConsultationChatRoom({
   const activeHelperText = role === "patient" && isSpeaking ? patientAutoStopHelperCopy[room.patientLanguage] : voiceText.helper;
 
   return (
-    <div className="flex h-[calc(100dvh-56px)] min-h-0 flex-col overflow-hidden rounded-lg bg-white shadow-soft md:min-h-[720px]">
+    <div lang={role === "patient" ? patientLanguageTags[room.patientLanguage] : "ko"} className="flex h-full min-h-0 flex-col overflow-hidden bg-white shadow-soft sm:rounded-lg">
       <header className="shrink-0 border-b border-line bg-white px-3 py-2 md:px-6 md:py-2.5">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -1344,22 +1356,33 @@ export function ConsultationChatRoom({
 
       <footer className="shrink-0 border-t border-line bg-white px-2.5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-2 md:px-4 md:pb-4">
         <div className="mb-2 rounded-2xl bg-slate-50 p-3 text-center md:p-4">
-          <button
-            type="button"
-            disabled={room.status === "ended" || (voiceBusy && !isSpeaking) || (!micEnabled && !isSpeaking) || (staffConfirmationMessage?.guardFlags?.confirmation?.status === "pending" && !isSpeaking)}
-            onClick={isSpeaking ? stopVoiceTurn : startVoiceTurn}
-            className={`tap-highlight-none mx-auto grid h-20 w-20 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 md:h-24 md:w-24 ${
-              isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
-            }`}
-            aria-label={isSpeaking ? activeSpeakingLabel : voiceText.ready}
-            title={isSpeaking ? activeSpeakingLabel : voiceText.ready}
-          >
-            {voiceBusy && !isSpeaking ? <Loader2 size={30} className="animate-spin" /> : <Mic size={34} />}
-          </button>
+          <div className="relative mx-auto grid h-24 w-24 place-items-center md:h-28 md:w-28">
+            <span
+              ref={micLevelRingRef}
+              className={`pointer-events-none absolute h-20 w-20 rounded-full border-4 transition-transform motion-reduce:transition-none md:h-24 md:w-24 ${
+                isSpeaking ? "border-coral/60" : "border-transparent"
+              }`}
+              aria-hidden="true"
+            />
+            <button
+              type="button"
+              disabled={room.status === "ended" || (voiceBusy && !isSpeaking) || (!micEnabled && !isSpeaking) || (staffConfirmationMessage?.guardFlags?.confirmation?.status === "pending" && !isSpeaking)}
+              onClick={isSpeaking ? stopVoiceTurn : startVoiceTurn}
+              className={`tap-highlight-none grid h-20 w-20 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 motion-reduce:transition-none md:h-24 md:w-24 ${
+                isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
+              }`}
+              aria-label={isSpeaking ? activeSpeakingLabel : voiceText.ready}
+              aria-describedby={isSpeaking && noVoiceWarning ? "consultation-no-voice-warning" : undefined}
+              title={isSpeaking ? activeSpeakingLabel : voiceText.ready}
+            >
+              {voiceBusy && !isSpeaking ? <Loader2 size={30} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Mic size={34} aria-hidden="true" />}
+            </button>
+          </div>
           <p className="mt-2 text-base font-bold text-ink md:text-lg">
             {room.status === "ended" ? (role === "staff" ? "상담 종료" : copy.statusEnded) : isSpeaking ? activeSpeakingLabel : micEnabled ? voiceText.ready : voiceText.waiting}
           </p>
           <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 md:text-sm">{activeHelperText}</p>
+          {isSpeaking && noVoiceWarning ? <p id="consultation-no-voice-warning" className="mt-2 text-sm font-bold text-amber-800" role="status" aria-live="polite">{role === "staff" ? "소리가 작거나 들리지 않습니다." : patientNoVoiceCopy[room.patientLanguage]}</p> : null}
           {browserAudioOutputEnabled && lastIncomingMessage ? (
             <button
               type="button"

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ArrowRight, ChevronDown, Loader2, MessageSquareText, Mic, ShieldCheck } from "lucide-react";
-import { languageLabels, type PatientLanguage } from "@/lib/languages";
+import { languageLabels, patientLanguageTags, type PatientLanguage } from "@/lib/languages";
 import type { RoomStatus } from "@/lib/room-state";
 import { broadcastRoomUpdate } from "@/lib/supabase-realtime";
 import { VoiceRoom } from "@/components/VoiceRoom";
@@ -295,7 +295,7 @@ export function PatientJoin({
   }
 
   return (
-    <section className="overflow-hidden rounded-lg bg-white shadow-soft">
+    <section lang={patientLanguageTags[room.patientLanguage]} className="overflow-hidden rounded-lg bg-white shadow-soft">
       <div className="bg-ink p-6 text-white sm:p-7">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">

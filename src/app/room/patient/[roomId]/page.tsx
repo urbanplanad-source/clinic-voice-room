@@ -1,4 +1,5 @@
 import { AppFrame } from "@/components/AppFrame";
+import { PatientRoomUnavailable } from "@/components/PatientRoomUnavailable";
 import { VoiceRoom } from "@/components/VoiceRoom";
 import { isPatientRoomSessionAuthorized } from "@/lib/patient-room-session";
 import { prisma } from "@/lib/prisma";
@@ -25,16 +26,13 @@ export default async function PatientCookieRoomPage({
   if (!room || !(await isPatientRoomSessionAuthorized(room))) {
     return (
       <AppFrame narrow>
-        <section className="rounded-lg bg-white p-6 shadow-soft">
-          <h1 className="text-2xl font-bold">Room not available</h1>
-          <p className="mt-3 text-slate-600">Please scan the QR code again from the hospital staff screen.</p>
-        </section>
+        <PatientRoomUnavailable language={room?.patientLanguage} />
       </AppFrame>
     );
   }
 
   return (
-    <AppFrame narrow>
+    <AppFrame narrow roomViewport>
       <VoiceRoom
         role="patient"
         roomMode={room.roomMode}

@@ -4,8 +4,12 @@ type WebkitAudioWindow = Window & typeof globalThis & {
   webkitAudioContext?: typeof AudioContext;
 };
 
-type VoiceAutoStopOptions = {
+export type VoiceLevelBucket = 0 | 1 | 2 | 3 | 4;
+
+export type VoiceAutoStopOptions = {
   onStop: () => void;
+  onLevel?: (bucket: VoiceLevelBucket) => void;
+  onNoVoiceChange?: (visible: boolean) => void;
   minRecordingMs?: number;
   minVoiceMs?: number;
   silenceMs?: number;
@@ -61,6 +65,95 @@ export const patientAutoStopHelperCopy: Record<PatientLanguage, string> = {
   pt: "Aguarde um momento depois de falar."
 };
 
+export const patientNoVoiceCopy: Record<PatientLanguage, string> = {
+  zh: "声音较小或尚未检测到声音。",
+  yue: "聲音較細或暫時未偵測到聲音。",
+  zh_tw: "聲音較小或尚未偵測到聲音。",
+  ja: "音声が小さいか、まだ検出されていません。",
+  en: "The sound is quiet or has not been detected yet.",
+  th: "เสียงเบาหรือยังตรวจไม่พบเสียง",
+  vi: "Âm thanh nhỏ hoặc chưa được phát hiện.",
+  id: "Suara pelan atau belum terdeteksi.",
+  ms: "Suara perlahan atau belum dikesan.",
+  tl: "Mahina ang tunog o hindi pa ito natutukoy.",
+  mn: "Дуу сул эсвэл хараахан илрээгүй байна.",
+  ru: "Звук тихий или пока не обнаружен.",
+  fr: "Le son est faible ou n'a pas encore été détecté.",
+  es: "El sonido es bajo o todavía no se ha detectado.",
+  de: "Der Ton ist leise oder wurde noch nicht erkannt.",
+  it: "Il suono è basso o non è ancora stato rilevato.",
+  pt: "O som está baixo ou ainda não foi detectado."
+};
+
+function safelyNotify<T>(callback: ((value: T) => void) | undefined, value: T) {
+  try {
+    callback?.(value);
+  } catch {
+    // UI feedback must never interrupt recording or automatic stop.
+  }
+}
+
+export function voiceLevelBucket(
+  rms: number,
+  peak: number,
+  rmsThreshold = defaultOptions.rmsThreshold,
+  peakThreshold = defaultOptions.peakThreshold
+): VoiceLevelBucket {
+  const ratio = Math.max(rms / rmsThreshold, peak / peakThreshold);
+  if (ratio < 0.35) return 0;
+  if (ratio < 0.65) return 1;
+  if (ratio < 1) return 2;
+  if (ratio < 2) return 3;
+  return 4;
+}
+
+export function createVoiceActivityTracker(options: {
+  startedAt: number;
+  minRecordingMs: number;
+  minVoiceMs: number;
+  silenceMs: number;
+  rmsThreshold: number;
+  peakThreshold: number;
+  noVoiceWarningMs?: number;
+  onLevel?: (bucket: VoiceLevelBucket) => void;
+  onNoVoiceChange?: (visible: boolean) => void;
+}) {
+  let lastVoiceAt = options.startedAt;
+  let voiceMs = 0;
+  let lastLevel: VoiceLevelBucket | null = null;
+  let noVoiceVisible = false;
+  const noVoiceWarningMs = options.noVoiceWarningMs ?? 2500;
+
+  return {
+    sample(params: { now: number; deltaMs: number; rms: number; peak: number }) {
+      const detected = params.rms >= options.rmsThreshold || params.peak >= options.peakThreshold;
+      const level = voiceLevelBucket(params.rms, params.peak, options.rmsThreshold, options.peakThreshold);
+
+      if (level !== lastLevel) {
+        lastLevel = level;
+        safelyNotify(options.onLevel, level);
+      }
+
+      if (detected) {
+        voiceMs += Math.max(0, params.deltaMs);
+        lastVoiceAt = params.now;
+        if (noVoiceVisible) {
+          noVoiceVisible = false;
+          safelyNotify(options.onNoVoiceChange, false);
+        }
+      } else if (!noVoiceVisible && voiceMs === 0 && params.now - options.startedAt >= noVoiceWarningMs) {
+        noVoiceVisible = true;
+        safelyNotify(options.onNoVoiceChange, true);
+      }
+
+      return (
+        voiceMs >= options.minVoiceMs &&
+        params.now - options.startedAt >= options.minRecordingMs &&
+        params.now - lastVoiceAt >= options.silenceMs
+      );
+    }
+  };
+}
 export function startVoiceAutoStop(stream: MediaStream, options: VoiceAutoStopOptions) {
   if (typeof window === "undefined") return () => undefined;
 
@@ -80,9 +173,17 @@ export function startVoiceAutoStop(stream: MediaStream, options: VoiceAutoStopOp
 
   const startedAt = Date.now();
   let lastTickAt = startedAt;
-  let lastVoiceAt = startedAt;
-  let voiceMs = 0;
   let triggered = false;
+  const tracker = createVoiceActivityTracker({
+    startedAt,
+    minRecordingMs,
+    minVoiceMs,
+    silenceMs,
+    rmsThreshold,
+    peakThreshold,
+    onLevel: options.onLevel,
+    onNoVoiceChange: options.onNoVoiceChange
+  });
 
   try {
     audioContext = new AudioContextCtor();
@@ -96,6 +197,7 @@ export function startVoiceAutoStop(stream: MediaStream, options: VoiceAutoStopOp
       if (stopped) return;
       stopped = true;
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      safelyNotify(options.onLevel, 0);
       try {
         source?.disconnect();
       } catch {
@@ -121,15 +223,10 @@ export function startVoiceAutoStop(stream: MediaStream, options: VoiceAutoStopOp
       }
 
       const rms = Math.sqrt(sumSquares / samples.length);
-      if (rms >= rmsThreshold || peak >= peakThreshold) {
-        voiceMs += deltaMs;
-        lastVoiceAt = now;
-      }
-
-      if (!triggered && voiceMs >= minVoiceMs && now - startedAt >= minRecordingMs && now - lastVoiceAt >= silenceMs) {
+      if (!triggered && tracker.sample({ now, deltaMs, rms, peak })) {
         triggered = true;
         cleanup();
-        options.onStop();
+        safelyNotify(options.onStop, undefined);
         return;
       }
 

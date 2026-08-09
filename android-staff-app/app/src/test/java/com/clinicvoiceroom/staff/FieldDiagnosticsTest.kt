@@ -8,8 +8,8 @@ class FieldDiagnosticsTest {
     @Test
     fun `copy text contains operational state without sensitive content`() {
         val diagnostics = FieldDiagnostics(
-            versionName = "0.3.38",
-            versionCode = 50,
+            versionName = "0.3.39",
+            versionCode = 51,
             buildType = "field",
             backendHost = "voice.insightmedi.co.kr",
             sessionState = "로그인됨",
@@ -24,7 +24,7 @@ class FieldDiagnosticsTest {
 
         val copied = diagnostics.copyText()
 
-        assertTrue(copied.contains("0.3.38 (50)"))
+        assertTrue(copied.contains("0.3.39 (51)"))
         assertTrue(copied.contains("전송 대기 품질 지표: 2건"))
         assertTrue(copied.contains("개인정보, 번역문, 오디오"))
         assertFalse(copied.contains("email"))

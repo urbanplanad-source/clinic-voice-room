@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Loader2, Mic, PhoneOff } from "lucide-react";
-import { languageLabels, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
+import { languageLabels, patientLanguageTags, type ParticipantRole, type PatientLanguage } from "@/lib/languages";
 import { OpenAIRealtimeClient } from "@/lib/openai-realtime-client";
 import { normalizeClinicTranslation } from "@/lib/clinic-glossary";
 import { isClearlyNotKoreanTranslation } from "@/lib/translation-language-guard";
@@ -13,7 +13,7 @@ import { speechLanguageByPatientLanguage } from "@/lib/speech";
 import { ConsultationChatRoom } from "@/components/ConsultationChatRoom";
 import { EndRoomDialog } from "@/components/EndRoomDialog";
 import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
-import { patientAutoStopHelperCopy, patientAutoStopSpeakingCopy, startVoiceAutoStop } from "@/lib/web-voice-auto-stop";
+import { patientAutoStopHelperCopy, patientAutoStopSpeakingCopy, patientNoVoiceCopy, startVoiceAutoStop, type VoiceLevelBucket } from "@/lib/web-voice-auto-stop";
 import {
   broadcastRoomUpdate,
   broadcastTranslationMessage,
@@ -91,6 +91,17 @@ type TranslationMessage = {
 };
 
 type RecordingMode = "upload" | "safety";
+
+export type TurnPhase =
+  | "idle"
+  | "connecting"
+  | "listening"
+  | "transcribing"
+  | "translating"
+  | "verifying"
+  | "fallback"
+  | "speaking"
+  | "error";
 
 const defaultStaffHardwareKeys = [
   "Space",
@@ -691,11 +702,77 @@ const patientCopies: Partial<Record<PatientLanguage, VoiceRoomCopy>> & { en: Voi
   }
 };
 
+const patientTurnPhaseCopy: Record<PatientLanguage, Pick<Record<TurnPhase, string>, "transcribing" | "verifying" | "fallback" | "speaking">> = {
+  zh: { transcribing: "正在识别语音。", verifying: "正在确认翻译内容。", fallback: "连接不稳定，正在安全地重新处理。", speaking: "正在播放翻译语音。" },
+  yue: { transcribing: "正在辨識語音。", verifying: "正在確認翻譯內容。", fallback: "連線不穩定，正在安全地重新處理。", speaking: "正在播放翻譯語音。" },
+  zh_tw: { transcribing: "正在辨識語音。", verifying: "正在確認翻譯內容。", fallback: "連線不穩定，正在安全地重新處理。", speaking: "正在播放翻譯語音。" },
+  ja: { transcribing: "音声を認識しています。", verifying: "翻訳内容を確認しています。", fallback: "接続が不安定なため、安全に再処理しています。", speaking: "翻訳音声を再生しています。" },
+  en: { transcribing: "Recognizing speech.", verifying: "Checking the translation.", fallback: "The connection is unstable. Retrying safely.", speaking: "Playing the translated audio." },
+  th: { transcribing: "กำลังตรวจจับคำพูด", verifying: "กำลังตรวจสอบคำแปล", fallback: "การเชื่อมต่อไม่เสถียร กำลังประมวลผลใหม่อย่างปลอดภัย", speaking: "กำลังเล่นเสียงคำแปล" },
+  vi: { transcribing: "Đang nhận dạng giọng nói.", verifying: "Đang kiểm tra bản dịch.", fallback: "Kết nối không ổn định. Đang xử lý lại an toàn.", speaking: "Đang phát âm thanh bản dịch." },
+  id: { transcribing: "Mengenali ucapan.", verifying: "Memeriksa terjemahan.", fallback: "Koneksi tidak stabil. Memproses ulang dengan aman.", speaking: "Memutar audio terjemahan." },
+  ms: { transcribing: "Mengecam pertuturan.", verifying: "Menyemak terjemahan.", fallback: "Sambungan tidak stabil. Memproses semula dengan selamat.", speaking: "Memainkan audio terjemahan." },
+  tl: { transcribing: "Kinikilala ang sinabi.", verifying: "Sinusuri ang salin.", fallback: "Hindi matatag ang koneksyon. Ligtas na muling pinoproseso.", speaking: "Pinapatugtog ang saling audio." },
+  mn: { transcribing: "Яриаг таньж байна.", verifying: "Орчуулгыг шалгаж байна.", fallback: "Холболт тогтворгүй байна. Аюулгүйгээр дахин боловсруулж байна.", speaking: "Орчуулсан дууг тоглуулж байна." },
+  ru: { transcribing: "Распознаем речь.", verifying: "Проверяем перевод.", fallback: "Соединение нестабильно. Безопасно повторяем обработку.", speaking: "Воспроизводим перевод." },
+  fr: { transcribing: "Reconnaissance de la parole.", verifying: "Vérification de la traduction.", fallback: "La connexion est instable. Nouveau traitement sécurisé.", speaking: "Lecture de la traduction audio." },
+  es: { transcribing: "Reconociendo la voz.", verifying: "Comprobando la traducción.", fallback: "La conexión es inestable. Reintentando de forma segura.", speaking: "Reproduciendo el audio traducido." },
+  de: { transcribing: "Sprache wird erkannt.", verifying: "Übersetzung wird geprüft.", fallback: "Die Verbindung ist instabil. Sichere erneute Verarbeitung.", speaking: "Übersetzte Audioausgabe wird abgespielt." },
+  it: { transcribing: "Riconoscimento vocale in corso.", verifying: "Controllo della traduzione.", fallback: "La connessione è instabile. Nuova elaborazione sicura.", speaking: "Riproduzione dell'audio tradotto." },
+  pt: { transcribing: "Reconhecendo a fala.", verifying: "Verificando a tradução.", fallback: "A conexão está instável. Reprocessando com segurança.", speaking: "Reproduzindo o áudio traduzido." }
+};
+
 function copyFor(role: ParticipantRole, patientLanguage: PatientLanguage) {
   if (role === "staff") return staffCopy;
   return patientCopies[patientLanguage] ?? (patientLanguage === "yue" ? patientCopies.zh_tw : patientCopies.en);
 }
 
+function turnPhaseText(phase: TurnPhase, role: ParticipantRole, patientLanguage: PatientLanguage, copy: VoiceRoomCopy) {
+  if (role === "staff") {
+    return ({
+      idle: "",
+      connecting: "실시간 통역 연결 준비 중",
+      listening: "음성을 듣고 있습니다.",
+      transcribing: "음성을 인식하고 있습니다.",
+      translating: "번역하고 있습니다.",
+      verifying: "번역 내용을 확인하고 있습니다.",
+      fallback: "연결이 불안정하여 안전 경로로 다시 처리하고 있습니다.",
+      speaking: "번역 음성을 재생하고 있습니다.",
+      error: "연결 오류가 발생했습니다."
+    } satisfies Record<TurnPhase, string>)[phase];
+  }
+
+  const supplement = patientTurnPhaseCopy[patientLanguage];
+  return ({
+    idle: "",
+    connecting: copy.connecting.body,
+    listening: copy.statusDescriptions.patient_speaking,
+    transcribing: supplement.transcribing,
+    translating: copy.statusDescriptions.translating_to_staff,
+    verifying: supplement.verifying,
+    fallback: supplement.fallback,
+    speaking: supplement.speaking,
+    error: copy.statusDescriptions.error
+  } satisfies Record<TurnPhase, string>)[phase];
+}
+
+function phaseForRealtimeStatus(status: string): TurnPhase {
+  switch (status) {
+    case "Realtime session preparing":
+      return "connecting";
+    case "Listening":
+      return "listening";
+    case "Receiving translation":
+      return "translating";
+    case "Translation ready":
+      return "verifying";
+    case "Realtime ready":
+    case "Realtime session closed":
+      return "idle";
+    default:
+      return "idle";
+  }
+}
 export function VoiceRoom(props: VoiceRoomProps) {
   if ((props.roomMode ?? "consultation") !== "procedure") {
     return <ConsultationChatRoom initialRoom={props.initialRoom} role={props.role} roomToken={props.roomToken} />;
@@ -720,8 +797,9 @@ function ProcedureVoiceRoom({
   const [speakingStartedAt, setSpeakingStartedAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [realtimeStatus, setRealtimeStatus] = useState("");
+  const [turnPhase, setTurnPhase] = useState<TurnPhase>("idle");
   const [translationDraft, setTranslationDraft] = useState("");
+  const [noVoiceWarning, setNoVoiceWarning] = useState(false);
   const [inputTranscriptDraft, setInputTranscriptDraft] = useState("");
   const [backWarning, setBackWarning] = useState(false);
   const [endDialogOpen, setEndDialogOpen] = useState(false);
@@ -733,6 +811,7 @@ function ProcedureVoiceRoom({
   const mediaChunksRef = useRef<Blob[]>([]);
   const recordingModeRef = useRef<RecordingMode | null>(null);
   const voiceAutoStopCleanupRef = useRef<() => void>(() => undefined);
+  const micLevelRingRef = useRef<HTMLSpanElement | null>(null);
   const roomRootRef = useRef<HTMLDivElement | null>(null);
   const hardwareCaptureRef = useRef<HTMLInputElement | null>(null);
   const realtimeClientRef = useRef<OpenAIRealtimeClient | null>(null);
@@ -746,6 +825,7 @@ function ProcedureVoiceRoom({
   const roomRef = useRef(initialRoom);
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const speechQueueRef = useRef(Promise.resolve());
+  const speechPhaseTokenRef = useRef(0);
   const startSpeakingRef = useRef<() => Promise<void>>(async () => undefined);
   const stopSpeakingRef = useRef<() => Promise<void>>(async () => undefined);
   const pendingUsageSecondsRef = useRef(0);
@@ -759,7 +839,7 @@ function ProcedureVoiceRoom({
   const isSpeaking = speakingStartedAt !== null;
   const latestMessage = messages[0];
   const isStaffAudioHub = role === "staff";
-  const isConnectingRealtime = busy && !isSpeaking && /preparing|준비/i.test(realtimeStatus);
+  const isConnectingRealtime = turnPhase === "connecting";
   const activeHardwareKeys = useMemo(
     () => hardwareKeys ?? (role === "staff" ? defaultStaffHardwareKeys : []),
     [hardwareKeys, role]
@@ -875,7 +955,7 @@ function ProcedureVoiceRoom({
         direction: role === "staff" ? "staff_to_patient" : "patient_to_staff",
         manualTurn: true
       }, {
-        onStatus: setRealtimeStatus,
+        onStatus: (status) => setTurnPhase(phaseForRealtimeStatus(status)),
         onTranscriptDelta: (text) => {
           const targetLanguage = role === "staff" ? room.patientLanguage : "ko";
           const normalizedText = normalizeClinicTranslation(text, targetLanguage);
@@ -917,7 +997,9 @@ function ProcedureVoiceRoom({
   }, []);
 
   const stopPlayback = useCallback(() => {
+    speechPhaseTokenRef.current += 1;
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    setTurnPhase((current) => current === "speaking" ? "idle" : current);
   }, []);
 
   useEffect(() => {
@@ -955,6 +1037,13 @@ function ProcedureVoiceRoom({
     utterance.rate = 0.9;
     if (voice) utterance.voice = voice;
 
+    const phaseToken = ++speechPhaseTokenRef.current;
+    const finishSpeakingPhase = () => {
+      if (speechPhaseTokenRef.current === phaseToken) setTurnPhase("idle");
+    };
+    utterance.onend = finishSpeakingPhase;
+    utterance.onerror = finishSpeakingPhase;
+    setTurnPhase("speaking");
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   }, [findBrowserVoice, isStaffAudioHub]);
@@ -1149,6 +1238,18 @@ function ProcedureVoiceRoom({
     }
   });
 
+  const updateMicLevel = useCallback((bucket: VoiceLevelBucket) => {
+    const ring = micLevelRingRef.current;
+    if (!ring) return;
+    ring.style.opacity = bucket === 0 ? "0.25" : String(0.35 + bucket * 0.13);
+    ring.style.transform = `scale(${1 + bucket * 0.025})`;
+  }, []);
+  const stopVoiceAutoStop = useCallback(() => {
+    voiceAutoStopCleanupRef.current();
+    voiceAutoStopCleanupRef.current = () => undefined;
+    updateMicLevel(0);
+    setNoVoiceWarning(false);
+  }, [updateMicLevel]);
   useEffect(() => {
     cleanupRef.current = () => {
       void flushUsage();
@@ -1165,7 +1266,7 @@ function ProcedureVoiceRoom({
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
-  }, [flushUsage, stopPlayback]);
+  }, [flushUsage, stopPlayback, stopVoiceAutoStop]);
 
   useEffect(() => {
     markActivity();
@@ -1420,11 +1521,6 @@ function ProcedureVoiceRoom({
     return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
   }
 
-  function stopVoiceAutoStop() {
-    voiceAutoStopCleanupRef.current();
-    voiceAutoStopCleanupRef.current = () => undefined;
-  }
-
   function beginUploadRecording(stream: MediaStream, mode: RecordingMode) {
     const recorder = createAudioRecorder(stream);
     mediaChunksRef.current = [];
@@ -1436,12 +1532,14 @@ function ProcedureVoiceRoom({
     recordingModeRef.current = mode;
     setMicEnabled(true);
     setSpeakingStartedAt(Date.now());
-    setRealtimeStatus(mode === "upload" ? "Recording fallback turn" : "Recording safety fallback");
+    setTurnPhase("listening");
     stopVoiceAutoStop();
     voiceAutoStopCleanupRef.current = startVoiceAutoStop(stream, {
       onStop: () => {
         void stopSpeakingRef.current();
-      }
+      },
+      onLevel: updateMicLevel,
+      onNoVoiceChange: setNoVoiceWarning
     });
   }
 
@@ -1575,12 +1673,14 @@ function ProcedureVoiceRoom({
     setInputTranscriptDraft("");
     markActivity();
     setBusy(true);
+    setTurnPhase("connecting");
     try {
       if (isProcedureMode) stopPlayback();
       if (role === "patient") {
         const acquiredTurn = await transition("patient_speaking");
         if (!acquiredTurn) {
           setError(copy.errors.busy);
+          setTurnPhase("idle");
           return;
         }
 
@@ -1591,7 +1691,7 @@ function ProcedureVoiceRoom({
           beginRealtimeSafetyRecording(stream);
           setMicEnabled(true);
           setSpeakingStartedAt(Date.now());
-          setRealtimeStatus("Recording patient turn");
+          setTurnPhase("listening");
         } catch {
           beginUploadRecording(stream, "upload");
         }
@@ -1601,6 +1701,7 @@ function ProcedureVoiceRoom({
       const acquiredTurn = await transition(nextStatus);
       if (!acquiredTurn) {
         setError(copy.errors.busy);
+        setTurnPhase("idle");
         return;
       }
 
@@ -1611,6 +1712,7 @@ function ProcedureVoiceRoom({
         beginRealtimeSafetyRecording(stream);
         setMicEnabled(true);
         setSpeakingStartedAt(Date.now());
+        setTurnPhase("listening");
       } catch {
         beginUploadRecording(stream, "upload");
       }
@@ -1622,6 +1724,7 @@ function ProcedureVoiceRoom({
       realtimeClientRef.current = null;
       realtimePreconnectStartedRef.current = false;
       recordingModeRef.current = null;
+      setTurnPhase("error");
       await transition("ready");
     } finally {
       setBusy(false);
@@ -1632,6 +1735,7 @@ function ProcedureVoiceRoom({
     if (!speakingStartedAt) return;
     markActivity();
     setBusy(true);
+    setTurnPhase("transcribing");
     const durationSeconds = Math.max(1, Math.round((Date.now() - speakingStartedAt) / 1000));
     setSpeakingStartedAt(null);
     setMicEnabled(false);
@@ -1644,12 +1748,13 @@ function ProcedureVoiceRoom({
         void transition("translating_to_staff");
         let message: RealtimeTranslationMessage;
         if (recordingMode === "upload") {
-          setRealtimeStatus("Uploading patient turn");
+          setTurnPhase("transcribing");
           const audio = await stopAndClearRecorder();
           if (audio.size <= 0) throw new Error("No audio was recorded.");
           message = await uploadProcedureTurn(audio, role);
         } else {
           try {
+            setTurnPhase("translating");
             const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
               quietMs: PROCEDURE_TRANSLATION_QUIET_MS,
               maxMs: PROCEDURE_TRANSLATION_MAX_MS
@@ -1659,6 +1764,7 @@ function ProcedureVoiceRoom({
             const realtimeClient = realtimeClientRef.current;
             const sourceText = (await realtimeClient?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || inputTranscriptDraft || copy.helper.idle;
             const sourceTranscriptComplete = realtimeClient?.isInputTranscriptComplete() ?? false;
+            setTurnPhase("verifying");
             message = await persistRealtimeProcedureTurn({
               messageId: `${role}-procedure-${Date.now()}`,
               speakerRole: role,
@@ -1669,7 +1775,7 @@ function ProcedureVoiceRoom({
             discardRecorderSoon();
           } catch (realtimeError) {
             if (recordingMode !== "safety") throw realtimeError;
-            setRealtimeStatus("Realtime interrupted; uploading fallback turn");
+            setTurnPhase("fallback");
             const audio = await stopAndClearRecorder();
             if (audio.size <= 0) throw realtimeError;
             message = await uploadProcedureTurn(audio, role);
@@ -1680,11 +1786,13 @@ function ProcedureVoiceRoom({
         setInputTranscriptDraft(message.sourceText ?? "");
         setTranslationDraft("");
       } catch (caught) {
+        setTurnPhase("error");
         setError(role === "patient" ? copy.statusDescriptions.error : caught instanceof Error ? caught.message : "Translation failed.");
       } finally {
         mediaChunksRef.current = [];
         setRoom((current) => ({ ...current, status: "ready" }));
         void transition("ready");
+        setTurnPhase((current) => current === "error" ? current : "idle");
         setBusy(false);
       }
       return;
@@ -1700,6 +1808,7 @@ function ProcedureVoiceRoom({
         message = await uploadProcedureTurn(audio, role);
       } else {
         try {
+          setTurnPhase("translating");
           const translatedText = await realtimeClientRef.current?.stopTurnAndTranslate({
             quietMs: PROCEDURE_TRANSLATION_QUIET_MS,
             maxMs: PROCEDURE_TRANSLATION_MAX_MS
@@ -1710,6 +1819,7 @@ function ProcedureVoiceRoom({
           const sourceText = (await realtimeClient?.waitForInputTranscript({ fastMs: 250, repairMs: 1200 })) || inputTranscriptDraft || "한국어 원문을 표시하지 못했습니다.";
           const sourceTranscriptComplete = realtimeClient?.isInputTranscriptComplete() ?? false;
           const messageId = `${role}-procedure-${Date.now()}`;
+          setTurnPhase("verifying");
           message = await persistRealtimeProcedureTurn({
             messageId,
             speakerRole: role,
@@ -1720,7 +1830,7 @@ function ProcedureVoiceRoom({
           discardRecorderSoon();
         } catch (realtimeError) {
           if (recordingMode !== "safety") throw realtimeError;
-          setRealtimeStatus("Realtime interrupted; uploading fallback turn");
+          setTurnPhase("fallback");
           const audio = await stopAndClearRecorder();
           if (audio.size <= 0) throw realtimeError;
           message = await uploadProcedureTurn(audio, role);
@@ -1731,9 +1841,11 @@ function ProcedureVoiceRoom({
       void broadcastTranslationMessage(room.id, message);
       setTranslationDraft("");
     } catch (caught) {
+      setTurnPhase("error");
       setError(caught instanceof Error ? caught.message : "Translation failed.");
     } finally {
       await transition("ready");
+      setTurnPhase((current) => current === "error" ? current : "idle");
       setBusy(false);
     }
   }
@@ -1749,6 +1861,7 @@ function ProcedureVoiceRoom({
   return (
     <div
       ref={roomRootRef}
+      lang={role === "patient" ? patientLanguageTags[room.patientLanguage] : "ko"}
       className={kioskMode ? "space-y-3 outline-none" : "space-y-4 outline-none"}
       tabIndex={-1}
       onPointerDown={() => {
@@ -1850,22 +1963,34 @@ function ProcedureVoiceRoom({
           <p className="text-base font-semibold leading-7 text-slate-700 md:text-lg md:leading-8">{procedureGuideText}</p>
           {hardwareLabel ? <p className="mt-2 text-sm font-bold text-trust-text">{hardwareLabel}</p> : null}
         </div>
-        <button
-          type="button"
-          disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
-          onClick={isSpeaking ? stopSpeaking : startSpeaking}
-          className={`tap-highlight-none mx-auto grid h-44 w-44 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 md:h-52 md:w-52 ${
-            isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
-          }`}
-          aria-label={isSpeaking ? activeSpeakingLabel : copy.primary.ready}
-        >
-          {busy && !isSpeaking ? <Loader2 size={44} className="animate-spin" /> : <Mic size={56} />}
-        </button>
+        <div className="relative mx-auto grid h-48 w-48 place-items-center md:h-56 md:w-56">
+          <span
+            ref={micLevelRingRef}
+            className={`pointer-events-none absolute h-44 w-44 rounded-full border-4 transition-transform motion-reduce:transition-none md:h-52 md:w-52 ${
+              isSpeaking ? "border-coral/60" : "border-transparent"
+            }`}
+            aria-hidden="true"
+          />
+          <button
+            type="button"
+            disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
+            onClick={isSpeaking ? stopSpeaking : startSpeaking}
+            className={`tap-highlight-none grid h-44 w-44 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 motion-reduce:transition-none md:h-52 md:w-52 ${
+              isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
+            }`}
+            aria-label={isSpeaking ? activeSpeakingLabel : copy.primary.ready}
+            aria-describedby={isSpeaking && noVoiceWarning ? "procedure-no-voice-warning" : undefined}
+          >
+            {busy && !isSpeaking ? <Loader2 size={44} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Mic size={56} aria-hidden="true" />}
+          </button>
+        </div>
         <p className="mt-4 text-xl font-bold text-ink">
           {room.status === "ended" ? copy.primary.ended : isSpeaking ? activeSpeakingLabel : micEnabled ? copy.primary.ready : copy.primary.waiting}
         </p>
         {isSpeaking ? <p className="mt-2 text-sm font-semibold text-slate-500">{activeSpeakingHelper}</p> : null}
-        {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
+        {isSpeaking && noVoiceWarning ? <p id="procedure-no-voice-warning" className="mt-2 text-sm font-bold text-amber-800" role="status" aria-live="polite">{role === "staff" ? "소리가 작거나 들리지 않습니다." : patientNoVoiceCopy[room.patientLanguage]}</p> : null}
+        {turnPhase !== "idle" ? <p className="mt-3 text-sm font-bold text-trust-text" role="status" aria-live="polite">{turnPhaseText(turnPhase, role, room.patientLanguage, copy)}</p> : null}
+        {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700" role="alert">{error}</p> : null}
       </section>
 
       {role === "staff" ? (

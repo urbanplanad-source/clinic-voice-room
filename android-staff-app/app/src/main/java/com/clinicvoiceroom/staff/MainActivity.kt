@@ -109,8 +109,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -155,19 +157,7 @@ import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
-import kotlin.math.sqrt
 
-private val Ink = Color(0xFF191F28)
-private val Mist = Color(0xFFF7F8FA)
-private val Trust = Color(0xFF3182F6)
-private val Mint = Color(0xFF00A881)
-private val Coral = Color(0xFFF04452)
-private val SlateText = Color(0xFF64748B)
-private val Line = Color(0xFFE2E8F0)
-private val Panel = Color(0xFFF8FAFC)
-private val BlueTint = Color(0xFFEFF6FF)
-private val GreenTint = Color(0xFFEFFCF7)
-private val RoseTint = Color(0xFFFFF1F2)
 
 private data class StaffLayoutMetrics(
     val isTablet: Boolean,
@@ -246,7 +236,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.38"
+private const val AppDisplayVersion = "0.3.39"
 private const val StaffSessionCookieName = "cvr_session"
 private const val LocalMetricOutboxPreferenceName = "local_metric_outbox"
 private const val LocalMetricOutboxPreferenceKey = "payloads"
@@ -278,8 +268,6 @@ private const val StaffRecordingMaxMs = 60_000L
 private const val StaffAutoStopMinRecordingMs = 1000L
 private const val StaffAutoStopMinVoiceMs = 260L
 private const val StaffAutoStopSilenceMs = 1600L
-private const val StaffAutoStopSpeechRms = 900.0
-private const val StaffAutoStopSpeechPeak = 2600
 private const val StaffModeIdleTimeoutMs = 15 * 60 * 1000L
 private const val StaffModeIdleCheckMs = 30 * 1000L
 private const val LocalRealtimeUserWaitTimeoutMs = 7_000L
@@ -392,6 +380,8 @@ private data class StaffUiState(
     val busy: Boolean = false,
     val connected: Boolean = false,
     val speaking: Boolean = false,
+    val micLevelBucket: Int = 0,
+    val noVoiceWarning: Boolean = false,
     val ttsEnabled: Boolean = true,
     val ttsPlaybackActive: Boolean = false,
     val ttsStatus: String = "휴대폰 미디어 출력 준비 중",
@@ -1481,7 +1471,7 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
-            MaterialTheme {
+            MediVoiceTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = Mist) {
                     StaffAppScreen(
                         state = uiState.value,
@@ -3357,6 +3347,8 @@ class MainActivity : ComponentActivity() {
                 busy = false,
                 connected = true,
                 speaking = true,
+                micLevelBucket = 0,
+                noVoiceWarning = false,
                 sourceDraft = "",
                 translatedDraft = "",
                 status = recordingStatus
@@ -3395,15 +3387,31 @@ class MainActivity : ComponentActivity() {
                 var voiceMs = 0L
                 var lastVoiceAt = startedAt
                 var autoStopPosted = false
+                var lastLevelBucket = -1
+                var lastLevelUiAt = 0L
+                var noVoiceWarningVisible = false
                 activeRecorder.startRecording()
 
                 while (recordingActive && System.currentTimeMillis() - startedAt < StaffRecordingMaxMs) {
                     val count = activeRecorder.read(buffer, 0, buffer.size)
                     if (count <= 0) continue
                     val now = System.currentTimeMillis()
-                    if (voiceDetected(buffer, count)) {
+                    val voiceLevel = analyzeVoiceLevel(buffer, count)
+                    if (now - lastLevelUiAt >= StaffMicLevelUpdateMs && voiceLevel.bucket != lastLevelBucket) {
+                        lastLevelBucket = voiceLevel.bucket
+                        lastLevelUiAt = now
+                        updateState { it.copy(micLevelBucket = voiceLevel.bucket) }
+                    }
+                    if (voiceLevel.detected) {
                         voiceMs += (count * 1000L) / sampleRate
                         lastVoiceAt = now
+                        if (noVoiceWarningVisible) {
+                            noVoiceWarningVisible = false
+                            updateState { it.copy(noVoiceWarning = false) }
+                        }
+                    } else if (!noVoiceWarningVisible && voiceMs == 0L && now - startedAt >= StaffNoVoiceWarningMs) {
+                        noVoiceWarningVisible = true
+                        updateState { it.copy(noVoiceWarning = true) }
                     }
                     for (index in 0 until count) {
                         val value = buffer[index].toInt()
@@ -3440,11 +3448,12 @@ class MainActivity : ComponentActivity() {
                 activeRealtimeTurnClient = null
                 recoverRoomToReady("마이크 녹음 실패")
                 val message = userFacingError(caught)
-                updateState { it.copy(speaking = false, busy = false, status = "마이크 녹음 실패: $message") }
+                updateState { it.copy(speaking = false, busy = false, micLevelBucket = 0, noVoiceWarning = false, status = "마이크 녹음 실패: $message") }
                 appendLog("마이크 녹음 실패: $message")
             }
             runCatching { recorder?.stop() }
             runCatching { recorder?.release() }
+            updateState { it.copy(micLevelBucket = 0, noVoiceWarning = false) }
         }.also { it.start() }
     }
 
@@ -3452,7 +3461,7 @@ class MainActivity : ComponentActivity() {
         if (!uiState.value.speaking && !recordingActive) return
 
         recordingActive = false
-        updateState { it.copy(speaking = false, busy = true, status = "번역 중입니다...") }
+        updateState { it.copy(speaking = false, busy = true, micLevelBucket = 0, noVoiceWarning = false, status = "번역 중입니다...") }
         appendLog("마이크 종료: 서버 번역 요청")
 
         executor.execute {
@@ -3803,21 +3812,6 @@ class MainActivity : ComponentActivity() {
         return max(1, (samples + RealtimePcmSampleRate - 1) / RealtimePcmSampleRate)
     }
 
-    private fun voiceDetected(buffer: ShortArray, count: Int): Boolean {
-        if (count <= 0) return false
-
-        var sumSquares = 0.0
-        var peak = 0
-        for (index in 0 until count) {
-            val value = buffer[index].toInt()
-            val magnitude = if (value < 0) -value else value
-            if (magnitude > peak) peak = magnitude
-            sumSquares += value.toDouble() * value.toDouble()
-        }
-
-        val rms = sqrt(sumSquares / count)
-        return rms >= StaffAutoStopSpeechRms || peak >= StaffAutoStopSpeechPeak
-    }
 
     private fun validateLocalTranslation(
         direction: String,
@@ -6303,6 +6297,8 @@ private fun LocalInterpreterScreen(
                 text = visiblePatientLanguageText,
                 active = patientActive,
                 busy = state.busy,
+                micLevelBucket = if (patientActive) state.micLevelBucket else 0,
+                noVoiceWarning = patientActive && state.noVoiceWarning,
                 emphasizeText = realtimeConnecting,
                 disabledReason = patientDisabledReason,
                 realtimeConnecting = realtimeConnecting,
@@ -6335,6 +6331,8 @@ private fun LocalInterpreterScreen(
                 text = visibleKoreanText,
                 active = staffActive,
                 busy = state.busy,
+                micLevelBucket = if (staffActive) state.micLevelBucket else 0,
+                noVoiceWarning = staffActive && state.noVoiceWarning,
                 emphasizeText = realtimeConnecting,
                 disabledReason = staffDisabledReason,
                 realtimeConnecting = realtimeConnecting,
@@ -6359,6 +6357,8 @@ private fun LocalInterpreterHalf(
     text: String,
     active: Boolean,
     busy: Boolean,
+    micLevelBucket: Int,
+    noVoiceWarning: Boolean,
     emphasizeText: Boolean,
     disabledReason: String,
     realtimeConnecting: Boolean,
@@ -6401,6 +6401,8 @@ private fun LocalInterpreterHalf(
                     disabledReason = disabledReason,
                     realtimeConnecting = realtimeConnecting,
                     busy = busy,
+                    micLevelBucket = micLevelBucket,
+                    noVoiceWarning = noVoiceWarning,
                     micEnabled = micEnabled,
                     buttonColor = buttonColor,
                     buttonSize = buttonSize,
@@ -6428,6 +6430,8 @@ private fun LocalInterpreterHalf(
                     disabledReason = disabledReason,
                     realtimeConnecting = realtimeConnecting,
                     busy = busy,
+                    micLevelBucket = micLevelBucket,
+                    noVoiceWarning = noVoiceWarning,
                     micEnabled = micEnabled,
                     buttonColor = buttonColor,
                     buttonSize = buttonSize,
@@ -6504,38 +6508,76 @@ private fun LocalInterpreterMicButton(
     disabledReason: String,
     realtimeConnecting: Boolean,
     busy: Boolean,
+    micLevelBucket: Int,
+    noVoiceWarning: Boolean,
     micEnabled: Boolean,
     buttonColor: Color,
     buttonSize: Dp,
     onMic: () -> Unit
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Button(
-            onClick = onMic,
-            enabled = micEnabled,
+        val micStateDescription = when {
+            active -> "녹음 중, 음성 입력 강도 ${micLevelBucket + 1}단계"
+            !micEnabled && disabledReason.isNotBlank() -> disabledReason
+            realtimeConnecting -> "실시간 통역 연결 중"
+            else -> "녹음 준비됨"
+        }
+        Box(
             modifier = Modifier.size(buttonSize),
-            shape = RoundedCornerShape(buttonSize / 2),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (active) Coral else buttonColor,
-                disabledContainerColor = if (busy) Color(0xFFCBD5E1) else buttonColor.copy(alpha = 0.45f),
-                contentColor = Color.White,
-                disabledContentColor = Color.White
-            ),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+            contentAlignment = Alignment.Center
         ) {
-            if (busy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(if (buttonSize < 90.dp) 32.dp else 38.dp),
-                    color = Color.White,
-                    strokeWidth = 3.dp
-                )
-            } else {
-                Icon(
-                    if (active) Icons.Filled.Stop else Icons.Filled.Mic,
-                    contentDescription = null,
-                    modifier = Modifier.size(if (buttonSize < 90.dp) 36.dp else 42.dp)
+            Button(
+                onClick = onMic,
+                enabled = micEnabled,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .semantics {
+                        contentDescription = if (active) "녹음 종료" else "녹음 시작"
+                        stateDescription = micStateDescription
+                    },
+                shape = RoundedCornerShape(buttonSize / 2),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (active) Coral else buttonColor,
+                    disabledContainerColor = if (busy) Color(0xFFCBD5E1) else buttonColor.copy(alpha = 0.45f),
+                    contentColor = Color.White,
+                    disabledContentColor = Color.White
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(if (buttonSize < 90.dp) 32.dp else 38.dp),
+                        color = Color.White,
+                        strokeWidth = 3.dp
+                    )
+                } else {
+                    Icon(
+                        if (active) Icons.Filled.Stop else Icons.Filled.Mic,
+                        contentDescription = null,
+                        modifier = Modifier.size(if (buttonSize < 90.dp) 36.dp else 42.dp)
+                    )
+                }
+            }
+            if (active) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .border(
+                            width = (2 + micLevelBucket).dp,
+                            color = Color.White.copy(alpha = 0.32f + micLevelBucket * 0.12f),
+                            shape = RoundedCornerShape(buttonSize / 2)
+                        )
                 )
             }
+        }
+        if (active && noVoiceWarning) {
+            Text(
+                "소리가 작거나 들리지 않습니다.",
+                color = Color(0xFF92400E),
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center
+            )
         }
         if (realtimeConnecting) {
             Text(

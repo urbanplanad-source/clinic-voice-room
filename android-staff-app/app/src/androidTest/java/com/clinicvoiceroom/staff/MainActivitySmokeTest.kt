@@ -16,8 +16,8 @@ class MainActivitySmokeTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
 
-        assertEquals("0.3.38", packageInfo.versionName)
-        assertEquals(50L, packageInfo.longVersionCode)
+        assertEquals("0.3.39", packageInfo.versionName)
+        assertEquals(51L, packageInfo.longVersionCode)
 
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->

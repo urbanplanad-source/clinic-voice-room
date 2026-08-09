@@ -22,6 +22,26 @@ export type PatientLanguage = (typeof patientLanguages)[number];
 export type ParticipantRole = "staff" | "patient";
 export type TranslationLanguage = PatientLanguage | "ko";
 
+export const patientLanguageTags: Record<PatientLanguage, string> = {
+  zh: "zh-CN",
+  yue: "yue-Hant-HK",
+  zh_tw: "zh-TW",
+  ja: "ja",
+  en: "en",
+  th: "th",
+  vi: "vi",
+  id: "id",
+  ms: "ms",
+  tl: "fil",
+  mn: "mn",
+  ru: "ru",
+  fr: "fr",
+  es: "es",
+  de: "de",
+  it: "it",
+  pt: "pt"
+};
+
 export const languageLabels: Record<PatientLanguage, { ko: string; native: string; english: string }> = {
   zh: { ko: "중국어 간체", native: "简体中文", english: "Simplified Chinese" },
   yue: { ko: "광둥어", native: "廣東話", english: "Cantonese" },
