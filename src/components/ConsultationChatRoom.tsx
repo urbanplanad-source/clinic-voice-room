@@ -24,6 +24,7 @@ import {
 import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 import { EndRoomDialog } from "@/components/EndRoomDialog";
 import { ImportantConfirmationPanel, type ConfirmationActionStatus } from "@/components/ImportantConfirmationPanel";
+import { PatientTextSizeControl, patientTextSizeClassName, usePatientTextSize } from "@/components/PatientTextSizeControl";
 import { patientAutoStopHelperCopy, patientAutoStopSpeakingCopy, patientNoVoiceCopy, startVoiceAutoStop, type VoiceLevelBucket } from "@/lib/web-voice-auto-stop";
 
 const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
@@ -160,6 +161,7 @@ export function ConsultationChatRoom({
 }) {
   const router = useRouter();
   const [room, setRoom] = useState(initialRoom);
+  const [patientTextSize, setPatientTextSize] = usePatientTextSize();
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
   const [textInput, setTextInput] = useState("");
   const [textSubmitting, setTextSubmitting] = useState(false);
@@ -1175,7 +1177,7 @@ export function ConsultationChatRoom({
   const activeHelperText = role === "patient" && isSpeaking ? patientAutoStopHelperCopy[room.patientLanguage] : voiceText.helper;
 
   return (
-    <div lang={role === "patient" ? patientLanguageTags[room.patientLanguage] : "ko"} className="flex h-full min-h-0 flex-col overflow-hidden bg-white shadow-soft sm:rounded-lg">
+    <div lang={role === "patient" ? patientLanguageTags[room.patientLanguage] : "ko"} className={`flex h-full min-h-0 flex-col overflow-hidden bg-white shadow-soft sm:rounded-xl ${role === "patient" ? `patient-text-surface ${patientTextSizeClassName(patientTextSize)}` : ""}`}>
       <header className="shrink-0 border-b border-line bg-white px-3 py-2 md:px-6 md:py-2.5">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -1195,6 +1197,12 @@ export function ConsultationChatRoom({
         ) : null}
 
       </header>
+
+      {role === "patient" ? (
+        <div className="flex shrink-0 justify-end border-b border-line bg-white px-3 py-2 md:px-4">
+          <PatientTextSizeControl language={room.patientLanguage} value={patientTextSize} onChange={setPatientTextSize} />
+        </div>
+      ) : null}
 
       {pendingConfirmationMessage ? (
         <ImportantConfirmationPanel title={confirmationCopy[room.patientLanguage].title} sentence={pendingConfirmationMessage.text} categories={pendingConfirmationMessage.guardFlags?.confirmation?.categories ?? []} confirmLabel={confirmationCopy[room.patientLanguage].confirm} repeatLabel={confirmationCopy[room.patientLanguage].repeat} replayLabel={patientReplayCopy[room.patientLanguage]} retryLabel={patientRetryCopy[room.patientLanguage]} status={confirmationStatus} error={confirmationError} onConfirm={() => void submitPatientConfirmation("confirmed")} onRepeat={() => void submitPatientConfirmation("repeat_requested")} onReplay={replayPatientConfirmation} onRetry={() => void submitPatientConfirmation(lastConfirmationAction)} />
@@ -1251,7 +1259,7 @@ export function ConsultationChatRoom({
                         setActiveFeedbackMenuId((current) => (current === message.id ? "" : message.id));
                       }
                     }}
-                    className={`relative max-w-[78%] rounded-2xl px-4 py-3 text-sm font-semibold leading-6 shadow-sm outline-none transition focus:ring-2 focus:ring-trust/30 md:max-w-[70%] md:text-base ${
+                    className={`patient-message-copy relative max-w-[78%] rounded-2xl px-4 py-3 font-semibold leading-7 shadow-sm outline-none transition focus:ring-2 focus:ring-trust/30 md:max-w-[70%] ${
                       mine ? (failed ? "rounded-br-md bg-rose-500 text-white" : "rounded-br-md bg-trust text-white") : "rounded-bl-md bg-white text-ink"
                     }`}
                   >
@@ -1378,10 +1386,10 @@ export function ConsultationChatRoom({
               {voiceBusy && !isSpeaking ? <Loader2 size={30} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Mic size={34} aria-hidden="true" />}
             </button>
           </div>
-          <p className="mt-2 text-base font-bold text-ink md:text-lg">
+          <p className="patient-body-copy mt-2 font-bold text-ink">
             {room.status === "ended" ? (role === "staff" ? "상담 종료" : copy.statusEnded) : isSpeaking ? activeSpeakingLabel : micEnabled ? voiceText.ready : voiceText.waiting}
           </p>
-          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 md:text-sm">{activeHelperText}</p>
+          <p className="patient-helper-copy mt-1 font-semibold leading-6 text-text-muted">{activeHelperText}</p>
           {isSpeaking && noVoiceWarning ? <p id="consultation-no-voice-warning" className="mt-2 text-sm font-bold text-amber-800" role="status" aria-live="polite">{role === "staff" ? "소리가 작거나 들리지 않습니다." : patientNoVoiceCopy[room.patientLanguage]}</p> : null}
           {browserAudioOutputEnabled && lastIncomingMessage ? (
             <button

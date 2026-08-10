@@ -7,6 +7,11 @@
   background: #f7f8fa;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -19,10 +24,81 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
+}
+
+button,
+a,
+summary,
+select {
+  touch-action: manipulation;
+}
+
+body :focus-visible {
+  outline: 3px solid #1d4ed8 !important;
+  outline-offset: 3px !important;
 }
 
 .tap-highlight-none {
   -webkit-tap-highlight-color: transparent;
+}
+@layer components {
+  .surface-card {
+    @apply rounded-xl border border-line bg-surface shadow-soft;
+  }
+
+  .surface-panel {
+    @apply rounded-lg border border-line bg-surface-muted;
+  }
+
+  .patient-text-surface {
+    --patient-body-size: 1rem;
+    --patient-helper-size: 0.875rem;
+    --patient-message-size: 1rem;
+    --patient-heading-size: 1.875rem;
+  }
+
+  .patient-text-large {
+    --patient-body-size: 1.125rem;
+    --patient-helper-size: 1rem;
+    --patient-message-size: 1.125rem;
+    --patient-heading-size: 2rem;
+  }
+
+  .patient-text-largest {
+    --patient-body-size: 1.25rem;
+    --patient-helper-size: 1.0625rem;
+    --patient-message-size: 1.25rem;
+    --patient-heading-size: 2.125rem;
+  }
+
+  .patient-text-surface .patient-body-copy {
+    font-size: var(--patient-body-size);
+  }
+
+  .patient-text-surface .patient-helper-copy {
+    font-size: var(--patient-helper-size);
+  }
+
+  .patient-text-surface .patient-message-copy {
+    font-size: var(--patient-message-size);
+  }
+
+  .patient-text-surface .patient-heading-copy {
+    font-size: var(--patient-heading-size);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

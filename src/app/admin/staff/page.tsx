@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppFrame } from "@/components/AppFrame";
+import { AdminWorkspaceNav } from "@/components/AdminWorkspaceNav";
 import { AdminStaffManager } from "@/components/AdminStaffManager";
 import { getCurrentStaff } from "@/lib/session";
 
@@ -10,6 +11,7 @@ export default async function AdminStaffPage() {
 
   return (
     <AppFrame backHref="/staff">
+      <AdminWorkspaceNav role={staff.role} active="staff" />
       <AdminStaffManager />
     </AppFrame>
   );

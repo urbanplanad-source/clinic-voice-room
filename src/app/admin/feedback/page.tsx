@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppFrame } from "@/components/AppFrame";
+import { AdminWorkspaceNav } from "@/components/AdminWorkspaceNav";
 import { AdminFeedbackManager } from "@/components/AdminFeedbackManager";
 import { getCurrentStaff } from "@/lib/session";
 
@@ -10,6 +11,7 @@ export default async function AdminFeedbackPage() {
 
   return (
     <AppFrame backHref="/staff">
+      <AdminWorkspaceNav role={staff.role} active="feedback" />
       <AdminFeedbackManager />
     </AppFrame>
   );

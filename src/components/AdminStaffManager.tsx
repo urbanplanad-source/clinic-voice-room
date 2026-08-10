@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AdminLoadingSkeleton } from "@/components/AdminLoadingSkeleton";
 import { ArrowRight, Copy, KeyRound, Loader2, Save, Trash2, UserPlus } from "lucide-react";
 import { hospitalSpecialties, hospitalSpecialtyLabels, type HospitalSpecialty } from "@/lib/hospital-specialty";
 
@@ -278,9 +279,7 @@ export function AdminStaffManager() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={9} className="px-5 py-6 font-semibold text-slate-500">
-                  불러오는 중...
-                </td>
+                <td colSpan={9} className="p-0"><AdminLoadingSkeleton rows={3} /></td>
               </tr>
             ) : (
               staffUsers.map((staffUser) => {

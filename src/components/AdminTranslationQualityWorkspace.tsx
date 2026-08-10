@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { changedTranscriptionSpan } from "@/lib/clinic-transcription";
 import { AdminQualityWorkspaceNav } from "./AdminQualityWorkspaceNav";
+import { AdminLoadingSkeleton } from "@/components/AdminLoadingSkeleton";
 
 type SampleSource = "local_voice" | "consultation_voice" | "procedure_voice";
 type SampleStatus = "new" | "reviewed" | "fixed" | "dismissed";
@@ -266,7 +267,7 @@ export function AdminTranslationQualityWorkspace() {
           </div>
 
           <div className="max-h-[720px] overflow-y-auto">
-            {loading ? <p className="px-4 py-8 text-center text-sm font-semibold text-slate-500">불러오는 중...</p> : filteredSamples.length === 0 ? <p className="px-4 py-8 text-center text-sm font-semibold text-slate-500">조건에 맞는 샘플이 없습니다.</p> : filteredSamples.map((sample) => {
+            {loading ? <AdminLoadingSkeleton rows={5} /> : filteredSamples.length === 0 ? <p className="px-4 py-8 text-center text-sm font-semibold text-slate-500">조건에 맞는 샘플이 없습니다.</p> : filteredSamples.map((sample) => {
               const active = selected?.id === sample.id;
               return (
                 <button key={sample.id} type="button" onClick={() => setSelectedId(sample.id)} className={`block w-full border-b border-line px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-trust ${active ? "bg-blue-50/70" : "hover:bg-slate-50"}`}>

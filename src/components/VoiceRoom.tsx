@@ -12,6 +12,7 @@ import { isMicEnabled, type RoomStatus } from "@/lib/room-state";
 import { speechLanguageByPatientLanguage } from "@/lib/speech";
 import { ConsultationChatRoom } from "@/components/ConsultationChatRoom";
 import { EndRoomDialog } from "@/components/EndRoomDialog";
+import { PatientTextSizeControl, patientTextSizeClassName, usePatientTextSize } from "@/components/PatientTextSizeControl";
 import { useAdaptivePolling } from "@/lib/use-adaptive-polling";
 import { patientAutoStopHelperCopy, patientAutoStopSpeakingCopy, patientNoVoiceCopy, startVoiceAutoStop, type VoiceLevelBucket } from "@/lib/web-voice-auto-stop";
 import {
@@ -793,6 +794,7 @@ function ProcedureVoiceRoom({
 }: VoiceRoomProps) {
   const router = useRouter();
   const [room, setRoom] = useState(initialRoom);
+  const [patientTextSize, setPatientTextSize] = usePatientTextSize();
   const [messages, setMessages] = useState<TranslationMessage[]>([]);
   const [speakingStartedAt, setSpeakingStartedAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1862,7 +1864,7 @@ function ProcedureVoiceRoom({
     <div
       ref={roomRootRef}
       lang={role === "patient" ? patientLanguageTags[room.patientLanguage] : "ko"}
-      className={kioskMode ? "space-y-3 outline-none" : "space-y-4 outline-none"}
+      className={`${kioskMode ? "space-y-3" : "space-y-4"} outline-none ${role === "patient" ? `patient-text-surface ${patientTextSizeClassName(patientTextSize)}` : ""}`}
       tabIndex={-1}
       onPointerDown={() => {
         roomRootRef.current?.focus();
@@ -1908,20 +1910,26 @@ function ProcedureVoiceRoom({
         </header>
       ) : null}
 
+      {role === "patient" && !kioskMode ? (
+        <div className="flex justify-end">
+          <PatientTextSizeControl language={room.patientLanguage} value={patientTextSize} onChange={setPatientTextSize} />
+        </div>
+      ) : null}
+
       {isConnectingRealtime || displayText ? (
         <section className="rounded-lg bg-white p-5 shadow-sm">
         {isConnectingRealtime ? (
           <article className="mb-3 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4">
             <p className="text-xs font-bold text-trust-text">{copy.connecting.title}</p>
-            <p className="mt-2 text-lg font-bold leading-7 text-ink">{copy.connecting.body}</p>
-            <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">{copy.connecting.hint}</p>
+            <p className="patient-body-copy mt-2 font-bold leading-7 text-ink">{copy.connecting.body}</p>
+            <p className="patient-helper-copy mt-1 font-semibold leading-6 text-text-secondary">{copy.connecting.hint}</p>
           </article>
         ) : null}
 
         {displayText ? (
           <article className="rounded-lg bg-blue-50 px-4 py-5">
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust-text">{displayLabel}</p>
-            <p className="mt-2 text-2xl font-bold leading-8 text-ink">{displayText}</p>
+            <p className="patient-message-copy mt-2 font-bold leading-9 text-ink">{displayText}</p>
             {latestGuardFlags?.numberCheck === "mismatch" || latestBackTranslationStatus === "pending" || latestBackTranslationStatus === "pass" || latestBackTranslationStatus === "fail" ? (
               <div className="mt-3 space-y-2 rounded-lg bg-white/80 px-3 py-2 text-sm font-bold text-amber-800">
                 {latestGuardFlags?.numberCheck === "mismatch" ? (
@@ -1960,7 +1968,7 @@ function ProcedureVoiceRoom({
 
       <section className="rounded-lg bg-white p-5 text-center shadow-soft">
         <div className="mx-auto mb-5 max-w-md rounded-lg bg-slate-50 px-4 py-3">
-          <p className="text-base font-semibold leading-7 text-slate-700 md:text-lg md:leading-8">{procedureGuideText}</p>
+          <p className="patient-body-copy font-semibold leading-8 text-text-secondary">{procedureGuideText}</p>
           {hardwareLabel ? <p className="mt-2 text-sm font-bold text-trust-text">{hardwareLabel}</p> : null}
         </div>
         <div className="relative mx-auto grid h-48 w-48 place-items-center md:h-56 md:w-56">
@@ -1984,10 +1992,10 @@ function ProcedureVoiceRoom({
             {busy && !isSpeaking ? <Loader2 size={44} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Mic size={56} aria-hidden="true" />}
           </button>
         </div>
-        <p className="mt-4 text-xl font-bold text-ink">
+        <p className="patient-body-copy mt-4 font-bold text-ink">
           {room.status === "ended" ? copy.primary.ended : isSpeaking ? activeSpeakingLabel : micEnabled ? copy.primary.ready : copy.primary.waiting}
         </p>
-        {isSpeaking ? <p className="mt-2 text-sm font-semibold text-slate-500">{activeSpeakingHelper}</p> : null}
+        {isSpeaking ? <p className="patient-helper-copy mt-2 font-semibold text-text-muted">{activeSpeakingHelper}</p> : null}
         {isSpeaking && noVoiceWarning ? <p id="procedure-no-voice-warning" className="mt-2 text-sm font-bold text-amber-800" role="status" aria-live="polite">{role === "staff" ? "소리가 작거나 들리지 않습니다." : patientNoVoiceCopy[room.patientLanguage]}</p> : null}
         {turnPhase !== "idle" ? <p className="mt-3 text-sm font-bold text-trust-text" role="status" aria-live="polite">{turnPhaseText(turnPhase, role, room.patientLanguage, copy)}</p> : null}
         {error ? <p className="mt-4 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700" role="alert">{error}</p> : null}

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { AdminLoadingSkeleton } from "@/components/AdminLoadingSkeleton";
 import { BookOpen, Loader2, RefreshCw, Save, Search } from "lucide-react";
 
 type FeedbackStatus = "new" | "reviewed" | "fixed" | "dismissed";
@@ -180,11 +181,11 @@ export function AdminFeedbackManager() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={4} className="px-5 py-6 font-semibold text-slate-500">Loading...</td>
+                <td colSpan={4} className="p-0"><AdminLoadingSkeleton rows={3} /></td>
               </tr>
             ) : filteredFeedback.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-5 py-6 font-semibold text-slate-500">No feedback.</td>
+                <td colSpan={4} className="p-0"><AdminLoadingSkeleton rows={3} /></td>
               </tr>
             ) : (
               filteredFeedback.map((item) => (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { AdminLoadingSkeleton } from "@/components/AdminLoadingSkeleton";
 import { Loader2, Plus, RefreshCw, Save, Search } from "lucide-react";
 import { languageLabels, patientLanguages } from "@/lib/languages";
 
@@ -302,11 +303,11 @@ export function AdminQuickPhraseManager() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} className="px-5 py-6 font-semibold text-slate-500">Loading...</td>
+                <td colSpan={5} className="p-0"><AdminLoadingSkeleton rows={3} /></td>
               </tr>
             ) : filteredPhrases.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-5 py-6 font-semibold text-slate-500">No quick phrases.</td>
+                <td colSpan={5} className="p-0"><AdminLoadingSkeleton rows={3} /></td>
               </tr>
             ) : (
               filteredPhrases.map((phrase) => {

@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, ChevronDown, Loader2, MessageSquareText, Mic, ShieldCheck } from "lucide-react";
+import { ArrowRight, ChevronDown, Loader2, MessageSquareText, ShieldCheck } from "lucide-react";
 import { languageLabels, patientLanguageTags, type PatientLanguage } from "@/lib/languages";
 import type { RoomStatus } from "@/lib/room-state";
 import { broadcastRoomUpdate } from "@/lib/supabase-realtime";
 import { VoiceRoom } from "@/components/VoiceRoom";
+import { PatientTextSizeControl, patientTextSizeClassName, usePatientTextSize } from "@/components/PatientTextSizeControl";
 
 const copy: Record<
   PatientLanguage,
@@ -250,6 +251,7 @@ export function PatientJoin({
   const turnNotice = turnTakingNotice[room.patientLanguage] ?? turnTakingNotice.en;
   const stateCopy = patientEntryStateCopy[room.patientLanguage];
   const privacyCopy = patientPrivacyCopy[room.patientLanguage];
+  const [patientTextSize, setPatientTextSize] = usePatientTextSize();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [joinedRoom, setJoinedRoom] = useState<{
@@ -295,21 +297,25 @@ export function PatientJoin({
   }
 
   return (
-    <section lang={patientLanguageTags[room.patientLanguage]} className="overflow-hidden rounded-lg bg-white shadow-soft">
+    <section lang={patientLanguageTags[room.patientLanguage]} className={`patient-text-surface ${patientTextSizeClassName(patientTextSize)} overflow-hidden rounded-xl border border-line bg-white shadow-soft`}>
       <div className="bg-ink p-6 text-white sm:p-7">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate text-sm font-bold text-blue-200">{room.hospital.name}</p>
-            <h1 className="mt-3 text-[30px] font-bold leading-tight">{text.title}</h1>
+            <h1 className="patient-heading-copy mt-3 font-bold leading-tight">{text.title}</h1>
           </div>
           <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white/10 px-3 py-2 text-xs font-bold">
             <ShieldCheck size={15} />
             {stateCopy.noAccount}
           </span>
         </div>
-        <p className="mt-3 text-base font-semibold leading-7 text-slate-300">
+        <p className="patient-body-copy mt-3 font-semibold leading-7 text-slate-300">
           {roomMode === "procedure" ? text.procedureBody : text.body}
         </p>
+      </div>
+
+      <div className="mx-6 mt-5 flex justify-end sm:mx-7">
+        <PatientTextSizeControl language={room.patientLanguage} value={patientTextSize} onChange={setPatientTextSize} />
       </div>
 
       <div className="m-6 rounded-lg border border-blue-100 bg-blue-50 p-4 text-center sm:m-7">
@@ -317,7 +323,7 @@ export function PatientJoin({
         <p className="mt-1 break-words text-lg font-bold text-ink">{languageLabels[room.patientLanguage].native}</p>
         <div className="mt-4 flex items-start gap-3 rounded-lg border border-blue-200 bg-white px-4 py-3 text-left">
           <MessageSquareText size={20} className="mt-0.5 shrink-0 text-trust-text" aria-hidden="true" />
-          <div className="space-y-2 text-sm font-semibold leading-6 text-slate-700">
+          <div className="patient-body-copy space-y-2 font-semibold leading-7 text-text-secondary">
             <p>{text.consent}</p>
             <p>{privacyCopy.retention}</p>
           </div>
@@ -332,7 +338,7 @@ export function PatientJoin({
         {error ? <p className="mt-3 rounded-lg bg-rose-50 px-4 py-3 text-sm font-semibold text-coral-text" role="alert">{error}</p> : null}
       </div>
 
-      <details className="group mx-6 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 text-sm font-semibold leading-6 text-slate-700 sm:mx-7">
+      <details className="patient-helper-copy group mx-6 mb-6 rounded-lg border border-blue-100 bg-blue-50 px-4 py-4 font-semibold leading-6 text-text-secondary sm:mx-7 sm:mb-7">
         <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 font-bold text-trust-text">{privacyCopy.detailsLabel}<ChevronDown size={20} className="transition group-open:rotate-180 motion-reduce:transition-none" aria-hidden="true" /></summary>
         <div className="mt-3 space-y-3">
         <div className="flex gap-3">
@@ -353,15 +359,6 @@ export function PatientJoin({
         </div>
       </details>
 
-      <div className="m-6 flex items-center justify-between rounded-lg bg-slate-50 px-4 py-4 sm:m-7">
-        <div>
-          <p className="text-xs font-bold text-slate-500">{text.languageLabel}</p>
-          <p className="mt-1 text-lg font-bold text-ink">{languageLabels[room.patientLanguage].native}</p>
-        </div>
-        <div className="grid h-11 w-11 place-items-center rounded-lg bg-blue-50 text-trust-text">
-          {roomMode === "procedure" ? <Mic size={22} /> : <MessageSquareText size={22} />}
-        </div>
-      </div>
     </section>
   );
 }

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppFrame } from "@/components/AppFrame";
+import { AdminWorkspaceNav } from "@/components/AdminWorkspaceNav";
 import { getCurrentStaff } from "@/lib/session";
 import { getAdminUsageSummary, type LocalQualityBreakdown } from "@/lib/admin-usage";
 import { languageLabels } from "@/lib/languages";
@@ -16,6 +17,7 @@ export default async function AdminUsagePage() {
 
   return (
     <AppFrame backHref="/staff">
+      <AdminWorkspaceNav role={staff.role} active="usage" />
       <div className="space-y-6">
         <header>
           <p className="text-sm font-bold text-trust-text">Internal Admin</p>
