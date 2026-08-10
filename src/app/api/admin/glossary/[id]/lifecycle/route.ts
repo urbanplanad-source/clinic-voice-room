@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
 import { clearGlossaryCache, findGlossaryAliasConflict } from "@/lib/glossary-service";
+import { hospitalAdminCanPerformGlossaryLifecycleAction } from "@/lib/glossary-lifecycle-policy";
 
 const schema = z.object({
   action: z.enum(["approve", "activate", "new_version", "retire", "rollback"])
@@ -42,6 +43,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!parsed.success) return NextResponse.json({ error: "Invalid lifecycle action" }, { status: 400 });
 
   const { staff, entry } = authorized;
+  if (
+    staff.role === "hospital_admin" &&
+    !hospitalAdminCanPerformGlossaryLifecycleAction(entry, parsed.data.action)
+  ) {
+    return NextResponse.json(
+      { error: "중요 문장·의료 안전 용어·덮어쓰기 힌트는 내부 관리자 승인이 필요합니다." },
+      { status: 403 }
+    );
+  }
   const now = new Date();
   let result;
 
@@ -111,6 +121,24 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     });
   }
 
+  await prisma.glossaryAuditEvent.create({
+    data: {
+      entryId: result.id,
+      lineageId: result.lineageId,
+      version: result.version,
+      hospitalId: result.hospitalId,
+      actorStaffId: staff.id,
+      actorRole: staff.role,
+      action: parsed.data.action,
+      fromLifecycle: entry.lifecycle,
+      toLifecycle: result.lifecycle,
+      metadata: {
+        sourceEntryId: entry.id,
+        entryType: result.entryType,
+        scope: result.scope
+      }
+    }
+  });
   clearGlossaryCache(entry.hospitalId, entry.specialty);
   return NextResponse.json({ entry: result });
 }

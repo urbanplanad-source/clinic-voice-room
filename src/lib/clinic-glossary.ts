@@ -18,6 +18,7 @@ export type CriticalShortPhrase = {
 };
 
 export type ClinicGlossaryEntry = {
+  entryId?: string;
   spoken: string[];
   standardKo: string;
   zh: string;
@@ -31,6 +32,7 @@ export type ClinicGlossaryEntry = {
 };
 
 export type VerifiedSentenceEntry = {
+  entryId?: string;
   spoken: string[];
   standardKo: string;
   translations: Partial<Record<GlossaryTargetLanguage, string>>;
@@ -44,6 +46,11 @@ export type ClinicGlossaryData = {
   transcriptionHints: string[];
   transcriptionHintMappings?: ClinicTranscriptionHintMapping[];
   verifiedSentences: VerifiedSentenceEntry[];
+  metadata?: {
+    glossaryVersion: string;
+    packVersion: string;
+    normalizationVersion: number;
+  };
 };
 
 const rawGlossaryTargetLanguages = new Set<GlossaryTargetLanguage>(["ko", "zh", "zh_tw", "yue", "ja", "en", "ru", "vi", "id"]);

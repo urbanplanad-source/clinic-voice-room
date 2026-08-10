@@ -18,9 +18,23 @@ export type PatientConfirmationGuard = {
   respondedAt?: string;
 };
 
+export type TranslationQualityGuard = {
+  initialDeterministicStatus: "pass" | "fail";
+  finalDeterministicStatus: "pass" | "fail";
+  semanticStatus: "pass" | "fail" | "not_required" | "unavailable";
+  validationPath: "standard" | "repair" | "strict";
+  corrected: boolean;
+  riskLevel: "normal" | "high";
+  riskReasons: string[];
+  failureReasons?: string[];
+  validationMs?: number;
+  correctionMs?: number;
+};
+
 export type GuardFlags = Partial<NumberCheckGuard> & {
   backTranslation?: BackTranslationGuard;
   confirmation?: PatientConfirmationGuard;
+  quality?: TranslationQualityGuard;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -69,6 +83,38 @@ export function parseGuardFlags(value: unknown): GuardFlags | undefined {
     }
   }
 
+  if (isRecord(value.quality)) {
+    const initial = value.quality.initialDeterministicStatus;
+    const final = value.quality.finalDeterministicStatus;
+    const semantic = value.quality.semanticStatus;
+    const validationPath = value.quality.validationPath;
+    const riskLevel = value.quality.riskLevel;
+    if (
+      (initial === "pass" || initial === "fail") &&
+      (final === "pass" || final === "fail") &&
+      (semantic === "pass" || semantic === "fail" || semantic === "not_required" || semantic === "unavailable") &&
+      (validationPath === "standard" || validationPath === "repair" || validationPath === "strict") &&
+      (riskLevel === "normal" || riskLevel === "high")
+    ) {
+      flags.quality = {
+        initialDeterministicStatus: initial,
+        finalDeterministicStatus: final,
+        semanticStatus: semantic,
+        validationPath,
+        corrected: value.quality.corrected === true,
+        riskLevel,
+        riskReasons: Array.isArray(value.quality.riskReasons)
+          ? value.quality.riskReasons.filter((item): item is string => typeof item === "string")
+          : [],
+        failureReasons: Array.isArray(value.quality.failureReasons)
+          ? value.quality.failureReasons.filter((item): item is string => typeof item === "string")
+          : undefined,
+        validationMs: typeof value.quality.validationMs === "number" ? value.quality.validationMs : undefined,
+        correctionMs: typeof value.quality.correctionMs === "number" ? value.quality.correctionMs : undefined
+      };
+    }
+  }
+
   return Object.keys(flags).length > 0 ? flags : undefined;
 }
 
@@ -80,6 +126,7 @@ export function mergeGuardFlags(existing: unknown, patch: GuardFlags | undefined
     ...current,
     ...patch,
     backTranslation: patch.backTranslation ?? current.backTranslation,
-    confirmation: patch.confirmation ?? current.confirmation
+    confirmation: patch.confirmation ?? current.confirmation,
+    quality: patch.quality ?? current.quality
   };
 }

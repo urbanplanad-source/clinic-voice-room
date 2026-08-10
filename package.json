@@ -20,7 +20,9 @@
     "hospital-specialty:backfill": "tsx scripts/backfill-hospital-specialty.ts",
     "staff:create": "tsx scripts/create-staff-user.ts",
     "dataset:verify": "tsx scripts/verify-medivoice-datasets.ts",
-    "android:verified-phrases": "tsx scripts/generate-android-verified-phrases.ts"
+    "android:verified-phrases": "tsx scripts/generate-android-verified-phrases.ts",
+    "quality:evaluate": "tsx scripts/evaluate-translation-quality.ts",
+    "quality:benchmark": "tsx scripts/benchmark-translation-quality.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

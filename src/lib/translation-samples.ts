@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { PatientLanguage } from "@/lib/languages";
+import { deidentifyMedicalText } from "@/lib/medical-text-redaction";
 
 const DEFAULT_TRANSLATION_SAMPLE_RETENTION_DAYS = 30;
 const MAX_TRANSLATION_SAMPLE_RETENTION_DAYS = 3650;
@@ -53,6 +54,10 @@ export function getTranslationSampleRetentionCutoff(now = new Date(), retentionD
   return new Date(now.getTime() - normalizeRetentionDays(retentionDays) * MS_PER_DAY);
 }
 
+export function getTranslationSampleExpiration(now = new Date(), retentionDays = getTranslationSampleRetentionDays()) {
+  return new Date(now.getTime() + normalizeRetentionDays(retentionDays) * MS_PER_DAY);
+}
+
 export function stableTranslationSampleMessageId(params: StableTranslationSampleMessageIdParams) {
   const digest = createHash("sha256")
     .update(
@@ -91,8 +96,10 @@ function isPrismaUniqueConstraintError(caught: unknown) {
 }
 
 export async function recordTranslationSample(params: RecordTranslationSampleParams) {
-  const sourceText = params.sourceText.trim();
-  const translatedText = params.translatedText.trim();
+  const source = deidentifyMedicalText(params.sourceText);
+  const translation = deidentifyMedicalText(params.translatedText);
+  const sourceText = source.text;
+  const translatedText = translation.text;
   if (!sourceText || !translatedText || params.sourceTranscriptComplete === false) return null;
 
   try {
@@ -111,7 +118,11 @@ export async function recordTranslationSample(params: RecordTranslationSamplePar
         sourceLanguage: params.sourceLanguage,
         targetLanguage: params.targetLanguage,
         model: params.model ?? undefined,
-        guardFlags: jsonValueOrUndefined(params.guardFlags)
+        guardFlags: jsonValueOrUndefined(params.guardFlags),
+        sourceTextHash: source.sha256,
+        translatedTextHash: translation.sha256,
+        redactionTypes: Array.from(new Set([...source.redactionTypes, ...translation.redactionTypes])),
+        retentionExpiresAt: getTranslationSampleExpiration()
       }
     });
   } catch (caught) {
@@ -126,7 +137,12 @@ export async function deleteExpiredTranslationSamples(options: { now?: Date; ret
   const retentionDays = normalizeRetentionDays(options.retentionDays ?? process.env.TRANSLATION_SAMPLE_RETENTION_DAYS);
   const cutoff = getTranslationSampleRetentionCutoff(now, retentionDays);
   const result = await prisma.translationSample.deleteMany({
-    where: { createdAt: { lt: cutoff } }
+    where: {
+      OR: [
+        { retentionExpiresAt: { lt: now } },
+        { retentionExpiresAt: null, createdAt: { lt: cutoff } }
+      ]
+    }
   });
 
   return { deletedCount: result.count, cutoff, retentionDays };

@@ -129,6 +129,7 @@ model Hospital {
   quickPhrases                HospitalQuickPhrase[]
   translationFeedback         TranslationFeedback[]
   translationSamples          TranslationSample[]
+  glossaryPackReleases        GlossaryPackRelease[]
 }
 
 model GlossaryEntry {
@@ -160,6 +161,52 @@ model GlossaryEntry {
   @@index([scope, specialty, isActive])
   @@index([hospitalId, isActive])
   @@index([lifecycle, updatedAt])
+}
+
+model GlossaryAuditEvent {
+  id            String   @id @default(cuid())
+  entryId       String
+  lineageId     String
+  version       Int
+  hospitalId    String?
+  actorStaffId  String
+  actorRole     String
+  action        String
+  fromLifecycle String?
+  toLifecycle   String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  @@index([entryId, createdAt])
+  @@index([hospitalId, createdAt])
+  @@index([actorStaffId, createdAt])
+}
+
+model GlossaryPackRelease {
+  id                   String             @id @default(cuid())
+  hospitalId           String?
+  hospital             Hospital?          @relation(fields: [hospitalId], references: [id])
+  specialty            HospitalSpecialty?
+  patientLanguage      PatientLanguage?
+  direction            String?
+  version              String             @unique
+  status               String             @default("draft")
+  normalizationVersion Int
+  checksumSha256       String
+  signature            String
+  signatureAlgorithm   String             @default("Ed25519")
+  signingKeyId         String
+  minimumAppVersion    String?
+  manifest             Json
+  payload              Json
+  createdById          String
+  createdAt            DateTime           @default(now())
+  activatedAt          DateTime?
+  retiredAt            DateTime?
+
+  @@index([hospitalId, status, createdAt])
+  @@index([specialty, status, createdAt])
+  @@index([patientLanguage, direction, status])
 }
 
 model HospitalQuickPhrase {
@@ -267,50 +314,58 @@ model ConsultationMessage {
 }
 
 model TranslationFeedback {
-  id             String         @id @default(cuid())
-  hospitalId     String
-  hospital       Hospital       @relation(fields: [hospitalId], references: [id])
-  roomId         String?
-  messageId      String?
-  sourceText     String
-  translatedText String
-  sourceLanguage String
-  targetLanguage String
-  reporterRole   String
-  reason         String?
-  status         FeedbackStatus @default(new)
-  createdAt      DateTime       @default(now())
-  reviewedAt     DateTime?
+  id                 String         @id @default(cuid())
+  hospitalId         String
+  hospital           Hospital       @relation(fields: [hospitalId], references: [id])
+  roomId             String?
+  messageId          String?
+  sourceText         String
+  translatedText     String
+  sourceTextHash     String?
+  translatedTextHash String?
+  redactionTypes     String[]       @default([])
+  sourceLanguage     String
+  targetLanguage     String
+  reporterRole       String
+  reason             String?
+  status             FeedbackStatus @default(new)
+  createdAt          DateTime       @default(now())
+  reviewedAt         DateTime?
 
   @@index([hospitalId, status, createdAt])
 }
 
 model TranslationSample {
-  id              String           @id @default(cuid())
-  hospitalId      String
-  hospital        Hospital         @relation(fields: [hospitalId], references: [id])
-  staffId         String?
-  staff           StaffUser?       @relation(fields: [staffId], references: [id], onDelete: SetNull)
-  roomId          String?
-  messageId       String?
-  source          String
-  mode            String
-  direction       String
-  patientLanguage PatientLanguage?
-  sourceText      String
-  translatedText  String
-  sourceLanguage  String
-  targetLanguage  String
-  model           String?
-  guardFlags      Json?
-  status          FeedbackStatus   @default(new)
-  createdAt       DateTime         @default(now())
-  reviewedAt      DateTime?
+  id                 String           @id @default(cuid())
+  hospitalId         String
+  hospital           Hospital         @relation(fields: [hospitalId], references: [id])
+  staffId            String?
+  staff              StaffUser?       @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  roomId             String?
+  messageId          String?
+  source             String
+  mode               String
+  direction          String
+  patientLanguage    PatientLanguage?
+  sourceText         String
+  translatedText     String
+  sourceTextHash     String?
+  translatedTextHash String?
+  redactionTypes     String[]         @default([])
+  retentionExpiresAt DateTime?
+  sourceLanguage     String
+  targetLanguage     String
+  model              String?
+  guardFlags         Json?
+  status             FeedbackStatus   @default(new)
+  createdAt          DateTime         @default(now())
+  reviewedAt         DateTime?
 
   @@unique([hospitalId, source, messageId])
   @@index([hospitalId, status, createdAt])
   @@index([staffId, createdAt])
   @@index([source, createdAt])
+  @@index([retentionExpiresAt])
 }
 
 model LocalInterpreterUsageTurn {
@@ -333,30 +388,59 @@ model LocalInterpreterUsageTurn {
 }
 
 model LocalInterpreterTurnMetric {
-  id               String          @id
-  hospitalId       String
-  hospital         Hospital        @relation(fields: [hospitalId], references: [id])
-  staffId          String
-  staff            StaffUser       @relation(fields: [staffId], references: [id])
-  patientLanguage  PatientLanguage
-  direction        String
-  transport        String
-  outcome          String
-  resultReadyMs    Int?
-  audioStartedMs   Int?
-  validationMs     Int?
-  validationStatus String?
-  corrected        Boolean         @default(false)
-  verifiedSentence Boolean         @default(false)
-  errorCategory    String?
-  appVersion       String?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  id                         String          @id
+  hospitalId                 String
+  hospital                   Hospital        @relation(fields: [hospitalId], references: [id])
+  staffId                    String
+  staff                      StaffUser       @relation(fields: [staffId], references: [id])
+  patientLanguage            PatientLanguage
+  direction                  String
+  transport                  String
+  outcome                    String
+  resultReadyMs              Int?
+  audioStartedMs             Int?
+  validationMs               Int?
+  validationStatus           String?
+  corrected                  Boolean         @default(false)
+  verifiedSentence           Boolean         @default(false)
+  errorCategory              String?
+  appVersion                 String?
+  messageId                  String?
+  packVersion                String?
+  glossaryVersion            String?
+  normalizationVersion       Int?
+  modelId                    String?
+  enginePath                 String?
+  turnEndMode                String?
+  speechEndToTranscriptMs    Int?
+  requestRoundTripMs         Int?
+  exactMatchMs               Int?
+  glossaryMatchMs            Int?
+  translationMs              Int?
+  correctionMs               Int?
+  totalMs                    Int?
+  initialDeterministicStatus String?
+  finalDeterministicStatus   String?
+  semanticStatus             String?
+  validationPath             String?
+  riskLevel                  String?
+  riskReasons                String[]        @default([])
+  matchedEntryIds            String[]        @default([])
+  modelAttemptCount          Int             @default(0)
+  validationAttemptCount     Int             @default(0)
+  correctionAttemptCount     Int             @default(0)
+  strictAttemptCount         Int             @default(0)
+  retryRequiredCount         Int             @default(0)
+  estimatedCostUsd           Decimal?        @db.Decimal(10, 6)
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
 
   @@index([hospitalId, createdAt])
   @@index([staffId, createdAt])
   @@index([patientLanguage, createdAt])
   @@index([outcome, createdAt])
+  @@index([packVersion, createdAt])
+  @@index([semanticStatus, createdAt])
 }
 
 model TextTranslationUsage {

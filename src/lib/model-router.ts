@@ -2,7 +2,7 @@ import type { ClinicGlossaryData } from "./clinic-glossary";
 import { extractNumericSignature } from "./number-guard";
 import { normalizedTextTranslationModel } from "./openai-models";
 import { detectHighRisk } from "./risk-detector";
-import { normalizeForMatch } from "./verified-sentences";
+import { compiledGlossaryHasTerm } from "./compiled-glossary-index";
 
 export type TranslationModelRoute = {
   tier: "light" | "standard";
@@ -12,16 +12,7 @@ export type TranslationModelRoute = {
 };
 
 function hasGlossaryTermHit(text: string, glossaryData: ClinicGlossaryData) {
-  const normalizedText = normalizeForMatch(text);
-  if (!normalizedText) return false;
-
-  return glossaryData.terms.some((entry) => {
-    const candidates = [entry.standardKo, ...entry.spoken];
-    return candidates.some((candidate) => {
-      const normalizedCandidate = normalizeForMatch(candidate);
-      return normalizedCandidate && normalizedText.includes(normalizedCandidate);
-    });
-  });
+  return compiledGlossaryHasTerm(text, glossaryData);
 }
 
 export function routeTranslationModel(text: string, glossaryData: ClinicGlossaryData): TranslationModelRoute {

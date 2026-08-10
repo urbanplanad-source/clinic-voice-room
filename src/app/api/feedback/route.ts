@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentStaff } from "@/lib/session";
 import { clientIp, rateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { isPatientRoomRequestAuthorized } from "@/lib/patient-room-session";
+import { deidentifyMedicalText } from "@/lib/medical-text-redaction";
 
 const reasons = ["mistranslation", "wrong_term", "awkward", "other"] as const;
 
@@ -66,13 +67,18 @@ export async function POST(request: Request) {
   });
   if (!message) return NextResponse.json({ error: "Message not found" }, { status: 404 });
 
+  const source = deidentifyMedicalText(message.sourceText?.trim() || message.text);
+  const translation = deidentifyMedicalText(message.text);
   const feedback = await prisma.translationFeedback.create({
     data: {
       hospitalId: room.hospitalId,
       roomId: room.id,
       messageId: message.id,
-      sourceText: message.sourceText?.trim() || message.text,
-      translatedText: message.text,
+      sourceText: source.text,
+      translatedText: translation.text,
+      sourceTextHash: source.sha256,
+      translatedTextHash: translation.sha256,
+      redactionTypes: Array.from(new Set([...source.redactionTypes, ...translation.redactionTypes])),
       sourceLanguage: sourceLanguageForMessage(message.speaker, room.patientLanguage),
       targetLanguage: targetLanguageForMessage(message.speaker, room.patientLanguage, message.targetLanguage),
       reporterRole: parsed.data.reporterRole,

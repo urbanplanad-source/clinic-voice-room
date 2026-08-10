@@ -1,21 +1,18 @@
 import type { ClinicGlossaryData, GlossaryTargetLanguage, VerifiedSentenceEntry } from "./clinic-glossary";
+import { compileGlossaryIndex } from "./compiled-glossary-index";
+import { normalizeForGlossaryMatch } from "./glossary-normalization";
 
 export type VerifiedSentenceMatch = {
   entry: VerifiedSentenceEntry;
   translatedText: string;
 };
 
-const removablePunctuationPattern = /[\s\p{P}\p{S}]+/gu;
-
 export function verifiedSentencesEnabled() {
   return process.env.VERIFIED_SENTENCES === "on";
 }
 
 export function normalizeForMatch(text: string) {
-  return text
-    .normalize("NFKC")
-    .toLocaleLowerCase()
-    .replace(removablePunctuationPattern, "");
+  return normalizeForGlossaryMatch(text);
 }
 
 function directTranslationFor(entry: VerifiedSentenceEntry, targetLanguage: GlossaryTargetLanguage) {
@@ -29,17 +26,8 @@ export function matchVerifiedSentence(text: string, targetLanguage: GlossaryTarg
   const normalizedInput = normalizeForMatch(text);
   if (!normalizedInput) return null;
 
-  for (const entry of glossaryData.verifiedSentences) {
-    const translatedText = directTranslationFor(entry, targetLanguage);
-    if (!translatedText) continue;
-
-    const candidates = [entry.standardKo, ...entry.spoken];
-    for (const candidate of candidates) {
-      if (normalizeForMatch(candidate) === normalizedInput) {
-        return { entry, translatedText };
-      }
-    }
-  }
-
-  return null;
+  const entry = compileGlossaryIndex(glossaryData).verifiedByNormalizedInput.get(normalizedInput);
+  if (!entry) return null;
+  const translatedText = directTranslationFor(entry, targetLanguage);
+  return translatedText ? { entry, translatedText } : null;
 }

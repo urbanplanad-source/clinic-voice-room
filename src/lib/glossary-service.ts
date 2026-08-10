@@ -1,4 +1,5 @@
 import type { GlossaryEntry, HospitalSpecialty, Prisma } from "@prisma/client";
+import { createHash } from "node:crypto";
 import {
   clinicGlossary,
   criticalShortPhrases,
@@ -15,6 +16,7 @@ import {
   type ClinicTranscriptionHintMapping
 } from "./clinic-transcription";
 import { prisma } from "./prisma";
+import { compileGlossaryIndex } from "./compiled-glossary-index";
 
 type CacheEntry = {
   timestamp: number;
@@ -23,24 +25,30 @@ type CacheEntry = {
 
 type GlossaryDbEntry = Pick<
   GlossaryEntry,
-  "scope" | "specialty" | "hospitalId" | "entryType" | "spokenForms" | "standardKo" | "translations" | "category" | "note" | "priority" | "createdAt"
+  "id" | "scope" | "specialty" | "hospitalId" | "entryType" | "spokenForms" | "standardKo" | "translations" | "category" | "note" | "priority" | "version" | "createdAt" | "updatedAt"
 >;
 
 const cacheTtlMs = 60 * 1000;
 const cache = new Map<string, CacheEntry>();
+let compiledCodeGlossaryData: ClinicGlossaryData | null = null;
 
 export function glossarySource() {
   return process.env.GLOSSARY_SOURCE === "db" ? "db" : "code";
 }
 
 export function getCodeGlossaryData(): ClinicGlossaryData {
-  return {
+  if (compiledCodeGlossaryData) return compiledCodeGlossaryData;
+  const data: ClinicGlossaryData = {
     terms: clinicGlossary,
     criticalPhrases: criticalShortPhrases,
     transcriptionHints: realtimeKoreanTranscriptionHints,
     transcriptionHintMappings: transcriptionMappingsFromTerms(clinicGlossary),
-    verifiedSentences: []
+    verifiedSentences: [],
+    metadata: { glossaryVersion: "code-v1", packVersion: "code-v1", normalizationVersion: 1 }
   };
+  compileGlossaryIndex(data);
+  compiledCodeGlossaryData = data;
+  return data;
 }
 
 export function clearGlossaryCache(hospitalId?: string | null, specialty?: HospitalSpecialty | null) {
@@ -119,6 +127,7 @@ function toTerm(entry: GlossaryDbEntry): ClinicGlossaryEntry {
   const fallback = stringValue(translations.en) ?? entry.standardKo;
 
   return {
+    entryId: entry.id,
     spoken: entry.spokenForms,
     standardKo: entry.standardKo,
     zh: translatedValue(translations, "zh", entry.standardKo),
@@ -174,6 +183,7 @@ function toVerifiedSentence(entry: GlossaryDbEntry): VerifiedSentenceEntry {
   }
 
   return {
+    entryId: entry.id,
     spoken: entry.spokenForms,
     standardKo: entry.standardKo,
     translations: directTranslations,
@@ -193,13 +203,24 @@ function toGlossaryData(entries: GlossaryDbEntry[]): ClinicGlossaryData {
     priority: entry.priority,
     source: "transcription_hint"
   }));
-  return {
+  const versionDigest = createHash("sha256")
+    .update(entries.map((entry) => `${entry.id}:${entry.version}:${entry.updatedAt.toISOString()}`).sort().join("|"))
+    .digest("hex")
+    .slice(0, 20);
+  const data: ClinicGlossaryData = {
     terms,
     criticalPhrases: mergedEntries.filter((entry) => entry.entryType === "critical_phrase").map(toCriticalPhrase),
     transcriptionHints: transcriptionEntries.map((entry) => entry.standardKo).filter(Boolean),
     transcriptionHintMappings: [...explicitMappings, ...transcriptionMappingsFromTerms(terms)],
-    verifiedSentences: mergedEntries.filter((entry) => entry.entryType === "verified_sentence").map(toVerifiedSentence)
+    verifiedSentences: mergedEntries.filter((entry) => entry.entryType === "verified_sentence").map(toVerifiedSentence),
+    metadata: {
+      glossaryVersion: `gl-${versionDigest}`,
+      packVersion: `pack-${versionDigest}`,
+      normalizationVersion: 1
+    }
   };
+  compileGlossaryIndex(data);
+  return data;
 }
 
 export async function getGlossaryForHospital(hospitalId?: string | null, specialty?: HospitalSpecialty | null): Promise<ClinicGlossaryData> {
@@ -221,6 +242,7 @@ export async function getGlossaryForHospital(hospitalId?: string | null, special
         ]
       },
       select: {
+        id: true,
         scope: true,
         specialty: true,
         hospitalId: true,
@@ -231,7 +253,9 @@ export async function getGlossaryForHospital(hospitalId?: string | null, special
         category: true,
         note: true,
         priority: true,
-        createdAt: true
+        version: true,
+        createdAt: true,
+        updatedAt: true
       }
     });
 

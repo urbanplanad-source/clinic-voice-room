@@ -18,6 +18,12 @@ import { broadcastServerTranslationMessage } from "@/lib/supabase-realtime-serve
 import { recordTranslationSample } from "@/lib/translation-samples";
 import { isClearlyNotKoreanTranslation } from "@/lib/translation-language-guard";
 import { pendingPatientConfirmationGuard } from "@/lib/high-risk-confirmation";
+import {
+  translationQualityGuardFromOutcome,
+  validateMedicalTranslation
+} from "@/lib/medical-semantic-validation";
+import { matchedGlossaryEntryIds } from "@/lib/compiled-glossary-index";
+import { recordServerTranslationQualityMetric } from "@/lib/local-interpreter-metrics";
 
 type TargetLanguage = PatientLanguage | "ko";
 
@@ -220,6 +226,7 @@ async function translateSourceText(params: {
 }
 
 async function handleRealtimeStaffMessage(request: Request) {
+  const handlerStartedAt = performance.now();
   const parsed = realtimeMessageSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid consultation voice payload" }, { status: 400 });
@@ -235,6 +242,7 @@ async function handleRealtimeStaffMessage(request: Request) {
   const authorization = await authorizeRoom(parsed.data);
   if (authorization.response) return authorization.response;
   const glossaryData = await getGlossaryForHospital(authorization.room.hospitalId, authorization.room.hospital.specialty);
+  const matchedEntryIds = matchedGlossaryEntryIds(parsed.data.sourceText, glossaryData);
 
   const targetLanguage: TargetLanguage = parsed.data.role === "staff" ? parsed.data.patientLanguage : "ko";
   let normalizedText = normalizeClinicTranslation(parsed.data.translatedText, targetLanguage, glossaryData);
@@ -307,6 +315,100 @@ async function handleRealtimeStaffMessage(request: Request) {
     );
   }
 
+  if (parsed.data.role === "patient" && !parsed.data.sourceTranscriptComplete) {
+    return NextResponse.json(
+      {
+        status: "retry_required",
+        error: "Complete source transcript is required for patient-to-Korean validation"
+      },
+      { status: 422 }
+    );
+  }
+
+  const direction = parsed.data.role === "staff" ? "ko_to_patient" as const : "patient_to_ko" as const;
+  const qualityOutcome = await validateMedicalTranslation({
+    apiKey: process.env.OPENAI_API_KEY,
+    sourceText: parsed.data.sourceText,
+    translatedText: normalizedText,
+    direction,
+    sourceLanguage: parsed.data.role === "staff" ? "Korean" : languageLabels[parsed.data.patientLanguage].english,
+    targetLanguage: parsed.data.role === "staff" ? languageLabels[parsed.data.patientLanguage].english : "Korean",
+    safetyIdentifier: `clinic-voice-room-consultation-quality-${authorization.room.id}-${parsed.data.role}`,
+    initialTranslationSource: translationSource === "verified" ? "verified_sentence" : "model",
+    glossaryInstructions: buildClinicGlossaryInstructions(parsed.data.patientLanguage, glossaryData),
+    semanticRequired: parsed.data.role === "patient",
+    strictTranslate: async () => {
+      const retry = await translateSourceText({
+        roomId: authorization.room.id,
+        role: parsed.data.role,
+        patientLanguage: parsed.data.patientLanguage,
+        sourceText: parsed.data.sourceText,
+        glossaryData
+      });
+      if (retry.response) return null;
+      return {
+        translatedText: retry.translatedText,
+        model: retry.model,
+        translationSource: retry.translationSource === "verified" ? "verified_sentence" as const : "model" as const
+      };
+    }
+  });
+  if (qualityOutcome.status !== "final" || !qualityOutcome.finalTranslation) {
+    console.warn("[consultation-voice-turns quality] blocked", JSON.stringify({
+      roomId: authorization.room.id,
+      messageId: parsed.data.messageId,
+      direction,
+      semanticStatus: qualityOutcome.semanticStatus,
+      failureReason: qualityOutcome.failureReason
+    }));
+    after(() => recordServerTranslationQualityMetric({
+      eventId: `web-consultation-${parsed.data.messageId}`,
+      hospitalId: authorization.room.hospitalId,
+      staffId: authorization.room.hostStaffId,
+      patientLanguage: parsed.data.patientLanguage,
+      direction,
+      outcome: "retry_prompt",
+      messageId: parsed.data.messageId,
+      transport: "realtime",
+      totalMs: performance.now() - handlerStartedAt,
+      packVersion: glossaryData.metadata?.packVersion,
+      glossaryVersion: glossaryData.metadata?.glossaryVersion,
+      normalizationVersion: glossaryData.metadata?.normalizationVersion,
+      modelId: qualityOutcome.modelId ?? model,
+      enginePath: "strict",
+      initialDeterministicStatus: qualityOutcome.initialDeterministic.status,
+      finalDeterministicStatus: qualityOutcome.finalDeterministic.status,
+      semanticStatus: qualityOutcome.semanticStatus,
+      validationPath: qualityOutcome.validationPath,
+      validationMs: qualityOutcome.validationMs,
+      correctionMs: qualityOutcome.correctionMs,
+      corrected: qualityOutcome.corrected,
+      verifiedSentence: qualityOutcome.translationSource === "verified_sentence",
+      riskLevel: qualityOutcome.finalDeterministic.riskLevel,
+      riskReasons: qualityOutcome.finalDeterministic.riskReasons,
+      matchedEntryIds,
+      modelAttemptCount: qualityOutcome.modelAttemptCount,
+      validationAttemptCount: qualityOutcome.validationAttemptCount,
+      correctionAttemptCount: qualityOutcome.correctionAttemptCount,
+      strictAttemptCount: qualityOutcome.strictAttemptCount,
+      errorCategory: qualityOutcome.failureReason
+    }).catch((caught) => console.error("[consultation-voice-turns quality metric]", caught)));
+    return NextResponse.json(
+      {
+        status: "retry_required",
+        error: "Translation accuracy could not be confirmed. Please speak again.",
+        quality: translationQualityGuardFromOutcome(qualityOutcome)
+      },
+      { status: 422 }
+    );
+  }
+  normalizedText = normalizeClinicTranslation(qualityOutcome.finalTranslation, targetLanguage, glossaryData);
+  if (qualityOutcome.corrected) {
+    model = qualityOutcome.modelId ?? model;
+    translationSource = qualityOutcome.translationSource === "verified_sentence" ? "verified" : "llm";
+  }
+  guardFlags = mergeGuardFlags(guardFlags, { quality: translationQualityGuardFromOutcome(qualityOutcome) });
+
   guardFlags = mergeGuardFlags(
     mergeGuardFlags(
       guardFlags,
@@ -365,6 +467,37 @@ async function handleRealtimeStaffMessage(request: Request) {
       console.error("[consultation-voice-turns realtime sample]", caught);
     })
   );
+  after(() => recordServerTranslationQualityMetric({
+    eventId: `web-consultation-${message.id}`,
+    hospitalId: authorization.room.hospitalId,
+    staffId: authorization.room.hostStaffId,
+    patientLanguage: parsed.data.patientLanguage,
+    direction,
+    outcome: "success",
+    messageId: message.id,
+    transport: "realtime",
+    totalMs: performance.now() - handlerStartedAt,
+    packVersion: glossaryData.metadata?.packVersion,
+    glossaryVersion: glossaryData.metadata?.glossaryVersion,
+    normalizationVersion: glossaryData.metadata?.normalizationVersion,
+    modelId: qualityOutcome.modelId ?? model,
+    enginePath: qualityOutcome.validationPath === "strict" ? "strict" : "realtime",
+    initialDeterministicStatus: qualityOutcome.initialDeterministic.status,
+    finalDeterministicStatus: qualityOutcome.finalDeterministic.status,
+    semanticStatus: qualityOutcome.semanticStatus,
+    validationPath: qualityOutcome.validationPath,
+    validationMs: qualityOutcome.validationMs,
+    correctionMs: qualityOutcome.correctionMs,
+    corrected: qualityOutcome.corrected,
+    verifiedSentence: qualityOutcome.translationSource === "verified_sentence",
+    riskLevel: qualityOutcome.finalDeterministic.riskLevel,
+    riskReasons: qualityOutcome.finalDeterministic.riskReasons,
+    matchedEntryIds,
+    modelAttemptCount: qualityOutcome.modelAttemptCount,
+    validationAttemptCount: qualityOutcome.validationAttemptCount,
+    correctionAttemptCount: qualityOutcome.correctionAttemptCount,
+    strictAttemptCount: qualityOutcome.strictAttemptCount
+  }).catch((caught) => console.error("[consultation-voice-turns quality metric]", caught)));
   after(() =>
     broadcastServerTranslationMessage(parsed.data.roomId, {
       id: message.id,
@@ -393,7 +526,33 @@ async function handleRealtimeStaffMessage(request: Request) {
     },
     sourceText: parsed.data.sourceText,
     translatedText: message.text,
-    model
+    finalTranslation: message.text,
+    status: "final",
+    model,
+    translationQuality: messageGuardFlags?.quality ?? null,
+    translationResult: {
+      turnId: parsed.data.messageId,
+      status: "final",
+      finalTranslation: message.text,
+      translationSource: qualityOutcome.translationSource,
+      enginePath: qualityOutcome.validationPath === "strict" ? "strict" : "realtime",
+      modelId: model,
+      glossaryVersion: glossaryData.metadata?.glossaryVersion ?? "legacy",
+      packVersion: glossaryData.metadata?.packVersion ?? "legacy",
+      normalizationVersion: glossaryData.metadata?.normalizationVersion ?? 1,
+      matchedEntryIds,
+      riskLevel: qualityOutcome.finalDeterministic.riskLevel,
+      riskReasons: qualityOutcome.finalDeterministic.riskReasons,
+      initialDeterministicStatus: qualityOutcome.initialDeterministic.status,
+      finalDeterministicStatus: qualityOutcome.finalDeterministic.status,
+      semanticStatus: qualityOutcome.semanticStatus,
+      corrected: qualityOutcome.corrected,
+      validationPath: qualityOutcome.validationPath,
+      latency: {
+        serverValidationMs: qualityOutcome.validationMs,
+        serverCorrectionMs: qualityOutcome.correctionMs
+      }
+    }
   });
 }
 
@@ -535,6 +694,70 @@ async function handleAudioTurn(request: Request) {
   translationMs = Date.now() - translationStartedAt;
   if (translation.response) return translation.response;
 
+  const direction = role === "staff" ? "ko_to_patient" as const : "patient_to_ko" as const;
+  const qualityOutcome = await validateMedicalTranslation({
+    apiKey,
+    sourceText,
+    translatedText: translation.translatedText,
+    direction,
+    sourceLanguage: role === "staff" ? "Korean" : languageLabels[patientLanguage].english,
+    targetLanguage: role === "staff" ? languageLabels[patientLanguage].english : "Korean",
+    safetyIdentifier: `clinic-voice-room-consultation-upload-quality-${roomId}-${role}`,
+    initialTranslationSource: translation.translationSource === "verified" ? "verified_sentence" : "model",
+    glossaryInstructions: buildClinicGlossaryInstructions(patientLanguage, glossaryData),
+    semanticRequired: role === "patient",
+    strictTranslate: async () => {
+      const retry = await translateSourceText({ roomId, role, patientLanguage, sourceText, glossaryData });
+      if (retry.response) return null;
+      return {
+        translatedText: retry.translatedText,
+        model: retry.model,
+        translationSource: retry.translationSource === "verified" ? "verified_sentence" as const : "model" as const
+      };
+    }
+  });
+  if (qualityOutcome.status !== "final" || !qualityOutcome.finalTranslation) {
+    after(() => recordServerTranslationQualityMetric({
+      eventId: `web-consultation-${messageId}`,
+      hospitalId: authorization.room.hospitalId,
+      staffId: authorization.room.hostStaffId,
+      patientLanguage,
+      direction,
+      outcome: "retry_prompt",
+      messageId,
+      transport: "upload",
+      totalMs: Date.now() - startedAt,
+      translationMs,
+      packVersion: glossaryData.metadata?.packVersion,
+      glossaryVersion: glossaryData.metadata?.glossaryVersion,
+      normalizationVersion: glossaryData.metadata?.normalizationVersion,
+      modelId: qualityOutcome.modelId ?? translation.model,
+      enginePath: "strict",
+      initialDeterministicStatus: qualityOutcome.initialDeterministic.status,
+      finalDeterministicStatus: qualityOutcome.finalDeterministic.status,
+      semanticStatus: qualityOutcome.semanticStatus,
+      validationPath: qualityOutcome.validationPath,
+      validationMs: qualityOutcome.validationMs,
+      correctionMs: qualityOutcome.correctionMs,
+      corrected: qualityOutcome.corrected,
+      verifiedSentence: qualityOutcome.translationSource === "verified_sentence",
+      riskLevel: qualityOutcome.finalDeterministic.riskLevel,
+      riskReasons: qualityOutcome.finalDeterministic.riskReasons,
+      matchedEntryIds: matchedGlossaryEntryIds(sourceText, glossaryData),
+      modelAttemptCount: qualityOutcome.modelAttemptCount,
+      validationAttemptCount: qualityOutcome.validationAttemptCount,
+      correctionAttemptCount: qualityOutcome.correctionAttemptCount,
+      strictAttemptCount: qualityOutcome.strictAttemptCount,
+      errorCategory: qualityOutcome.failureReason
+    }).catch((caught) => console.error("[consultation-voice-turns upload quality metric]", caught)));
+    return NextResponse.json(
+      { status: "retry_required", error: "Translation accuracy could not be confirmed. Please speak again." },
+      { status: 422 }
+    );
+  }
+  translation.translatedText = normalizeClinicTranslation(qualityOutcome.finalTranslation, translation.targetLanguage, glossaryData);
+  translation.guardFlags = mergeGuardFlags(translation.guardFlags, { quality: translationQualityGuardFromOutcome(qualityOutcome) });
+
   const persistStartedAt = Date.now();
   const message = await createMessage({
     roomId,
@@ -595,6 +818,38 @@ async function handleAudioTurn(request: Request) {
       console.error("[consultation-voice-turns upload broadcast]", caught);
     })
   );
+  after(() => recordServerTranslationQualityMetric({
+    eventId: `web-consultation-${message.id}`,
+    hospitalId: authorization.room.hospitalId,
+    staffId: authorization.room.hostStaffId,
+    patientLanguage,
+    direction,
+    outcome: "success",
+    messageId: message.id,
+    transport: "upload",
+    totalMs: Date.now() - startedAt,
+    translationMs,
+    packVersion: glossaryData.metadata?.packVersion,
+    glossaryVersion: glossaryData.metadata?.glossaryVersion,
+    normalizationVersion: glossaryData.metadata?.normalizationVersion,
+    modelId: qualityOutcome.modelId ?? translation.model,
+    enginePath: qualityOutcome.validationPath === "strict" ? "strict" : "upload_fallback",
+    initialDeterministicStatus: qualityOutcome.initialDeterministic.status,
+    finalDeterministicStatus: qualityOutcome.finalDeterministic.status,
+    semanticStatus: qualityOutcome.semanticStatus,
+    validationPath: qualityOutcome.validationPath,
+    validationMs: qualityOutcome.validationMs,
+    correctionMs: qualityOutcome.correctionMs,
+    corrected: qualityOutcome.corrected,
+    verifiedSentence: qualityOutcome.translationSource === "verified_sentence",
+    riskLevel: qualityOutcome.finalDeterministic.riskLevel,
+    riskReasons: qualityOutcome.finalDeterministic.riskReasons,
+    matchedEntryIds: matchedGlossaryEntryIds(sourceText, glossaryData),
+    modelAttemptCount: qualityOutcome.modelAttemptCount,
+    validationAttemptCount: qualityOutcome.validationAttemptCount,
+    correctionAttemptCount: qualityOutcome.correctionAttemptCount,
+    strictAttemptCount: qualityOutcome.strictAttemptCount
+  }).catch((caught) => console.error("[consultation-voice-turns upload quality metric]", caught)));
 
   console.log(
     "[consultation-voice-turns upload timing]",
@@ -623,6 +878,8 @@ async function handleAudioTurn(request: Request) {
     },
     sourceText,
     translatedText: message.text,
+    finalTranslation: message.text,
+    status: "final",
     model: translation.model
   });
 }
