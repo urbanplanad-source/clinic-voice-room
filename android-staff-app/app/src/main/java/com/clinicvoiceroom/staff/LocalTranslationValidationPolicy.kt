@@ -19,6 +19,31 @@ private val amountCuePatterns = listOf(
     )
 )
 
+private val numericPreservationCuePattern = Regex(
+    "(?:\\d|\\b(?:one|once|two|twice|three|four|five|six|seven|eight|nine|ten)\\b|[영공일이삼사오육륙칠팔구십백천만억조]+\\s*(?:번|회|일|주|개월|시간|분|개|명|병|정|알|샷|cc|ml|mg|g|kg|mm|cm|iu|원)|(?:하나|한|둘|두|셋|세|넷|네|다섯|여섯|일곱|여덟|아홉|열)\\s*(?:번|회|일|주|개월|시간|분|개|명|병|정|알))",
+    RegexOption.IGNORE_CASE
+)
+private val negationSafetyCuePattern = Regex(
+    "(?:않(?:습니다|아요|도록|으면|고)?|마세요|말아\\s*주세요|금지|절대|없(?:습니다|어요|나요)?|\\b(?:do\\s+not|don't|must\\s+not|never|no)\\b)",
+    RegexOption.IGNORE_CASE
+)
+private val emergencySafetyCuePattern = Regex(
+    "(?:119|응급|호흡\\s*곤란|의식\\s*변화|의식을\\s*잃|즉시\\s*(?:연락|신고)|emergency|difficulty\\s+breathing|loss\\s+of\\s+consciousness)",
+    RegexOption.IGNORE_CASE
+)
+private val questionSafetyCuePattern = Regex(
+    "(?:[?？]|(?:나요|가요|까요|인가요|있나요|없나요|맞나요|습니까|합니까|됩니까|할까요)\\s*[.!?？]*$)",
+    RegexOption.IGNORE_CASE
+)
+private val listSafetyCuePattern = Regex(
+    "(?:(?:[,·].*){2}|(?:피어싱|렌즈|의치|보청기|고름|분비물|붉어짐|부종).*(?:피어싱|렌즈|의치|보청기|고름|분비물|붉어짐|부종))",
+    RegexOption.IGNORE_CASE
+)
+private val literalDirectiveCuePattern = Regex(
+    "(?:번역(?:은|을)?\\s*(?:하지\\s*말고|말고)|번역하지\\s*말고|(?:대답|답변)(?:하지|은\\s*하지)\\s*말|\\b(?:do\\s+not|don't)\\s+(?:answer|translate)\\b|\\bjust\\s+translate\\b|\\bignore\\s+(?:the\\s+)?(?:previous|prior|above|system)?\\s*instructions?\\b)",
+    RegexOption.IGNORE_CASE
+)
+
 
 private val hangulScriptPattern = Regex("[\\u1100-\\u11ff\\u3130-\\u318f\\uac00-\\ud7af]")
 private val foreignKoreanTargetScriptPatterns = listOf(
@@ -120,21 +145,49 @@ internal fun shouldSynchronouslyValidateLocalTranslation(
     return false
 }
 
+internal fun localTranslationSafetyForceReason(
+    sourceText: String,
+    translatedText: String,
+    sourceTranscriptionCorrected: Boolean = false
+): String {
+    val source = compactValidationText(sourceText)
+    val translated = compactValidationText(translatedText)
+    if (source.isBlank() || translated.isBlank()) return ""
+    if (sourceTranscriptionCorrected) return "source_transcription_corrected"
+    if (literalDirectiveCuePattern.containsMatchIn(source)) return "literal_directive_translation"
+    if (emergencySafetyCuePattern.containsMatchIn(source)) return "emergency_semantics"
+    if (questionSafetyCuePattern.containsMatchIn(source)) return "question_form_preservation"
+    if (negationSafetyCuePattern.containsMatchIn(source)) return "negation_semantics"
+    if (listSafetyCuePattern.containsMatchIn(source)) return "list_preservation"
+    if (numericPreservationCuePattern.containsMatchIn(source)) return "numeric_preservation"
+    return ""
+}
+
 internal fun planLocalTranslationValidation(
     direction: String,
     isInstantTemplate: Boolean,
     sourceTranscriptComplete: Boolean,
     targetLanguageMismatch: Boolean,
+    sourceTranscriptionCorrected: Boolean = false,
     sourceText: String,
     translatedText: String,
     shortTurnCandidate: Boolean
 ): LocalTranslationValidationPlan {
-    if (isInstantTemplate || !sourceTranscriptComplete) {
+    if (isInstantTemplate) {
         return LocalTranslationValidationPlan(
             candidate = false,
             required = false,
             force = false,
             forceReason = ""
+        )
+    }
+
+    if (!sourceTranscriptComplete) {
+        return LocalTranslationValidationPlan(
+            candidate = true,
+            required = true,
+            force = true,
+            forceReason = "incomplete_source_transcript"
         )
     }
 
@@ -144,13 +197,22 @@ internal fun planLocalTranslationValidation(
         sourceTranscriptComplete = sourceTranscriptComplete
     )
     val synchronousRisk = shouldSynchronouslyValidateLocalTranslation(sourceText, translatedText)
+    val safetyForceReason = localTranslationSafetyForceReason(
+        sourceText = sourceText,
+        translatedText = translatedText,
+        sourceTranscriptionCorrected = sourceTranscriptionCorrected
+    )
     val forceReason = when {
         targetLanguageMismatch -> "target_language_mismatch"
         patientToKoreanPreOutput -> "patient_to_ko_pre_output"
         synchronousRisk -> "high_risk_translation"
+        safetyForceReason.isNotBlank() -> safetyForceReason
         else -> ""
     }
-    val force = targetLanguageMismatch || patientToKoreanPreOutput || synchronousRisk
+    val force = targetLanguageMismatch ||
+        patientToKoreanPreOutput ||
+        synchronousRisk ||
+        safetyForceReason.isNotBlank()
     val candidate = force || shortTurnCandidate
 
     return LocalTranslationValidationPlan(

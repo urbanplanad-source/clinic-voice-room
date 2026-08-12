@@ -1,0 +1,12 @@
+{"id":"STT001","expectedText":"복용 중인 한약과 건강보조제를 모두 말씀해 주세요.","requiredTerms":["한약","건강보조제"],"riskTags":["medication_history","medical_term"]}
+{"id":"STT002","expectedText":"사용할 약침의 성분과 제품명을 확인하겠습니다.","requiredTerms":["약침","성분","제품명"],"riskTags":["pharmacopuncture","medical_term"]}
+{"id":"STT003","expectedText":"특정 약재에 알레르기가 있나요?","requiredTerms":["약재","알레르기"],"riskTags":["allergy","question"]}
+{"id":"STT004","expectedText":"써마지 FLX 600샷으로 진행하겠습니다.","requiredTerms":["써마지 FLX","600샷"],"riskTags":["brand","number_unit"]}
+{"id":"STT005","expectedText":"울쎄라 프라임은 오른쪽에 300샷, 왼쪽에 300샷입니다.","requiredTerms":["울쎄라 프라임","오른쪽","왼쪽","300샷"],"riskTags":["brand","body_side","number_unit"]}
+{"id":"STT006","expectedText":"리쥬란 HB 2cc를 눈 밑에 주입합니다.","requiredTerms":["리쥬란 HB","2cc","눈 밑"],"riskTags":["brand","dose_route","body_part"]}
+{"id":"STT007","expectedText":"Re2O 스킨부스터 시술이 맞나요?","requiredTerms":["Re2O","스킨부스터"],"riskTags":["brand","question"]}
+{"id":"STT008","expectedText":"상처가 벌어지거나 고름과 심해지는 붉어짐이 있으면 병원에 연락하세요.","requiredTerms":["상처가 벌어지거나","고름","심해지는 붉어짐"],"riskTags":["infection","warning"]}
+{"id":"STT009","expectedText":"피어싱, 렌즈, 의치, 보청기는 안내에 따라 제거하세요.","requiredTerms":["피어싱","렌즈","의치","보청기"],"riskTags":["procedure_preparation","list"]}
+{"id":"STT010","expectedText":"하루에 2번, 5밀리리터씩 복용하지 마세요.","requiredTerms":["복용하지 마세요"],"riskTags":["dose","negation","number_unit"]}
+{"id":"STT011","expectedText":"보형물의 제조사나 모델명은 확인된 기록에 근거해서만 적겠습니다.","requiredTerms":["제조사나 모델명","확인된 기록"],"riskTags":["logical_connector","documentation"]}
+{"id":"STT012","expectedText":"갑작스러운 호흡곤란이나 의식 변화가 있으면 즉시 119에 연락하세요.","requiredTerms":["호흡곤란","의식 변화","119"],"riskTags":["emergency","number"]}

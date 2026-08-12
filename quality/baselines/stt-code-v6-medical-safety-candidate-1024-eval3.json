@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "baselineId": "code-v6-medical-safety-candidate-1024-eval3",
+  "glossaryVersion": "code-v6-medical-safety-candidate",
+  "transcriptionModel": "gpt-4o-transcribe",
+  "normalizationVersion": 1,
+  "promptLength": 1024,
+  "promptSha256": "b6ccb2fda8426400ff9953c3ba440162294c2a68c3dbfa73b8938d12a9fe67ff",
+  "casesSha256": "8b69dd86f0941bd19d962854ad619bf08dd845259324e025fae026ce069c77c5",
+  "caseCount": 12,
+  "caseIds": [
+    "STT001",
+    "STT002",
+    "STT003",
+    "STT004",
+    "STT005",
+    "STT006",
+    "STT007",
+    "STT008",
+    "STT009",
+    "STT010",
+    "STT011",
+    "STT012"
+  ]
+}

@@ -17,6 +17,8 @@ import {
 } from "./clinic-transcription";
 import { prisma } from "./prisma";
 import { compileGlossaryIndex } from "./compiled-glossary-index";
+import { approvedTranslationCorrections } from "./approved-translation-corrections";
+import { normalizeForGlossaryMatch } from "./glossary-normalization";
 
 type CacheEntry = {
   timestamp: number;
@@ -43,8 +45,8 @@ export function getCodeGlossaryData(): ClinicGlossaryData {
     criticalPhrases: criticalShortPhrases,
     transcriptionHints: realtimeKoreanTranscriptionHints,
     transcriptionHintMappings: transcriptionMappingsFromTerms(clinicGlossary),
-    verifiedSentences: [],
-    metadata: { glossaryVersion: "code-v1", packVersion: "code-v1", normalizationVersion: 1 }
+    verifiedSentences: approvedTranslationCorrections,
+    metadata: { glossaryVersion: "code-v4", packVersion: "code-v4", normalizationVersion: 1 }
   };
   compileGlossaryIndex(data);
   compiledCodeGlossaryData = data;
@@ -192,6 +194,35 @@ function toVerifiedSentence(entry: GlossaryDbEntry): VerifiedSentenceEntry {
   };
 }
 
+export function mergeApprovedVerifiedSentences(entries: VerifiedSentenceEntry[]) {
+  const approvedByCandidate = new Map<string, VerifiedSentenceEntry>();
+  for (const approved of approvedTranslationCorrections) {
+    for (const candidate of [approved.standardKo, ...approved.spoken]) {
+      const normalized = normalizeForGlossaryMatch(candidate);
+      if (normalized) approvedByCandidate.set(normalized, approved);
+    }
+  }
+
+  const usedApproved = new Set<VerifiedSentenceEntry>();
+  const mergedEntries = entries.map((entry) => {
+    let approved: VerifiedSentenceEntry | undefined;
+    for (const candidate of [entry.standardKo, ...entry.spoken]) {
+      approved = approvedByCandidate.get(normalizeForGlossaryMatch(candidate));
+      if (approved) break;
+    }
+    if (!approved) return entry;
+    usedApproved.add(approved);
+    return {
+      ...approved,
+      ...entry,
+      spoken: Array.from(new Set([...entry.spoken, ...approved.spoken])),
+      translations: { ...approved.translations, ...entry.translations }
+    };
+  });
+
+  return [...mergedEntries, ...approvedTranslationCorrections.filter((entry) => !usedApproved.has(entry))];
+}
+
 function toGlossaryData(entries: GlossaryDbEntry[]): ClinicGlossaryData {
   const mergedEntries = sortEntries(mergeByScopePrecedence(entries));
   const terms = mergedEntries.filter((entry) => entry.entryType === "term").map(toTerm);
@@ -212,7 +243,9 @@ function toGlossaryData(entries: GlossaryDbEntry[]): ClinicGlossaryData {
     criticalPhrases: mergedEntries.filter((entry) => entry.entryType === "critical_phrase").map(toCriticalPhrase),
     transcriptionHints: transcriptionEntries.map((entry) => entry.standardKo).filter(Boolean),
     transcriptionHintMappings: [...explicitMappings, ...transcriptionMappingsFromTerms(terms)],
-    verifiedSentences: mergedEntries.filter((entry) => entry.entryType === "verified_sentence").map(toVerifiedSentence),
+    verifiedSentences: mergeApprovedVerifiedSentences(
+      mergedEntries.filter((entry) => entry.entryType === "verified_sentence").map(toVerifiedSentence)
+    ),
     metadata: {
       glossaryVersion: `gl-${versionDigest}`,
       packVersion: `pack-${versionDigest}`,

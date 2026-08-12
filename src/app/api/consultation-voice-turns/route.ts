@@ -14,6 +14,7 @@ import { mergeGuardFlags, parseGuardFlags, type GuardFlags } from "@/lib/guard-f
 import { compareNumericSignatures, numberGuardEnabled } from "@/lib/number-guard";
 import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
+import { resolveRealtimeVerifiedTranslation } from "@/lib/realtime-verified-translation";
 import { broadcastServerTranslationMessage } from "@/lib/supabase-realtime-server";
 import { recordTranslationSample } from "@/lib/translation-samples";
 import { isClearlyNotKoreanTranslation } from "@/lib/translation-language-guard";
@@ -24,6 +25,7 @@ import {
 } from "@/lib/medical-semantic-validation";
 import { matchedGlossaryEntryIds } from "@/lib/compiled-glossary-index";
 import { recordServerTranslationQualityMetric } from "@/lib/local-interpreter-metrics";
+import { resolveUploadedMedicalTranscription } from "@/lib/openai-medical-transcription-retry";
 
 type TargetLanguage = PatientLanguage | "ko";
 
@@ -242,12 +244,23 @@ async function handleRealtimeStaffMessage(request: Request) {
   const authorization = await authorizeRoom(parsed.data);
   if (authorization.response) return authorization.response;
   const glossaryData = await getGlossaryForHospital(authorization.room.hospitalId, authorization.room.hospital.specialty);
+  const glossaryMatchStartedAt = performance.now();
   const matchedEntryIds = matchedGlossaryEntryIds(parsed.data.sourceText, glossaryData);
+  const glossaryMatchMs = performance.now() - glossaryMatchStartedAt;
 
   const targetLanguage: TargetLanguage = parsed.data.role === "staff" ? parsed.data.patientLanguage : "ko";
-  let normalizedText = normalizeClinicTranslation(parsed.data.translatedText, targetLanguage, glossaryData);
-  let model = "realtime";
-  let translationSource: "realtime" | "llm" | "verified" = "realtime";
+  const exactMatchStartedAt = performance.now();
+  const realtimeVerified = resolveRealtimeVerifiedTranslation({
+    sourceText: parsed.data.sourceText,
+    sourceTranscriptComplete: parsed.data.sourceTranscriptComplete,
+    targetLanguage,
+    glossaryData
+  });
+  const exactMatchMs = performance.now() - exactMatchStartedAt;
+  let normalizedText = realtimeVerified?.translatedText ??
+    normalizeClinicTranslation(parsed.data.translatedText, targetLanguage, glossaryData);
+  let model = realtimeVerified?.model ?? "realtime";
+  let translationSource: "realtime" | "llm" | "verified" = realtimeVerified?.translationSource ?? "realtime";
   let guardFlags: GuardFlags | undefined;
   let repairedTargetLanguage = false;
 
@@ -287,7 +300,7 @@ async function handleRealtimeStaffMessage(request: Request) {
     );
   }
 
-  if (!repairedTargetLanguage && numberGuardEnabled() && parsed.data.sourceText && parsed.data.sourceTranscriptComplete) {
+  if (translationSource !== "verified" && !repairedTargetLanguage && numberGuardEnabled() && parsed.data.sourceText && parsed.data.sourceTranscriptComplete) {
     try {
       const comparison = compareNumericSignatures(parsed.data.sourceText, parsed.data.translatedText);
       if (!comparison.ok) {
@@ -370,6 +383,8 @@ async function handleRealtimeStaffMessage(request: Request) {
       outcome: "retry_prompt",
       messageId: parsed.data.messageId,
       transport: "realtime",
+      exactMatchMs,
+      glossaryMatchMs,
       totalMs: performance.now() - handlerStartedAt,
       packVersion: glossaryData.metadata?.packVersion,
       glossaryVersion: glossaryData.metadata?.glossaryVersion,
@@ -476,6 +491,8 @@ async function handleRealtimeStaffMessage(request: Request) {
     outcome: "success",
     messageId: message.id,
     transport: "realtime",
+    exactMatchMs,
+    glossaryMatchMs,
     totalMs: performance.now() - handlerStartedAt,
     packVersion: glossaryData.metadata?.packVersion,
     glossaryVersion: glossaryData.metadata?.glossaryVersion,
@@ -549,6 +566,7 @@ async function handleRealtimeStaffMessage(request: Request) {
       corrected: qualityOutcome.corrected,
       validationPath: qualityOutcome.validationPath,
       latency: {
+        serverGlossaryMs: exactMatchMs + glossaryMatchMs,
         serverValidationMs: qualityOutcome.validationMs,
         serverCorrectionMs: qualityOutcome.correctionMs
       }
@@ -621,7 +639,8 @@ async function handleAudioTurn(request: Request) {
 
   const transcriptionForm = new FormData();
   transcriptionForm.set("file", audio, audio.name || `${clientTurnId}.webm`);
-  transcriptionForm.set("model", normalizedTranscriptionModel(process.env.OPENAI_TRANSCRIPTION_MODEL));
+  const transcriptionModel = normalizedTranscriptionModel(process.env.OPENAI_TRANSCRIPTION_MODEL);
+  transcriptionForm.set("model", transcriptionModel);
   const transcriptionLanguage = transcriptionLanguageFor(role, patientLanguage);
   if (shouldSendTranscriptionLanguageHint(transcriptionLanguage)) {
     transcriptionForm.set("language", transcriptionLanguage);
@@ -683,11 +702,29 @@ async function handleAudioTurn(request: Request) {
   }
 
   const transcriptionData = (await transcriptionResponse.json()) as TranscriptionResponse;
-  transcriptionMs = Date.now() - transcriptionStartedAt;
-  const sourceText = transcriptionData.text?.trim();
+  let sourceText = transcriptionData.text?.trim();
   if (!sourceText) {
     return NextResponse.json({ error: "No speech was transcribed" }, { status: 422 });
   }
+
+  const transcriptionSafety = await resolveUploadedMedicalTranscription({
+    transcript: sourceText,
+    inputLanguage: role === "staff" ? "ko" : patientLanguage,
+    apiKey,
+    audio,
+    fileName: audio.name || `${clientTurnId}.webm`,
+    model: transcriptionModel,
+    language: transcriptionForm.has("language") ? transcriptionLanguage : undefined,
+    safetyIdentifier: `clinic-voice-room-consultation-stt-retry-${roomId}-${role}`
+  });
+  transcriptionMs = Date.now() - transcriptionStartedAt;
+  if (transcriptionSafety.status === "retry_required" || !transcriptionSafety.text) {
+    return NextResponse.json(
+      { status: "retry_required", error: "Medical terms could not be confirmed. Please speak again." },
+      { status: 422 }
+    );
+  }
+  sourceText = transcriptionSafety.text;
 
   const translationStartedAt = Date.now();
   const translation = await translateSourceText({ roomId, role, patientLanguage, sourceText, glossaryData });
@@ -726,6 +763,7 @@ async function handleAudioTurn(request: Request) {
       outcome: "retry_prompt",
       messageId,
       transport: "upload",
+      speechEndToTranscriptMs: transcriptionMs,
       totalMs: Date.now() - startedAt,
       translationMs,
       packVersion: glossaryData.metadata?.packVersion,
@@ -827,6 +865,7 @@ async function handleAudioTurn(request: Request) {
     outcome: "success",
     messageId: message.id,
     transport: "upload",
+    speechEndToTranscriptMs: transcriptionMs,
     totalMs: Date.now() - startedAt,
     translationMs,
     packVersion: glossaryData.metadata?.packVersion,

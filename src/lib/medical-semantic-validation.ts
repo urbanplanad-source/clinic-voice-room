@@ -1,6 +1,7 @@
 import { normalizedTextTranslationModel } from "./openai-models";
 import {
   analyzeDeterministicTranslation,
+  resolveSemanticallyConfirmedDeterministic,
   type DeterministicTranslationCheck,
   type SemanticStatus,
   type TranslationValidationPath
@@ -99,7 +100,10 @@ export async function validateMedicalTranslation(params: {
     translationSource?: "verified_sentence" | "model";
     correctionMs?: number;
   }): MedicalSemanticValidationOutcome => {
-    const finalDeterministic = emptyDeterministic({ ...params, translatedText });
+    const rawFinalDeterministic = emptyDeterministic({ ...params, translatedText });
+    const finalDeterministic = semanticStatus === "pass"
+      ? resolveSemanticallyConfirmedDeterministic(rawFinalDeterministic)
+      : rawFinalDeterministic;
     if (finalDeterministic.status === "fail") {
       return {
         status: "retry_required",
@@ -268,7 +272,7 @@ export async function validateMedicalTranslation(params: {
       failureReason = "invalid_response";
       const strict = await strictRepair();
       if (strict) return strict;
-    } else if (result.ok && initialDeterministic.status === "pass") {
+    } else if (result.ok) {
       semanticStatus = "pass";
       return finalize(params.translatedText, { corrected: false, validationPath: "standard", modelId: model });
     } else {

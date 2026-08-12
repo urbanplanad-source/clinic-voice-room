@@ -455,5 +455,5 @@ model TextTranslationUsage {
 
   @@index([hospitalId, createdAt])
   @@index([staffId, createdAt])
-  @@index([sourceLanguage, targetLanguage, createdAt])
+  @@index([sourceLanguage, targetLanguage, createdAt], map: "TextTranslationUsage_sourceLanguage_targetLanguage_createdAt_id")
 }

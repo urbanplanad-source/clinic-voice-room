@@ -9,6 +9,11 @@ val releaseKeystorePassword = providers.environmentVariable("CVR_ANDROID_KEYSTOR
 val releaseKeyAlias = providers.environmentVariable("CVR_ANDROID_KEY_ALIAS").orNull
 val releaseKeyPassword = providers.environmentVariable("CVR_ANDROID_KEY_PASSWORD").orNull
 val appVersionName = "0.3.39"
+val localQaBackendUrl = providers.gradleProperty("localQaBackendUrl")
+    .orElse("http://10.0.2.2:3028")
+    .get()
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
 val brandedFieldApkName = "medivoice-$appVersionName-field.apk"
 val brandedReleaseBundleName = "medivoice-$appVersionName-release.aab"
 val hasReleaseSigning = listOf(
@@ -47,6 +52,8 @@ android {
         versionCode = 51
         versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "DEFAULT_BACKEND_URL", "\"https://voice.insightmedi.co.kr\"")
+        buildConfigField("boolean", "ALLOW_INSECURE_LOCAL_BACKEND", "false")
     }
 
     buildFeatures {
@@ -69,6 +76,16 @@ android {
         debug {
             isMinifyEnabled = false
             isShrinkResources = false
+        }
+
+        create("localQa") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".localqa"
+            versionNameSuffix = "-localqa"
+            isDebuggable = true
+            buildConfigField("String", "DEFAULT_BACKEND_URL", "\"$localQaBackendUrl\"")
+            buildConfigField("boolean", "ALLOW_INSECURE_LOCAL_BACKEND", "true")
+            matchingFallbacks += listOf("debug")
         }
 
         create("field") {

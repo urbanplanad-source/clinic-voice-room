@@ -41,6 +41,45 @@ describe("validateMedicalTranslation", () => {
     expect(result.validationAttemptCount).toBe(1);
   });
 
+  it("allows a semantic pass to override lexical negation parity only", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      output_text: JSON.stringify({ ok: true, reason: "same correction meaning", correctedTranslation: "" })
+    }), { status: 200 }));
+    const result = await validateMedicalTranslation({
+      apiKey: "test-key",
+      sourceText: "Treat the right side—sorry, I mean the left side only.",
+      translatedText: "오른쪽이 아니라, 죄송하지만 왼쪽만 시술해 주세요.",
+      direction: "patient_to_ko",
+      sourceLanguage: "English",
+      targetLanguage: "Korean",
+      safetyIdentifier: "test",
+      semanticRequired: true,
+      strictTranslate: vi.fn()
+    });
+    expect(result.initialDeterministic.failureReasons).toContain("negation_mismatch");
+    expect(result.status).toBe("final");
+    expect(result.finalDeterministic.status).toBe("pass");
+  });
+
+  it("does not let a semantic pass override a missing stop request", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      output_text: JSON.stringify({ ok: true, reason: "incorrect validator fixture", correctedTranslation: "" })
+    }), { status: 200 }));
+    const result = await validateMedicalTranslation({
+      apiKey: "test-key",
+      sourceText: "Stop the procedure now.",
+      translatedText: "지금 시술을 계속하겠습니다.",
+      direction: "patient_to_ko",
+      sourceLanguage: "English",
+      targetLanguage: "Korean",
+      safetyIdentifier: "test",
+      semanticRequired: true,
+      strictTranslate: vi.fn().mockResolvedValue(null)
+    });
+    expect(result.status).toBe("retry_required");
+    expect(result.finalDeterministic.failureReasons).toContain("stop_or_refusal_mismatch");
+  });
+
   it("uses a corrected translation as the only final value", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       output_text: JSON.stringify({ ok: false, reason: "wrong intent", correctedTranslation: "눈을 떠 주세요." })

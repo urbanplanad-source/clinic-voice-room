@@ -1,6 +1,6 @@
 import { compareClinicalUnitSignatures } from "./clinical-unit-guard";
 import { compareNumericSignatures } from "./number-guard";
-import { isClearlyNotKoreanTranslation } from "./translation-language-guard";
+import { containsUnexpectedHangul, isClearlyNotKoreanTranslation } from "./translation-language-guard";
 
 export type DeterministicStatus = "pass" | "fail";
 export type SemanticStatus = "pass" | "fail" | "not_required" | "unavailable";
@@ -50,8 +50,30 @@ export type DeterministicTranslationCheck = {
   targetLanguagePreserved: boolean;
   questionPreserved: boolean;
   negationPreserved: boolean;
+  stopOrRefusalPreserved: boolean;
   brandPreserved: boolean;
 };
+
+const semanticallyOverridableFailureReasons = new Set([
+  "question_form_mismatch",
+  "negation_mismatch"
+]);
+
+export function resolveSemanticallyConfirmedDeterministic(
+  check: DeterministicTranslationCheck
+): DeterministicTranslationCheck {
+  if (
+    check.status === "pass" ||
+    check.failureReasons.some((reason) => !semanticallyOverridableFailureReasons.has(reason))
+  ) {
+    return check;
+  }
+  return {
+    ...check,
+    status: "pass",
+    failureReasons: []
+  };
+}
 
 const amountPattern = /(?:₩|\b(?:KRW|USD|JPY|CNY|RMB)\b|원|만원|천원|달러|엔|위안|유로|가격|금액|비용|결제|料金|価格|費用|价格|價格|费用|費用|price|cost|fee|payment)/iu;
 const adverseEffectPattern = /(?:부작용|이상\s*반응|副作用|不良反[应應]|異常な?\s*反応|异常反应|異常反應|side\s*effects?|adverse\s*(?:effect|reaction)s?)/iu;
@@ -63,29 +85,66 @@ const conditionPattern = /(?:임신|알레르기|금기|孕|妊娠|アレルギ�
 const decisionPattern = /(?:가능|불가능|해야|하지\s*마|권장|결정|동의|중단|でき|不可|建议|建議|should|must|cannot|recommend|decid)/iu;
 
 const questionPatterns = [
-  /[?？؟]$/u,
+  /[?？؟]/u,
   /(?:나요|까요|습니까|세요\?|인지요|어떻게|언제|어디|왜|무엇|누가|몇\s)/u,
-  /(?:吗|嗎|呢|是否|怎么|怎麼|为什么|為什麼|多少|哪[里裡]?)/u,
+  /(?:吗|嗎|呢|是否|怎么|怎麼|为什么|為什麼|多少|哪[里裡]?|咩|有冇|係咪)/u,
   /(?:ですか|ますか|でしょうか|なぜ|どう|いつ|どこ|何|誰)/u,
-  /\b(?:who|what|when|where|why|how|which|can|could|would|will|is|are|do|does|did|have|has)\b.*[?？]?$/iu
+  /(?:^|[.!?。！？؟]\s*)(?:who|what|when|where|why|how|which|can|could|would|will|is|are|do(?!\s+not\b)|does(?!\s+not\b)|did(?!\s+not\b)|have|has)\b/iu
 ];
 
 const negationPatterns = [
-  /(?:아니|않|안\s|못\s|없|마세요|말아|금지|피해)/u,
-  /(?:不|没|沒|无|無|别|別|禁止)/u,
-  /(?:ない|ません|禁止|やめ)/u,
-  /\b(?:no|not|never|none|without|cannot|can't|don't|doesn't|mustn't|avoid|stop)\b/iu,
-  /\b(?:ne|pas|non|kein|nicht|no|sin|sem|não)\b/iu
+  /(?:아닌|아니(?!면)|않|못\s|없|마세요|말아|금지|피하)/u,
+  /(?:^|[\s"'“‘(])안(?:\s|$)/u,
+  /(?:不|没|沒|无|無|别|別|禁止|避免|冇|唔)/u,
+  /(?:ない|ません|禁止|やめ|避け)/u,
+  /\b(?:no|not|never|none|without|cannot|can't|don't|doesn't|mustn't|avoid)\b/iu,
+  /\b(?:ne|pas|non|kein|nicht|no|sin|sem|não|nao|nie|bez|không|khong|chưa|chua|tidak|bukan|jangan)\b/iu,
+  /(?:не|нет|без|ไม่)/iu
 ];
 
-const latinBrandPattern = /\b(?:Re2O|XERF|Thermage(?:\s+FLX)?|Ultherapy(?:\s+Prime)?|Juvelook|Restylane|Belotero|Sculptra|Skinvive|PRP|LDM|HDA|Botox|Potenza|Pico)\b/giu;
+const stopOrRefusalPatterns = [
+  /(?:중단|멈추|그만|거부|취소)/u,
+  /(?:中止|停止|止め|拒否|取消)/u,
+  /(?:停止|中止|停(?:針|针)?|拒绝|拒絕|取消)/u,
+  /\b(?:stop|halt|discontinue|refus(?:e|al|ed|ing)?|cancel(?:led|ing)?|hentikan|berhenti|dừng|dung|arrêt(?:ez|er)?|arretez|pare|parar|interromp(?:a|er)|หยุด)\b/iu,
+  /(?:останов|прекрат)/iu
+];
+
+const brandAliases: Array<{ canonical: string; pattern: RegExp }> = [
+  { canonical: "re2o", pattern: /(?:\bRe2O\b|리투오)/iu },
+  { canonical: "rejuran-hb", pattern: /(?:\bRejuran\s+HB\b|리쥬란\s*HB|丽珠兰\s*HB|麗珠蘭\s*HB|リジュラン\s*HB)/iu },
+  { canonical: "rejuran", pattern: /(?:\bRejuran\b|리쥬란|丽珠兰|麗珠蘭|リジュラン)/iu },
+  { canonical: "xerf", pattern: /(?:\bXERF\b|세르프)/iu },
+  { canonical: "thermage-flx", pattern: /(?:\bThermage\s+FLX\b|써마지\s*FLX|热玛吉\s*FLX|熱瑪吉\s*FLX|サーマクール\s*FLX)/iu },
+  { canonical: "thermage", pattern: /(?:\bThermage\b|써마지|热玛吉|熱瑪吉|サーマクール)/iu },
+  { canonical: "ultherapy-prime", pattern: /(?:\bUltherapy\s+Prime\b|울쎄라(?:피)?\s*프라임)/iu },
+  { canonical: "ultherapy", pattern: /(?:\bUltherapy\b|울쎄라(?:피)?)/iu },
+  { canonical: "juvelook", pattern: /(?:\bJuvelook\b|쥬베룩|乔雅露|喬雅露|ジュベルック)/iu },
+  { canonical: "restylane", pattern: /(?:\bRestylane\b|레스틸렌)/iu },
+  { canonical: "belotero", pattern: /(?:\bBelotero\b|벨로테로)/iu },
+  { canonical: "sculptra", pattern: /(?:\bSculptra\b|스컬트라)/iu },
+  { canonical: "skinvive", pattern: /(?:\bSkinvive\b|스킨바이브)/iu },
+  { canonical: "botox", pattern: /(?:\bBotox\b|보톡스|보툴리눔\s*톡신|botulinum\s+toxin|肉毒(?:杆菌|桿菌|素)|ボトックス|ボツリヌストキシン)/iu },
+  { canonical: "potenza", pattern: /(?:\bPotenza\b|포텐자)/iu },
+  { canonical: "pico", pattern: /(?:\bPico\b|피코)/iu },
+  { canonical: "prp", pattern: /\bPRP\b/iu },
+  { canonical: "ldm", pattern: /\bLDM\b/iu },
+  { canonical: "hda", pattern: /\bHDA\b/iu }
+];
 
 function includesPattern(text: string, patterns: RegExp[]) {
   return patterns.some((pattern) => pattern.test(text));
 }
 
+function includesNegation(text: string) {
+  const withoutAffirmativeChineseIdioms = text.replace(/(?:没错|沒錯|没有问题|沒有問題|无误|無誤)/gu, "");
+  return includesPattern(withoutAffirmativeChineseIdioms, negationPatterns);
+}
+
 function normalizedBrandSet(text: string) {
-  return new Set(Array.from(text.matchAll(latinBrandPattern), (match) => match[0].toLocaleLowerCase("en-US").replace(/\s+/g, " ")));
+  const matches = new Set<string>();
+  for (const alias of brandAliases) if (alias.pattern.test(text)) matches.add(alias.canonical);
+  return matches;
 }
 
 function sameSet(left: Set<string>, right: Set<string>) {
@@ -110,19 +169,25 @@ export function analyzeDeterministicTranslation(params: {
   sourceText: string;
   translatedText: string;
   direction: "ko_to_patient" | "patient_to_ko";
+  targetLanguage?: string;
 }) : DeterministicTranslationCheck {
   const sourceText = params.sourceText.normalize("NFKC").trim();
   const translatedText = params.translatedText.normalize("NFKC").trim();
   const failureReasons: string[] = [];
   const numberPreserved = compareNumericSignatures(sourceText, translatedText).ok;
   const clinicalUnitPreserved = compareClinicalUnitSignatures(sourceText, translatedText).ok;
-  const targetLanguagePreserved = params.direction !== "patient_to_ko" || !isClearlyNotKoreanTranslation(sourceText, translatedText);
+  const targetLanguagePreserved = params.direction === "patient_to_ko"
+    ? !isClearlyNotKoreanTranslation(sourceText, translatedText)
+    : !params.targetLanguage || params.targetLanguage === "ko" || !containsUnexpectedHangul(translatedText);
   const sourceQuestion = includesPattern(sourceText, questionPatterns);
   const translatedQuestion = includesPattern(translatedText, questionPatterns);
   const questionPreserved = sourceQuestion === translatedQuestion;
-  const sourceNegation = includesPattern(sourceText, negationPatterns);
-  const translatedNegation = includesPattern(translatedText, negationPatterns);
+  const sourceNegation = includesNegation(sourceText);
+  const translatedNegation = includesNegation(translatedText);
   const negationPreserved = sourceNegation === translatedNegation;
+  const sourceStopOrRefusal = includesPattern(sourceText, stopOrRefusalPatterns);
+  const translatedStopOrRefusal = includesPattern(translatedText, stopOrRefusalPatterns);
+  const stopOrRefusalPreserved = sourceStopOrRefusal === translatedStopOrRefusal;
   const brandPreserved = sameSet(normalizedBrandSet(sourceText), normalizedBrandSet(translatedText));
 
   if (!numberPreserved) failureReasons.push("number_mismatch");
@@ -130,6 +195,7 @@ export function analyzeDeterministicTranslation(params: {
   if (!targetLanguagePreserved) failureReasons.push("target_language_mismatch");
   if (!questionPreserved) failureReasons.push("question_form_mismatch");
   if (!negationPreserved) failureReasons.push("negation_mismatch");
+  if (!stopOrRefusalPreserved) failureReasons.push("stop_or_refusal_mismatch");
   if (!brandPreserved) failureReasons.push("brand_mismatch");
 
   const risk = classifyTranslationRisk(sourceText, translatedText);
@@ -146,6 +212,7 @@ export function analyzeDeterministicTranslation(params: {
     targetLanguagePreserved,
     questionPreserved,
     negationPreserved,
+    stopOrRefusalPreserved,
     brandPreserved
   };
 }

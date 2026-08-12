@@ -1,0 +1,27 @@
+{
+  "updatedAt": "2026-08-12T08:52:55.298Z",
+  "model": "gpt-5.5",
+  "requestedPhase": "all",
+  "sourceCaseCount": 300,
+  "phaseCaseCount": 300,
+  "selectedCaseCount": 10,
+  "limit": 10,
+  "historicalRecordCount": 10,
+  "allCompletedResultCount": 10,
+  "selectedCompletedResultCount": 10,
+  "selectedRemainingResultCount": 0,
+  "statuses": {
+    "unavailable": 4,
+    "blocked": 2,
+    "pass": 4
+  },
+  "providerCalls": 26,
+  "estimatedCostUsd": 0.393525,
+  "estimatedUnpricedExposureUsd": 0.65779,
+  "budgetExposureUsd": 1.051315,
+  "requestedBudgetUsd": 3,
+  "budgetLimitUsd": 3,
+  "approvedHardLimitUsd": 25,
+  "budgetStop": false,
+  "outputPath": "C:\\Users\\user\\Desktop\\개발 작업\\clinic-voice-room\\quality\\results\\playstore-candidate-smoke10-rerun-20260812-results.jsonl"
+}

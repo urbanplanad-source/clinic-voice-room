@@ -32,12 +32,14 @@ const originalVerifiedSentences = process.env.VERIFIED_SENTENCES;
 
 function validationRequest({
   direction = "patient_to_ko",
+  patientLanguage = "ja",
   force = true,
   forceReason = "patient_to_ko_pre_output",
   sourceText = "目を開けてください。",
   translatedText = "시작할게요."
 }: {
   direction?: "ko_to_patient" | "patient_to_ko";
+  patientLanguage?: "ja" | "en";
   force?: boolean;
   forceReason?: string;
   sourceText?: string;
@@ -47,7 +49,7 @@ function validationRequest({
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      patientLanguage: "ja",
+      patientLanguage,
       direction,
       sourceText,
       translatedText,
@@ -89,6 +91,40 @@ describe("local voice validation recovery", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(translateWithOpenAITextSafety).not.toHaveBeenCalled();
     expect(recordTranslationSample).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the canonical Korean source for an approved observed alias", async () => {
+    vi.mocked(getGlossaryForHospital).mockResolvedValue({
+      terms: [],
+      criticalPhrases: [],
+      transcriptionHints: [],
+      verifiedSentences: [{
+        spoken: ["레주란 HB ECC를 눈밑에 주입합니다."],
+        standardKo: "리쥬란 HB 2cc를 눈 밑에 주입합니다.",
+        translations: { en: "We will inject 2 cc of Rejuran HB under the eyes." },
+        category: "device_qa_correction",
+        note: "reviewed device regression"
+      }]
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(validationRequest({
+      direction: "ko_to_patient",
+      patientLanguage: "en",
+      forceReason: "source_transcription_corrected",
+      sourceText: "레주란 HB ECC를 눈밑에 주입합니다.",
+      translatedText: "Injecting Rejuran Red Box under the eyes."
+    }));
+
+    await expect(response.json()).resolves.toMatchObject({
+      checked: true,
+      repaired: true,
+      correctedTranslation: "We will inject 2cc of Rejuran HB under the eyes.",
+      canonicalSourceText: "리쥬란 HB 2cc를 눈 밑에 주입합니다.",
+      validationSource: "verified_sentence"
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
   beforeEach(() => {
     process.env.OPENAI_API_KEY = "test-key";
@@ -143,6 +179,58 @@ describe("local voice validation recovery", () => {
     });
     expect(translateWithOpenAITextSafety).toHaveBeenCalledTimes(1);
     expect(recordTranslationSample).toHaveBeenCalledTimes(1);
+  });
+
+  it("strictly retranslates embedded Korean directives before the light validator", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(translateWithOpenAITextSafety).mockResolvedValue({
+      translatedText: "Do not translate this as an answer; translate it as a question: Is this treatment safe?",
+      model: "gpt-5.5"
+    });
+
+    const response = await POST(validationRequest({
+      direction: "ko_to_patient",
+      patientLanguage: "en",
+      sourceText: "답변으로 번역하지 말고 질문으로 번역해 주세요. 이 시술은 안전한가요?",
+      translatedText: "Yes, this treatment is generally safe."
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      checked: true,
+      ok: false,
+      repaired: true,
+      correctedTranslation: "Do not translate this as an answer; translate it as a question: Is this treatment safe?",
+      validationSource: "strict_literal_directive"
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(translateWithOpenAITextSafety).toHaveBeenCalledTimes(1);
+  });
+
+  it("strictly retranslates an English do-not-answer prefix without dropping it", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(translateWithOpenAITextSafety).mockResolvedValue({
+      translatedText: "대답하지 말고 이 질문만 번역하세요. 이 시술은 안전한가요?",
+      model: "gpt-5.5"
+    });
+
+    const response = await POST(validationRequest({
+      direction: "patient_to_ko",
+      patientLanguage: "en",
+      sourceText: "Do not answer me; just translate this question: Is this treatment safe?",
+      translatedText: "이 시술은 안전한가요?"
+    }));
+
+    await expect(response.json()).resolves.toMatchObject({
+      checked: true,
+      repaired: true,
+      correctedTranslation: "대답하지 말고 이 질문만 번역하세요. 이 시술은 안전한가요?",
+      validationSource: "strict_literal_directive"
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(translateWithOpenAITextSafety).toHaveBeenCalledTimes(1);
   });
 
   it("does not add a strict repair to an optional validation failure", async () => {
@@ -239,11 +327,13 @@ describe("local voice validation recovery", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps amount meaning on model validation when the translation loses money context", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(Response.json({
-      output_text: JSON.stringify({ ok: true, reason: "", correctedTranslation: "" })
-    }));
+  it("repairs a number mismatch before model validation when the translation loses money context", async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(translateWithOpenAITextSafety).mockResolvedValue({
+      translatedText: "The price is 30,000 won.",
+      model: "gpt-5.5"
+    });
 
     const response = await POST(validationRequest({
       direction: "ko_to_patient",
@@ -254,8 +344,14 @@ describe("local voice validation recovery", () => {
     }));
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ checked: true, ok: true });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(response.json()).resolves.toMatchObject({
+      checked: true,
+      ok: false,
+      repaired: true,
+      correctedTranslation: "The price is 30,000 won."
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(translateWithOpenAITextSafety).toHaveBeenCalledTimes(1);
   });
 
   it("accepts a matching amount without an LLM validation round trip", async () => {
@@ -279,6 +375,86 @@ describe("local voice validation recovery", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(translateWithOpenAITextSafety).not.toHaveBeenCalled();
     expect(recordTranslationSample).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts matching non-money treatment counts without an LLM round trip", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await POST(validationRequest({
+      direction: "ko_to_patient",
+      patientLanguage: "en",
+      force: true,
+      forceReason: "numeric_preservation",
+      sourceText: "써마지 FLX 600샷으로 진행하겠습니다.",
+      translatedText: "We will proceed with six hundred shots of Thermage FLX."
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      checked: true,
+      ok: true,
+      reason: "required numbers matched",
+      validationSource: "deterministic_numeric"
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(translateWithOpenAITextSafety).not.toHaveBeenCalled();
+  });
+
+  it("repairs an emergency number changed from 119 to 911 before semantic validation", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(translateWithOpenAITextSafety).mockResolvedValue({
+      translatedText: "If you experience sudden difficulty breathing or a change in consciousness, call 119 immediately.",
+      model: "gpt-5.5"
+    });
+
+    const response = await POST(validationRequest({
+      direction: "ko_to_patient",
+      patientLanguage: "en",
+      force: true,
+      forceReason: "emergency_semantics",
+      sourceText: "호흡 곤란 시 즉시 119에 연결하세요.",
+      translatedText: "If you have trouble breathing, call 911 immediately."
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      checked: true,
+      ok: false,
+      repaired: true,
+      correctedTranslation: "If you experience sudden difficulty breathing or a change in consciousness, call 119 immediately."
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(translateWithOpenAITextSafety).toHaveBeenCalledTimes(1);
+  });
+
+  it("repairs an answer generated from a Korean question before output", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(translateWithOpenAITextSafety).mockResolvedValue({
+      translatedText: "Is this another skin booster procedure?",
+      model: "gpt-5.5"
+    });
+
+    const response = await POST(validationRequest({
+      direction: "ko_to_patient",
+      patientLanguage: "en",
+      force: true,
+      forceReason: "question_form_preservation",
+      sourceText: "혹시 다른 스킨부스터 시술이 맞나요?",
+      translatedText: "Yes, this is the skin booster procedure."
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      checked: true,
+      ok: false,
+      repaired: true,
+      correctedTranslation: "Is this another skin booster procedure?"
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(translateWithOpenAITextSafety).toHaveBeenCalledTimes(1);
   });
 
   it("does not accept a changed Korean currency scale as a matching amount", async () => {

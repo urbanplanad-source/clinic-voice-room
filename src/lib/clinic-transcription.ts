@@ -39,7 +39,8 @@ type TermLike = {
   priority?: number;
 };
 
-export const defaultClinicTranscriptionPromptMaxChars = 2_400;
+// Realtime client_secrets rejects audio.input.transcription.prompt above 1,024 characters.
+export const defaultClinicTranscriptionPromptMaxChars = 1_024;
 
 const sttTermCategories = new Set([
   "brand",
@@ -247,6 +248,7 @@ export function buildKoreanClinicTranscriptionPrompt(
   const footer = [
     "Preserve questions as questions.",
     "Preserve Arabic numbers and clinic units such as 샷, cc, 유닛, 바이알, 원, 회, 일, 주, and 개월.",
+    "Distinguish Re2O (리투오 or 리투어) from 리쥬란; never substitute one brand for the other.",
     "Use a listed term only when acoustically plausible."
   ].join(" ");
   const safeMaxChars = Math.max(600, maxChars);
@@ -261,7 +263,7 @@ export function buildKoreanClinicTranscriptionPrompt(
   const renderMappings = (items: ClinicTranscriptionHintMapping[]) => items.length === 0
     ? ""
     : `Correct likely acoustic near-matches: ${items.map((mapping) => {
-        const spokenForms = mapping.spokenForms.slice(0, 5).join(" / ");
+        const spokenForms = mapping.spokenForms.slice(0, 3).join(" / ");
         return `${spokenForms} -> ${mapping.standardKo};`;
       }).join(" ")}`;
   const renderHints = (items: string[]) => items.length === 0

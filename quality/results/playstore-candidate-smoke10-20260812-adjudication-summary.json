@@ -1,0 +1,70 @@
+{
+  "updatedAt": "2026-08-12T08:43:42.077Z",
+  "model": "gpt-5.5",
+  "reasoningEffort": "high",
+  "inputPath": "C:\\Users\\user\\Desktop\\개발 작업\\clinic-voice-room\\quality\\results\\playstore-candidate-smoke10-20260812-results.jsonl",
+  "outputPath": "C:\\Users\\user\\Desktop\\개발 작업\\clinic-voice-room\\quality\\results\\playstore-candidate-smoke10-20260812-adjudications.jsonl",
+  "sourceCount": 10,
+  "selectedCount": 10,
+  "completedSelectedCount": 10,
+  "pendingSelectedCount": 0,
+  "selectedStatusCounts": {
+    "blocked": 3,
+    "unavailable": 4,
+    "pass": 3
+  },
+  "selectedCoverageCounts": {
+    "119": 1,
+    "critical": 3,
+    "negation": 6,
+    "question": 1,
+    "brand": 7,
+    "number": 5
+  },
+  "selectedPassCoverageCounts": {
+    "critical": 2,
+    "negation": 2,
+    "brand": 2,
+    "number": 1
+  },
+  "missingPassCoverageSignals": [
+    "119",
+    "question",
+    "prompt_injection",
+    "incomplete"
+  ],
+  "verdicts": {
+    "blocked": 7,
+    "pass": 3
+  },
+  "translationQualityVerdicts": {
+    "pass": 10
+  },
+  "medicalSeverities": {
+    "critical": 1,
+    "none": 9
+  },
+  "errorsByType": {
+    "delivery_blocked": 7,
+    "deterministic_false_positive": 5
+  },
+  "providerCalls": 12,
+  "estimatedLiveEvaluationCostUsd": 0.436295,
+  "estimatedLiveEvaluationUnpricedExposureUsd": 0.534035,
+  "estimatedAdjudicationCostUsd": 0.274695,
+  "estimatedUnpricedExposureUsd": 0,
+  "externalCampaignSpendUsd": 0,
+  "estimatedCampaignCommittedUsd": 1.245025,
+  "requestedIncrementalBudgetUsd": 2,
+  "campaignHardLimitUsd": 25,
+  "maxOutputTokens": 900,
+  "maxAttempts": 3,
+  "budgetStop": false,
+  "referencePolicy": "synthetic expectedTranslation is unapproved context only; referenceConcern is judged separately",
+  "sameModelHighReasoningLimitation": "독립 고추론 재판정이지만 번역 및 1차 의미검증과 동일한 gpt-5.5 계열일 수 있어 완전한 모델 독립 검증이 아니다.",
+  "limitations": [
+    "독립 고추론 재판정이지만 번역 및 1차 의미검증과 동일한 gpt-5.5 계열일 수 있어 완전한 모델 독립 검증이 아니다.",
+    "합성 expectedTranslation은 사람 승인 정답이 아니라 참고값이며 referenceConcern으로 별도 평가한다.",
+    "텍스트 판정만 수행하므로 실제 STT 음성, 화면 표시, TTS 재생의 일치 여부는 검증하지 않는다."
+  ]
+}

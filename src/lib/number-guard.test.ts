@@ -45,6 +45,19 @@ describe("number guard", () => {
     expect(extractNumericSignature("한 번역 결과입니다.")).toEqual([]);
   });
 
+  it("does not treat 한 번에 as a separately preservable numeric one", () => {
+    const source = "한 번에 5mL씩 하루 2회, 7일 동안 복용하세요.";
+    const translated = "Take 5 mL at a time, twice a day, for 7 days.";
+
+    expect(sorted(extractNumericSignature(source))).toEqual([2, 5, 7]);
+    expect(compareNumericSignatures(source, translated)).toMatchObject({
+      ok: true,
+      missing: [],
+      extra: []
+    });
+    expect(extractNumericSignature("한 번에 한 알씩 복용하세요.")).toEqual([1]);
+  });
+
   it("keeps actual Korean won amounts in the critical path", () => {
     expect(hasCriticalNumericContext("가격은 300원입니다.")).toBe(true);
     expect(hasCriticalNumericContext("가격은 300만원입니다.")).toBe(true);
@@ -62,6 +75,15 @@ describe("number guard", () => {
 
   it("passes matching Korean to English numbers", () => {
     expect(compareNumericSignatures("\uD558\uB8E8 \uB450 \uBC88, 3\uC77C\uAC04 \uBCF5\uC6A9\uD558\uC138\uC694", "Take it 2 times a day for 3 days.").ok).toBe(true);
+  });
+
+  it("treats spoken English hundreds as the same shot count", () => {
+    expect(extractNumericSignature("six hundred shots")).toEqual([600]);
+    expect(compareNumericSignatures("써마지 FLX 600샷", "six hundred shots of Thermage FLX").ok).toBe(true);
+    expect(compareNumericSignatures(
+      "오른쪽 300샷, 왼쪽 300샷",
+      "three hundred shots on the right and three hundred shots on the left"
+    ).ok).toBe(true);
   });
 
   it("handles Chinese week phrasing without a false positive", () => {

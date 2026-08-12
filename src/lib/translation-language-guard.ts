@@ -38,6 +38,10 @@ function countMatches(value: string, pattern: RegExp) {
   return value.match(pattern)?.length ?? 0;
 }
 
+export function containsUnexpectedHangul(text: string) {
+  return countMatches(text.normalize("NFKC"), hangulPattern) >= 2;
+}
+
 function isAcceptedLatinClinicPhrase(value: string) {
   const words = value.toLowerCase().match(/[a-z0-9]+/g) ?? [];
   return words.length > 0 && words.every((word) => /^\d+$/.test(word) || acceptedLatinClinicTokens.has(word));

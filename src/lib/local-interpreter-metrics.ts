@@ -138,6 +138,9 @@ export async function recordServerTranslationQualityMetric(input: {
   messageId: string;
   transport: "realtime" | "upload";
   totalMs: number;
+  speechEndToTranscriptMs?: number;
+  exactMatchMs?: number;
+  glossaryMatchMs?: number;
   translationMs?: number;
   packVersion?: string;
   glossaryVersion?: string;
@@ -181,6 +184,9 @@ export async function recordServerTranslationQualityMetric(input: {
     normalizationVersion: input.normalizationVersion ?? null,
     modelId: input.modelId ?? null,
     enginePath: input.enginePath,
+    speechEndToTranscriptMs: optionalMilliseconds(input.speechEndToTranscriptMs, 120_000),
+    exactMatchMs: optionalMilliseconds(input.exactMatchMs, 30_000),
+    glossaryMatchMs: optionalMilliseconds(input.glossaryMatchMs, 30_000),
     translationMs: optionalMilliseconds(input.translationMs, 120_000),
     correctionMs: optionalMilliseconds(input.correctionMs, 30_000),
     totalMs: optionalMilliseconds(input.totalMs, 120_000),

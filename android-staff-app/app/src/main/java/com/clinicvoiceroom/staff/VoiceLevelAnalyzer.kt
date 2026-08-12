@@ -7,6 +7,10 @@ internal const val StaffAutoStopSpeechRms = 900.0
 internal const val StaffAutoStopSpeechPeak = 2600
 internal const val StaffNoVoiceWarningMs = 2500L
 internal const val StaffMicLevelUpdateMs = 100L
+internal const val StaffAutoStopLongSpeechSpanMs = 2500L
+internal const val StaffAutoStopLongSpeechVoiceMs = 900L
+internal const val StaffAutoStopLongSilenceMs = 3400L
+internal const val StaffAutoStopNearVoiceGraceMs = 1200L
 
 internal data class VoiceLevelAnalysis(
     val detected: Boolean,
@@ -36,4 +40,27 @@ internal fun analyzeVoiceLevel(buffer: ShortArray, count: Int): VoiceLevelAnalys
         else -> 4
     }
     return VoiceLevelAnalysis(detected = detected, bucket = bucket)
+}
+
+internal fun staffAutoStopSilenceThresholdMs(voiceMs: Long, voiceSpanMs: Long): Long {
+    return if (
+        voiceMs >= StaffAutoStopLongSpeechVoiceMs ||
+        voiceSpanMs >= StaffAutoStopLongSpeechSpanMs
+    ) {
+        StaffAutoStopLongSilenceMs
+    } else {
+        StaffAutoStopSilenceMs
+    }
+}
+
+internal fun shouldAutoStopStaffRecording(
+    voiceMs: Long,
+    recordingMs: Long,
+    silenceMs: Long,
+    nearVoiceSilenceMs: Long,
+    voiceSpanMs: Long
+): Boolean {
+    if (voiceMs < StaffAutoStopMinVoiceMs || recordingMs < StaffAutoStopMinRecordingMs) return false
+    val requiredSilenceMs = staffAutoStopSilenceThresholdMs(voiceMs, voiceSpanMs)
+    return silenceMs >= requiredSilenceMs && nearVoiceSilenceMs >= StaffAutoStopNearVoiceGraceMs
 }

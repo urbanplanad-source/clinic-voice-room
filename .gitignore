@@ -30,3 +30,8 @@ android-staff-app/local.properties
 android-staff-app/app/build/
 android-staff-app/build/
 tsconfig.tsbuildinfo
+
+quality/audio/
+
+# Local non-PHI voice evaluation recordings
+*.m4a

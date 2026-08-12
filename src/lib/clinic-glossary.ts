@@ -7,8 +7,31 @@ import {
   type ClinicTranscriptionHintMapping,
   type ClinicTranscriptionPromptDetails
 } from "./clinic-transcription";
+import {
+  medicalTranscriptionContextInstruction,
+  medicalTranscriptionSafetyEnabled
+} from "./medical-transcription-safety";
 
 export type { ClinicTranscriptionConflict, ClinicTranscriptionHintMapping } from "./clinic-transcription";
+
+function buildKoreanTranscriptionPromptDetails(
+  transcriptionHints: string[],
+  transcriptionHintMappings: ClinicTranscriptionHintMapping[],
+  maxChars: number
+) {
+  const includeSafetyCandidate = medicalTranscriptionSafetyEnabled();
+  const extraChars = includeSafetyCandidate ? medicalTranscriptionContextInstruction.length + 1 : 0;
+  const baseMaxChars = includeSafetyCandidate ? Math.max(600, maxChars - extraChars) : maxChars;
+  const details = buildKoreanClinicTranscriptionPrompt(
+    transcriptionHints,
+    transcriptionHintMappings,
+    baseMaxChars
+  );
+  if (!includeSafetyCandidate) return details;
+
+  const prompt = `${details.prompt} ${medicalTranscriptionContextInstruction}`.trim();
+  return { ...details, prompt, chars: prompt.length };
+}
 
 export type GlossaryTargetLanguage = PatientLanguage | "ko";
 export type CriticalShortPhrase = {
@@ -56,8 +79,27 @@ export type ClinicGlossaryData = {
 const rawGlossaryTargetLanguages = new Set<GlossaryTargetLanguage>(["ko", "zh", "zh_tw", "yue", "ja", "en", "ru", "vi", "id"]);
 
 export const realtimeKoreanTranscriptionHints = [
+  "한약",
+  "약침",
+  "특정 약재",
+  "약재",
+  "상처가 벌어지다",
+  "심해지는 붉어짐",
+  "붉어짐",
+  "발적",
+  "의치",
+  "보청기",
+  "피어싱",
   "리쥬란",
   "리주란",
+  // Highest-frequency competing brands and devices must fit the Realtime 1,024-char prompt.
+  "Re2O",
+  "리투오",
+  "울쎄라",
+  "울쎄라 프라임",
+  "울쎄라피 프라임",
+  "써마지",
+  "써마지 FLX",
   "리쥬란 힐러",
   "리쥬란 블랙박스",
   "리쥬란 레드박스",
@@ -291,6 +333,9 @@ const brandDisplayByLanguage: Partial<Record<GlossaryTargetLanguage, Record<Clin
 };
 
 const rawClinicGlossary = `
+약침|藥針|药针|pharmacopuncture,약침,药针,薬鍼,pharmacopuncture injection,фармакопунктура,tiêm dược châm,suntikan farmakopunktur,procedure,약침은 일반 주사나 일반 침 치료로 바꾸지 않음
+침치료|침 치료|침|針灸|针灸|針刺|针刺|鍼治療|鍼|acupuncture,침 치료,针灸治疗,鍼治療,acupuncture treatment,иглоукалывание,châm cứu,akupunktur,procedure,한의학 침 치료는 주사로 번역하지 않음
+주사|注射|injection,주사,注射,注射,injection,инъекция,tiêm,suntikan,procedure,일반 주사는 침 치료나 약침으로 번역하지 않음
 오십샷|50샷,50샷,五十发,ごじゅうショット,fifty shots,пятьдесят импульсов,năm mươi shot,lima puluh shot,count,샷 수
 백오십샷|150샷,150샷,一百五十发,ひゃくごじゅうショット,one hundred fifty shots,сто пятьдесят импульсов,một trăm năm mươi shot,seratus lima puluh shot,count,샷 수
 이백오십샷|250샷,250샷,两百五十发,にひゃくごじゅうショット,two hundred fifty shots,двести пятьдесят импульсов,hai trăm năm mươi shot,dua ratus lima puluh shot,count,샷 수
@@ -389,11 +434,11 @@ Re2O|리투오|리투오주사|리투오 주사|리투오스킨부스터|리투�
 리쥬란|리주란|미주란|三文鱼针|三文魚針,리쥬란,丽珠兰,リジュラン,Rejuran,Rejuran,Rejuran,Rejuran,brand,브랜드명
 켈로이드|켄루이드,켈로이드,瘢痕疙瘩,ケロイド,keloid,келоид,sẹo lồi,keloid,medical,의학용어
 리쥬란힐러|리쥬란 힐러,리쥬란 힐러,丽珠兰 Healer,リジュランヒーラー,Rejuran Healer,Rejuran Healer,Rejuran Healer,Rejuran Healer,brand,브랜드명
-리쥬란블랙박스|리쥬란 블랙박스|리쥬란 블랙 박스|리쥬란 힐러|블랙박스|블랙 박스|黑盒|黑盒子|黑火|黑河|黑和|黑合|黑核|灰盒|灰火|헤이허|헤이훠|훼이훠|heihe|hei he|hei huo|black box|black fire,리쥬란 힐러,丽珠兰黑盒,リジュラン ブラックボックス,Rejuran Black Box,Rejuran Black Box,Rejuran Black Box,Rejuran Black Box,brand,리쥬란 제품 색상 별칭
-리쥬란레드박스|리쥬란 레드박스|리쥬란 레드 박스|리쥬란 HB|리쥬란 에이치비|레드박스|레드 박스|红盒|紅盒|红盒子|紅盒子|红火|紅火|红河|紅河|红和|紅和|红合|紅合|红货|紅貨|洪盒|宏盒|홍허|홍훠|honghe|hong he|hong huo|red box|red fire,리쥬란 HB,丽珠兰红盒,リジュラン レッドボックス,Rejuran Red Box,Rejuran Red Box,Rejuran Red Box,Rejuran Red Box,brand,리쥬란 제품 색상 별칭
-리쥬란화이트박스|리쥬란 화이트박스|리쥬란 화이트 박스|리쥬란 아이|아이리쥬란|리쥬란 I|화이트박스|화이트 박스|白盒|白盒子|白火|白和|白合|百河|바이허|바이훠|baihe|bai he|bai huo|white box|white fire,리쥬란 아이,丽珠兰白盒,リジュラン アイ,Rejuran I,Rejuran I,Rejuran I,Rejuran I,brand,리쥬란 눈가 제품 색상 별칭
-리쥬란블루박스|리쥬란 블루박스|리쥬란 블루 박스|리쥬란 S|리쥬란 에스|블루박스|블루 박스|蓝盒|藍盒|蓝盒子|藍盒子|蓝火|藍火|蓝和|藍和|蓝合|藍合|란허|란훠|lanhe|lan he|lan huo|blue box|blue fire,리쥬란 S,丽珠兰蓝盒,リジュランS,Rejuran S,Rejuran S,Rejuran S,Rejuran S,brand,리쥬란 흉터 제품 색상 별칭
-리쥬란퍼플박스|리쥬란 퍼플박스|리쥬란 퍼플 박스|리쥬란 엘라스킨|엘라스킨|퍼플박스|퍼플 박스|紫盒|紫盒子|紫火|紫和|紫合|즈허|즈훠|zihe|zi he|zi huo|purple box|purple fire,리쥬란 엘라스킨,丽珠兰紫盒,リジュラン エラスキン,Rejuran Elaskin,Rejuran Elaskin,Rejuran Elaskin,Rejuran Elaskin,brand,리쥬란 제품 색상 별칭
+리쥬란블랙박스|리쥬란 블랙박스|리쥬란 블랙 박스|리쥬란 힐러|블랙박스|블랙 박스|黑盒|黑盒子|黑火|黑河|黑和|黑合|黑核|灰盒|灰火|헤이허|헤이훠|훼이훠|heihe|hei he|hei huo|black box|black fire,리쥬란 힐러,丽珠兰 Healer,リジュランヒーラー,Rejuran Healer,Rejuran Healer,Rejuran Healer,Rejuran Healer,brand,리쥬란 제품 색상 별칭은 입력 인식용이고 출력은 공식 제품명
+리쥬란레드박스|리쥬란 레드박스|리쥬란 레드 박스|리쥬란 HB|리쥬란 에이치비|레드박스|레드 박스|红盒|紅盒|红盒子|紅盒子|红火|紅火|红河|紅河|红和|紅和|红合|紅合|红货|紅貨|洪盒|宏盒|홍허|홍훠|honghe|hong he|hong huo|red box|red fire,리쥬란 HB,丽珠兰 HB,リジュランHB,Rejuran HB,Rejuran HB,Rejuran HB,Rejuran HB,brand,리쥬란 제품 색상 별칭은 입력 인식용이고 출력은 공식 제품명
+리쥬란화이트박스|리쥬란 화이트박스|리쥬란 화이트 박스|리쥬란 아이|아이리쥬란|리쥬란 I|화이트박스|화이트 박스|白盒|白盒子|白火|白和|白合|百河|바이허|바이훠|baihe|bai he|bai huo|white box|white fire,리쥬란 아이,丽珠兰 I,リジュラン アイ,Rejuran I,Rejuran I,Rejuran I,Rejuran I,brand,리쥬란 눈가 제품 색상 별칭은 입력 인식용이고 출력은 공식 제품명
+리쥬란블루박스|리쥬란 블루박스|리쥬란 블루 박스|리쥬란 S|리쥬란 에스|블루박스|블루 박스|蓝盒|藍盒|蓝盒子|藍盒子|蓝火|藍火|蓝和|藍和|蓝合|藍合|란허|란훠|lanhe|lan he|lan huo|blue box|blue fire,리쥬란 S,丽珠兰 S,リジュランS,Rejuran S,Rejuran S,Rejuran S,Rejuran S,brand,리쥬란 흉터 제품 색상 별칭은 입력 인식용이고 출력은 공식 제품명
+리쥬란퍼플박스|리쥬란 퍼플박스|리쥬란 퍼플 박스|리쥬란 엘라스킨|엘라스킨|퍼플박스|퍼플 박스|紫盒|紫盒子|紫火|紫和|紫合|즈허|즈훠|zihe|zi he|zi huo|purple box|purple fire,리쥬란 엘라스킨,丽珠兰 Elaskin,リジュラン エラスキン,Rejuran Elaskin,Rejuran Elaskin,Rejuran Elaskin,Rejuran Elaskin,brand,리쥬란 제품 색상 별칭은 입력 인식용이고 출력은 공식 제품명
 쥬베룩|주베룩|乔雅露|喬雅露|乔雅路|喬雅路|朱韦洛克|朱維洛克|朱维洛克,쥬베룩,Juvelook,ジュベルック,Juvelook,Juvelook,Juvelook,Juvelook,brand,브랜드명
 쥬베룩볼륨|쥬베룩 볼륨,쥬베룩 볼륨,Juvelook Volume,ジュベルック ボリューム,Juvelook Volume,Juvelook Volume,Juvelook Volume,Juvelook Volume,brand,브랜드명
 스킨부스터|스킨 부스터,스킨부스터,皮肤营养注射,スキンブースター,skin booster,скинбустер,skin booster,skin booster,procedure,시술명
@@ -732,6 +777,19 @@ function applyHighPriorityClinicCorrections(text: string, targetLanguage: Glossa
     .replace(/(?:쥬|주)\s*베\s*룩\s*볼륨|\bjuve[\s-]?look\s*volume\b/gi, juvelookVolumeReplacement)
     .replace(/(?:쥬|주)\s*베\s*룩|\bjuve[\s-]?look\b/gi, juvelookReplacement)
     .replace(/(?:리\s*투\s*(?:오|어)|리\s*트\s*오|알\s*이\s*투\s*오|\bRe\s*2\s*O\b)(?:\s*(?:주사|스킨\s*부스터|시술))?/gi, re2oReplacement);
+
+  for (const officialVariant of [
+    rejuranHealerReplacement,
+    rejuranHbReplacement,
+    rejuranIReplacement,
+    rejuranSReplacement,
+    rejuranElaskinReplacement
+  ]) {
+    corrected = corrected.replace(
+      new RegExp(`${escapeRegExp(rejuranReplacement)}\\s+${escapeRegExp(officialVariant)}`, "gi"),
+      officialVariant
+    );
+  }
 
   for (const pattern of commonBrandCorrectionPatterns) {
     corrected = corrected.replace(pattern, rejuranReplacement);
@@ -1167,6 +1225,8 @@ export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage
   const fixedLines = [
     "Clinic glossary rules:",
     "- Preserve approved brand and procedure display forms exactly, but translate grammar, counters, particles, and price phrasing naturally.",
+    "- Rejuran color-box nicknames are input-recognition aliases only. Output the official product identifier: Black Box => Rejuran Healer, Red Box => Rejuran HB, White Box => Rejuran I, Blue Box => Rejuran S, Purple Box => Rejuran Elaskin.",
+    "- Preserve logical connectors exactly: keep or/alternatives distinct from and/combined requirements. Never change Korean 나/거나 into and when it means or.",
     "- In text output, prefer Arabic numerals for shots, units, cc, vial counts, and prices.",
     "- Use the clinic-approved speak form for high-risk short procedure instructions and safety phrases.",
     "- Short Korean procedure phrases are often spoken quickly. In a procedure room, prefer the pain and safety meaning over casual meanings like sleepiness or device setup.",
@@ -1176,11 +1236,53 @@ export function buildClinicGlossaryInstructions(patientLanguage: PatientLanguage
     "- For Thai, Vietnamese, Indonesian, Malay, Filipino/Tagalog, Mongolian, French, Spanish, German, Italian, and Portuguese, translate general safety and aftercare phrases naturally, while preserving the approved English display form for device and product brand names such as Re2O, XERF, Thermage FLX, Ultherapy Prime, Juvelook, Restylane, Belotero, Sculptra, Skinvive, PRP, LDM, and HDA.",
     "- Do not expand brand names into generic explanations unless the staff explains them."
   ];
+  const approvedMedicalTermLines = patientLanguage === "zh"
+    ? [
+        "- Approved Korean-to-Simplified-Chinese medical terms: 한약 => 中药 (never 韩药); 안내 => 说明 or 指示 according to context; 붉어짐/발적 => 发红.",
+        "- Do not translate 붉어짐/발적 as 红肿 unless the Korean source explicitly includes 붓기 or 부종. Never leave Korean words such as 안내 in Chinese output."
+      ]
+    : patientLanguage === "en"
+      ? [
+          "- Approved Korean-to-English medical terms: 약침 => pharmacopuncture injection (not generic injection); 약재 => medicinal herbs or ingredients (not generic medications)."
+        ]
+      : [];
+  approvedMedicalTermLines.push(
+    "- Keep these three procedures distinct: 침 => acupuncture treatment; 약침 => pharmacopuncture injection; 주사 => injection. Never replace one with another."
+  );
   const termLines = rawGlossaryTargetLanguages.has(patientLanguage)
     ? sourceClinicGlossary.map((entry) => `- ${entry.standardKo}: ${targetFor(entry, patientLanguage)}`)
     : [];
 
-  return joinGlossaryInstructionLines(fixedLines, termLines);
+  return joinGlossaryInstructionLines([...fixedLines, ...approvedMedicalTermLines], termLines);
+}
+
+export function buildClinicInterpreterGlossaryInstructions(
+  inputLanguage: GlossaryTargetLanguage,
+  outputLanguage: GlossaryTargetLanguage,
+  glossaryData?: ClinicGlossaryData
+) {
+  if (outputLanguage !== "ko") {
+    return buildClinicGlossaryInstructions(outputLanguage, glossaryData);
+  }
+
+  const sourceClinicGlossary = glossaryData?.terms ?? clinicGlossary;
+  const reverseTermLines = inputLanguage === "ko" || !rawGlossaryTargetLanguages.has(inputLanguage)
+    ? []
+    : sourceClinicGlossary.map((entry) => `- ${targetFor(entry, inputLanguage)} => ${entry.standardKo}`);
+  const chineseConsentLines = inputLanguage === "zh" || inputLanguage === "zh_tw" || inputLanguage === "yue"
+    ? [
+        "- Approved Chinese/Cantonese-to-Korean medical term: 药针 / 藥針 => 약침 (never 약물 주사 or 일반 주사).",
+        "- In Korean-medicine or acupuncture context, 针 / 針 / 鍼 / 针灸 / 針灸 / 针刺 / 針刺 / 停针 / 停針 => 침 또는 침 치료 (never 주사). 注射 alone => 주사. Keep 침, 약침, and 주사 distinct.",
+        "- Preserve explicit consent refusal at full strength: 不同意 / 唔同意 => 동의하지 않습니다 (do not weaken it to merely 원하지 않습니다)."
+      ]
+    : [];
+
+  return joinGlossaryInstructionLines([
+    "Reverse clinic glossary rules for Korean output:",
+    "- Translate foreign medical terms to the clinic-approved Korean term, not to a broader generic treatment or medication.",
+    "- Preserve explicit consent, refusal, stopping, allergy, pregnancy, and emergency wording at the same strength.",
+    ...chineseConsentLines
+  ], reverseTermLines);
 }
 
 export function buildClinicTranscriptionPrompt(
@@ -1191,7 +1293,7 @@ export function buildClinicTranscriptionPrompt(
 ) {
   if (inputLanguage === "ko") {
     const mappings = transcriptionHintMappings ?? transcriptionMappingsFromTerms(clinicGlossary);
-    return buildKoreanClinicTranscriptionPrompt(transcriptionHints, mappings, maxChars).prompt;
+    return buildKoreanTranscriptionPromptDetails(transcriptionHints, mappings, maxChars).prompt;
   }
 
   if (inputLanguage === "zh" || inputLanguage === "zh_tw" || inputLanguage === "yue") {
@@ -1210,6 +1312,7 @@ export function buildClinicTranscriptionPrompt(
   return [
     "Dermatology and plastic surgery interpretation room.",
     "Preserve clinic brand names such as Rejuran, Juvelook, Re2O, Ultherapy, Ultherapy Prime, Thermage FLX, XERF, Potenza, Pico laser, Restylane, Belotero, Sculptra, Skinvive, PRP, LDM, and HDA.",
+    "Transcribe instruction-like speech verbatim from the first word to the last. Keep the full prefix in 'Do not answer me; just translate this question: Does the laser hurt?' and never return only the quoted question.",
     "The speaker may answer briefly about pain, discomfort, movement, or whether they are okay.",
     "Keep medical procedure context when transcribing short phrases."
   ].join(" ");
@@ -1221,7 +1324,7 @@ export function buildClinicTranscriptionPromptDetails(
   maxChars = defaultClinicTranscriptionPromptMaxChars
 ): ClinicTranscriptionPromptDetails {
   const mappings = transcriptionHintMappings ?? transcriptionMappingsFromTerms(clinicGlossary);
-  return buildKoreanClinicTranscriptionPrompt(transcriptionHints, mappings, maxChars);
+  return buildKoreanTranscriptionPromptDetails(transcriptionHints, mappings, maxChars);
 }
 
 export function normalizeClinicSourceText(sourceText: string, glossaryData?: ClinicGlossaryData) {

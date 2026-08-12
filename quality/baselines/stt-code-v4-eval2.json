@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "baselineId": "code-v4-eval2",
+  "glossaryVersion": "code-v4",
+  "transcriptionModel": "gpt-4o-transcribe",
+  "normalizationVersion": 1,
+  "promptLength": 2392,
+  "promptSha256": "b4a14de415c802c695878d97b99c2c8e70ea6ed2c911d1bed15529a9ce5fdc20",
+  "casesSha256": "a0d5c853d5faadbb1a9ecc685c4e9e424003344b67139fe6995bf60984c3ba8c",
+  "caseCount": 12,
+  "caseIds": [
+    "STT001",
+    "STT002",
+    "STT003",
+    "STT004",
+    "STT005",
+    "STT006",
+    "STT007",
+    "STT008",
+    "STT009",
+    "STT010",
+    "STT011",
+    "STT012"
+  ]
+}

@@ -22,7 +22,15 @@
     "dataset:verify": "tsx scripts/verify-medivoice-datasets.ts",
     "android:verified-phrases": "tsx scripts/generate-android-verified-phrases.ts",
     "quality:evaluate": "tsx scripts/evaluate-translation-quality.ts",
-    "quality:benchmark": "tsx scripts/benchmark-translation-quality.ts"
+    "quality:benchmark": "tsx scripts/benchmark-translation-quality.ts",
+    "quality:live-evaluate": "tsx scripts/run-live-translation-evaluation.ts",
+    "quality:live-adjudicate": "tsx scripts/adjudicate-live-translation-evaluation.ts",
+    "quality:stt-freeze": "tsx scripts/freeze-stt-baseline.ts",
+    "quality:stt-preflight": "tsx scripts/preflight-stt-audio.ts",
+    "quality:stt-noise": "tsx scripts/generate-stt-noise-variants.ts",
+    "quality:stt-evaluate": "tsx scripts/run-stt-evaluation.ts",
+    "quality:stt-rescore": "tsx scripts/rescore-stt-evaluation.ts",
+    "quality:stt-aggregate": "tsx scripts/aggregate-stt-evaluation.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

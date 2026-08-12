@@ -11,6 +11,7 @@ import { normalizedTranscriptionModel } from "@/lib/openai-models";
 import { translateWithOpenAITextSafety } from "@/lib/openai-text-translation";
 import { matchVerifiedSentence } from "@/lib/verified-sentences";
 import { isClearlyNotKoreanTranslation } from "@/lib/translation-language-guard";
+import { resolveUploadedMedicalTranscription } from "@/lib/openai-medical-transcription-retry";
 
 type LocalDirection = "ko_to_patient" | "patient_to_ko";
 type TargetLanguage = PatientLanguage | "ko";
@@ -115,7 +116,8 @@ export async function POST(request: Request) {
 
   const transcriptionForm = new FormData();
   transcriptionForm.set("file", audio, audio.name || `${clientTurnId}.wav`);
-  transcriptionForm.set("model", normalizedTranscriptionModel(process.env.OPENAI_TRANSCRIPTION_MODEL));
+  const transcriptionModel = normalizedTranscriptionModel(process.env.OPENAI_TRANSCRIPTION_MODEL);
+  transcriptionForm.set("model", transcriptionModel);
   const transcriptionLanguage = transcriptionLanguageFor(direction, patientLanguage);
   if (shouldSendTranscriptionLanguageHint(transcriptionLanguage)) {
     transcriptionForm.set("language", transcriptionLanguage);
@@ -172,10 +174,28 @@ export async function POST(request: Request) {
   }
 
   const transcriptionData = (await transcriptionResponse.json()) as TranscriptionResponse;
-  const sourceText = transcriptionData.text?.trim();
+  let sourceText = transcriptionData.text?.trim();
   if (!sourceText) {
     return NextResponse.json({ error: "No speech was transcribed" }, { status: 422 });
   }
+
+  const transcriptionSafety = await resolveUploadedMedicalTranscription({
+    transcript: sourceText,
+    inputLanguage: sourceLanguage,
+    apiKey,
+    audio,
+    fileName: audio.name || `${clientTurnId}.wav`,
+    model: transcriptionModel,
+    language: transcriptionForm.has("language") ? transcriptionLanguage : undefined,
+    safetyIdentifier: `clinic-voice-room-local-stt-retry-${staff.hospitalId}-${staff.id}-${direction}`
+  });
+  if (transcriptionSafety.status === "retry_required" || !transcriptionSafety.text) {
+    return NextResponse.json(
+      { status: "retry_required", error: "Medical terms could not be confirmed. Please speak again." },
+      { status: 422 }
+    );
+  }
+  sourceText = transcriptionSafety.text;
 
   const instructions = [
     "You are a professional medical interpreter for a Korean dermatology and plastic-surgery clinic.",

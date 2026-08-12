@@ -73,11 +73,10 @@ const cjkUnits: Record<string, number> = {
   兆: 1_000_000_000_000
 };
 const mixedScaleUnits: Record<string, number> = { ...koreanUnits, ...cjkUnits };
-const englishNumbers: Record<string, number> = {
+const englishSmallNumbers: Record<string, number> = {
+  zero: 0,
   one: 1,
-  once: 1,
   two: 2,
-  twice: 2,
   three: 3,
   four: 4,
   five: 5,
@@ -85,8 +84,58 @@ const englishNumbers: Record<string, number> = {
   seven: 7,
   eight: 8,
   nine: 9,
-  ten: 10
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fifty: 50,
+  sixty: 60,
+  seventy: 70,
+  eighty: 80,
+  ninety: 90
 };
+const englishScaleNumbers: Record<string, number> = {
+  hundred: 100,
+  thousand: 1_000,
+  million: 1_000_000,
+  billion: 1_000_000_000
+};
+
+function parseEnglishNumberPhrase(value: string) {
+  const tokens = value.toLocaleLowerCase().split(/[\s-]+/).filter(Boolean);
+  let total = 0;
+  let current = 0;
+  let found = false;
+
+  for (const token of tokens) {
+    const small = englishSmallNumbers[token];
+    if (small !== undefined) {
+      current += small;
+      found = true;
+      continue;
+    }
+    const scale = englishScaleNumbers[token];
+    if (!scale) continue;
+    found = true;
+    if (scale === 100) {
+      current = (current || 1) * scale;
+    } else {
+      total += (current || 1) * scale;
+      current = 0;
+    }
+  }
+
+  return found ? total + current : null;
+}
 
 function canonicalizeDigits(text: string) {
   return Array.from(text.normalize("NFKC")).map((char) => {
@@ -196,13 +245,25 @@ export function extractNumericSignature(text: string) {
     if (match[0]) pushNumber(numbers, 0.5);
   }
 
-  const englishPattern = /\b(one|once|two|twice|three|four|five|six|seven|eight|nine|ten)\b/gi;
-  for (const match of normalized.matchAll(englishPattern)) {
-    pushNumber(numbers, englishNumbers[match[1].toLocaleLowerCase()]);
+  const englishCompoundPattern =
+    /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)(?:[-\s]+(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion))*\b/gi;
+  for (const match of normalized.matchAll(englishCompoundPattern)) {
+    pushNumber(numbers, parseEnglishNumberPhrase(match[0]));
+  }
+
+  const englishFrequencyPattern = /\b(once|twice)\b/gi;
+  for (const match of normalized.matchAll(englishFrequencyPattern)) {
+    pushNumber(numbers, match[1].toLocaleLowerCase() === "once" ? 1 : 2);
   }
 
   const nativePattern = /(하나|다섯|여섯|일곱|여덟|아홉|둘|셋|넷|열|한|두|세|네)\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알)(?=$|[^가-힣]|(?:입니다|이에요|예요|이었다|이었|부터|까지|정도|가량|씩|마다|동안|간|후|전|째|으로|에서|에게|을|를|은|는|이|가|에|도|만))/g;
   for (const match of normalized.matchAll(nativePattern)) {
+    const start = match.index ?? 0;
+    const remaining = normalized.slice(start);
+    // "한 번에 5mL" means "5 mL at a time". The first 한 is not a
+    // separately preservable numeric value; counting it as 1 makes a faithful
+    // "5 mL at a time" translation fail the numeric guard.
+    if (match[1] === "한" && /^한\s*번\s*에/u.test(remaining)) continue;
     pushNumber(numbers, koreanNativeNumbers[match[1]]);
   }
 
