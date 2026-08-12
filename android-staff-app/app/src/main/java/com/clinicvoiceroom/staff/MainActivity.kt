@@ -122,6 +122,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.google.zxing.BarcodeFormat
@@ -236,7 +237,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.40"
+private const val AppDisplayVersion = "0.3.41"
 private const val StaffSessionCookieName = "cvr_session"
 private const val LocalMetricOutboxPreferenceName = "local_metric_outbox"
 private const val LocalMetricOutboxPreferenceKey = "payloads"
@@ -6200,8 +6201,9 @@ private fun FieldDiagnosticsDialog(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("현장 진단", color = Ink, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -6212,24 +6214,20 @@ private fun FieldDiagnosticsDialog(
                         fontWeight = FontWeight.SemiBold
                     )
                 }
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    diagnostics.rows().forEach { (label, value) ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color.White, RoundedCornerShape(10.dp))
-                                .border(1.dp, Line, RoundedCornerShape(10.dp))
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    diagnostics.rows().chunked(2).forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text(label, color = SlateText, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                            Text(value, color = Ink, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            row.forEach { (label, value) ->
+                                DiagnosticSummaryCell(
+                                    label = label,
+                                    value = value,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
                 }
@@ -6274,6 +6272,32 @@ private fun FieldDiagnosticsDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DiagnosticSummaryCell(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .heightIn(min = 54.dp)
+            .background(Color.White, RoundedCornerShape(8.dp))
+            .border(1.dp, Line, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            label,
+            color = SlateText,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            value,
+            color = Ink,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            lineHeight = 18.sp
+        )
     }
 }
 
@@ -7074,7 +7098,8 @@ private fun ConversationRoomScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)
         ) {
-            StatusPanel(state, metrics, onStatusTap)
+            val procedureRoom = state.room?.roomMode == "procedure"
+            if (!procedureRoom) StatusPanel(state, metrics, onStatusTap)
             TranslationPanel(
                 state = state,
                 metrics = metrics,
@@ -7085,6 +7110,7 @@ private fun ConversationRoomScreen(
                 onTtsEnabled = onTtsEnabled,
                 onRequestMicPermission = onRequestMicPermission
             )
+            if (procedureRoom) StatusPanel(state, metrics, onStatusTap)
             Spacer(Modifier.height(2.dp))
         }
         RoomActionBar(
@@ -7602,8 +7628,10 @@ private fun TranslationPanel(
     }
 
     SectionCard("시술 통역", metrics) {
-        AutoPlayBar(state = state, onTtsEnabled = onTtsEnabled)
-        Spacer(Modifier.height(14.dp))
+        TranscriptBox(sourceLabel, state.sourceDraft.ifBlank { sourcePlaceholder }, metrics)
+        Spacer(Modifier.height(8.dp))
+        TranscriptBox(translatedLabel, state.translatedDraft.ifBlank { translatedPlaceholder }, metrics)
+        Spacer(Modifier.height(12.dp))
         MicControlBox(
             state = state,
             metrics = metrics,
@@ -7614,12 +7642,10 @@ private fun TranslationPanel(
             onToggleSpeak = onToggleSpeak,
             onRequestMicPermission = onRequestMicPermission
         )
-        Spacer(Modifier.height(14.dp))
-        TranscriptBox(sourceLabel, state.sourceDraft.ifBlank { sourcePlaceholder }, metrics)
-        Spacer(Modifier.height(8.dp))
-        TranscriptBox(translatedLabel, state.translatedDraft.ifBlank { translatedPlaceholder }, metrics)
         Spacer(Modifier.height(8.dp))
         ReplayButton(onReplayTranslation, enabled = state.translatedDraft.isNotBlank())
+        Spacer(Modifier.height(8.dp))
+        AutoPlayBar(state = state, onTtsEnabled = onTtsEnabled)
     }
 }
 

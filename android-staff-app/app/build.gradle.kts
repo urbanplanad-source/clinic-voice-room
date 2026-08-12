@@ -8,7 +8,7 @@ val releaseKeystorePath = providers.environmentVariable("CVR_ANDROID_KEYSTORE").
 val releaseKeystorePassword = providers.environmentVariable("CVR_ANDROID_KEYSTORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("CVR_ANDROID_KEY_ALIAS").orNull
 val releaseKeyPassword = providers.environmentVariable("CVR_ANDROID_KEY_PASSWORD").orNull
-val appVersionName = "0.3.40"
+val appVersionName = "0.3.41"
 val localQaBackendUrl = providers.gradleProperty("localQaBackendUrl")
     .orElse("http://10.0.2.2:3028")
     .get()
@@ -49,7 +49,7 @@ android {
         applicationId = "com.clinicvoiceroom.staff"
         minSdk = 26
         targetSdk = 35
-        versionCode = 52
+        versionCode = 53
         versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "DEFAULT_BACKEND_URL", "\"https://voice.insightmedi.co.kr\"")

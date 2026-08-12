@@ -58,4 +58,14 @@ describe("MediVoice UI safety contracts", () => {
     expect(android).toContain('contentDescription = "번역 음성 자동 재생"');
     expect(android).toContain('Text("현재 대화와 요약이 초기화됩니다."');
   });
+
+  it("prioritizes procedure transcripts and keeps diagnostics screenshot-friendly", () => {
+    const android = readFileSync(new URL("../../android-staff-app/app/src/main/java/com/clinicvoiceroom/staff/MainActivity.kt", import.meta.url), "utf8");
+
+    expect(android).toContain('if (!procedureRoom) StatusPanel(state, metrics, onStatusTap)');
+    expect(android).toContain('if (procedureRoom) StatusPanel(state, metrics, onStatusTap)');
+    expect(android).toMatch(/SectionCard\("시술 통역", metrics\) \{[\s\S]*TranscriptBox\(sourceLabel[\s\S]*TranscriptBox\(translatedLabel[\s\S]*MicControlBox\([\s\S]*AutoPlayBar\(/);
+    expect(android).toContain("diagnostics.rows().chunked(2).forEach");
+    expect(android).toContain("private fun DiagnosticSummaryCell");
+  });
 });
