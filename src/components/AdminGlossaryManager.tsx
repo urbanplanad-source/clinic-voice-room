@@ -481,16 +481,16 @@ export function AdminGlossaryManager() {
                       <div className="grid gap-2">
                         <InlineInput value={edit.category} onChange={(value) => updateEdit(entry.id, "category", value)} placeholder="category" />
                         <InlineInput value={edit.note} onChange={(value) => updateEdit(entry.id, "note", value)} placeholder="note" />
-                        <input className="h-10 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none" type="number" value={edit.priority} onChange={(event) => updateEdit(entry.id, "priority", Number(event.target.value))} />
+                        <input className="h-11 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none" type="number" value={edit.priority} onChange={(event) => updateEdit(entry.id, "priority", Number(event.target.value))} />
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <button type="button" onClick={() => void toggleActive(entry)} className={`h-10 rounded-lg px-3 text-sm font-bold ${edit.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                      <button type="button" onClick={() => void toggleActive(entry)} className={`h-11 rounded-lg px-3 text-sm font-bold ${edit.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
                         {edit.isActive ? "활성" : "비활성"}
                       </button>
                     </td>
                     <td className="px-4 py-4">
-                      <button type="button" onClick={() => void saveEntry(entry.id)} disabled={busy} className="inline-flex h-10 items-center gap-2 rounded-lg bg-trust px-3 text-sm font-bold text-white disabled:opacity-50">
+                      <button type="button" onClick={() => void saveEntry(entry.id)} disabled={busy} className="inline-flex h-11 items-center gap-2 rounded-lg bg-trust px-3 text-sm font-bold text-white disabled:opacity-50">
                         <Save size={16} />
                         저장
                       </button>
@@ -539,7 +539,7 @@ function TranscriptionPreviewPanel({
               options={hospitals.map((hospital) => [hospital.id, hospital.name])}
             />
           ) : null}
-          <button type="button" onClick={onRefresh} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-100 px-3 text-sm font-bold text-ink">
+          <button type="button" onClick={onRefresh} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-slate-100 px-3 text-sm font-bold text-ink">
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
             갱신
           </button>
@@ -569,7 +569,7 @@ function TranscriptionPreviewPanel({
             </div>
           ) : null}
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-slate-50 p-4 text-xs font-semibold leading-5 text-slate-700">{preview.prompt}</pre>
-          <p className="text-right text-[11px] font-semibold text-slate-400">hash {preview.promptHash} · 새 Realtime 세션부터 적용</p>
+          <p className="text-right text-xs font-semibold text-muted">hash {preview.promptHash} · 새 Realtime 세션부터 적용</p>
         </div>
       ) : (
         <p className="mt-4 text-sm font-semibold text-slate-500">{loading ? "미리보기를 만드는 중..." : "미리보기를 불러오지 못했습니다."}</p>
@@ -581,7 +581,7 @@ function TranscriptionPreviewPanel({
 function PreviewMetric({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] font-bold text-slate-400">{label}</p>
+      <p className="text-xs font-bold text-muted">{label}</p>
       <p className="mt-1 font-bold text-ink">{value}</p>
     </div>
   );
@@ -626,7 +626,7 @@ function GlossaryFields({
       <div className="grid gap-3 md:grid-cols-[1fr_1fr_120px]">
         <InlineInput value={draft.category} onChange={(value) => onChange("category", value)} placeholder="category" />
         <InlineInput value={draft.note} onChange={(value) => onChange("note", value)} placeholder="note" />
-        <input className="h-10 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none" type="number" value={draft.priority} onChange={(event) => onChange("priority", Number(event.target.value))} />
+        <input className="h-11 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none" type="number" value={draft.priority} onChange={(event) => onChange("priority", Number(event.target.value))} />
       </div>
     </div>
   );
@@ -661,7 +661,7 @@ function TranslationGrid({ translations, onChange, compact = false }: { translat
         <label key={key} className="block">
           <span className="text-[11px] font-bold text-slate-500">{translationLabels[key]}</span>
           <input
-            className="mt-1 h-9 w-full rounded-lg border border-line bg-slate-50 px-2 text-xs font-semibold outline-none focus:border-trust focus:bg-white"
+            className="mt-1 h-11 w-full rounded-lg border border-line bg-slate-50 px-2 text-xs font-semibold outline-none focus:border-trust focus:bg-white"
             value={translations[key] ?? ""}
             onChange={(event) => onChange(key, event.target.value)}
           />
@@ -677,7 +677,7 @@ function FilterSelect({ value, onChange, options }: { value: string; onChange: (
 
 function Select({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
   return (
-    <select className="h-10 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white" value={value} onChange={(event) => onChange(event.target.value)}>
+    <select className="h-11 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white" value={value} onChange={(event) => onChange(event.target.value)}>
       {options.map(([optionValue, label]) => (
         <option key={optionValue} value={optionValue}>
           {label}
@@ -690,7 +690,7 @@ function Select({ value, onChange, options }: { value: string; onChange: (value:
 function InlineInput({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder?: string }) {
   return (
     <input
-      className="h-10 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white"
+      className="h-11 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white"
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}

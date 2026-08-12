@@ -1859,12 +1859,13 @@ function ProcedureVoiceRoom({
 
   const activeSpeakingLabel = role === "patient" ? patientAutoStopSpeakingCopy[room.patientLanguage] : copy.primary.speaking;
   const activeSpeakingHelper = role === "patient" ? patientAutoStopHelperCopy[room.patientLanguage] : copy.helper.speaking;
+  const patientFixedMic = role === "patient" && !kioskMode;
 
   return (
     <div
       ref={roomRootRef}
       lang={role === "patient" ? patientLanguageTags[room.patientLanguage] : "ko"}
-      className={`${kioskMode ? "space-y-3" : "space-y-4"} outline-none ${role === "patient" ? `patient-text-surface ${patientTextSizeClassName(patientTextSize)}` : ""}`}
+      className={`${kioskMode ? "space-y-3" : "space-y-4"} outline-none ${role === "patient" ? `patient-text-surface ${patientTextSizeClassName(patientTextSize)} ${patientFixedMic ? "pb-[calc(15rem+env(safe-area-inset-bottom))]" : ""}` : ""}`}
       tabIndex={-1}
       onPointerDown={() => {
         roomRootRef.current?.focus();
@@ -1894,7 +1895,7 @@ function ProcedureVoiceRoom({
           <button
             type="button"
             onClick={() => setBackWarning(false)}
-            className="mt-3 h-10 rounded-lg bg-white px-4 text-sm font-bold text-amber-800 shadow-sm"
+            className="mt-3 min-h-11 rounded-lg bg-white px-4 text-sm font-bold text-amber-800 shadow-sm"
           >
             OK
           </button>
@@ -1929,7 +1930,7 @@ function ProcedureVoiceRoom({
         {displayText ? (
           <article className="rounded-lg bg-blue-50 px-4 py-5">
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-trust-text">{displayLabel}</p>
-            <p className="patient-message-copy mt-2 font-bold leading-9 text-ink">{displayText}</p>
+            <p className="patient-message-copy mt-2 whitespace-pre-wrap break-words font-bold text-ink">{displayText}</p>
             {latestGuardFlags?.numberCheck === "mismatch" || latestBackTranslationStatus === "pending" || latestBackTranslationStatus === "pass" || latestBackTranslationStatus === "fail" ? (
               <div className="mt-3 space-y-2 rounded-lg bg-white/80 px-3 py-2 text-sm font-bold text-amber-800">
                 {latestGuardFlags?.numberCheck === "mismatch" ? (
@@ -1966,15 +1967,23 @@ function ProcedureVoiceRoom({
         </section>
       ) : null}
 
-      <section className="rounded-lg bg-white p-5 text-center shadow-soft">
-        <div className="mx-auto mb-5 max-w-md rounded-lg bg-slate-50 px-4 py-3">
+      {patientFixedMic && !displayText ? (
+        <section className="rounded-lg bg-white p-4 text-center shadow-soft">
+          <div className="mx-auto max-w-md rounded-lg bg-slate-50 px-4 py-3">
+            <p className="patient-body-copy font-semibold text-text-secondary">{procedureGuideText}</p>
+          </div>
+        </section>
+      ) : null}
+
+      <section className={`${patientFixedMic ? "fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+12px)] z-30 mx-auto max-w-xl border border-line p-3" : "p-5"} rounded-lg bg-white text-center shadow-soft`}>
+        {!patientFixedMic ? <div className="mx-auto mb-5 max-w-md rounded-lg bg-slate-50 px-4 py-3">
           <p className="patient-body-copy font-semibold leading-8 text-text-secondary">{procedureGuideText}</p>
           {hardwareLabel ? <p className="mt-2 text-sm font-bold text-trust-text">{hardwareLabel}</p> : null}
-        </div>
-        <div className="relative mx-auto grid h-48 w-48 place-items-center md:h-56 md:w-56">
+        </div> : null}
+        <div className={`relative mx-auto grid place-items-center ${patientFixedMic ? "h-40 w-40" : "h-48 w-48 md:h-56 md:w-56"}`}>
           <span
             ref={micLevelRingRef}
-            className={`pointer-events-none absolute h-44 w-44 rounded-full border-4 transition-transform motion-reduce:transition-none md:h-52 md:w-52 ${
+            className={`pointer-events-none absolute rounded-full border-4 transition-transform motion-reduce:transition-none ${patientFixedMic ? "h-36 w-36" : "h-44 w-44 md:h-52 md:w-52"} ${
               isSpeaking ? "border-coral/60" : "border-transparent"
             }`}
             aria-hidden="true"
@@ -1983,7 +1992,7 @@ function ProcedureVoiceRoom({
             type="button"
             disabled={room.status === "ended" || (busy && !isSpeaking) || (!micEnabled && !isSpeaking)}
             onClick={isSpeaking ? stopSpeaking : startSpeaking}
-            className={`tap-highlight-none grid h-44 w-44 place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 motion-reduce:transition-none md:h-52 md:w-52 ${
+            className={`tap-highlight-none grid place-items-center rounded-full text-white shadow-soft transition active:scale-[0.98] disabled:bg-slate-300 disabled:opacity-80 motion-reduce:transition-none ${patientFixedMic ? "h-36 w-36" : "h-44 w-44 md:h-52 md:w-52"} ${
               isSpeaking ? "bg-coral" : micEnabled ? "bg-ink" : "bg-slate-300"
             }`}
             aria-label={isSpeaking ? activeSpeakingLabel : copy.primary.ready}
@@ -1992,7 +2001,7 @@ function ProcedureVoiceRoom({
             {busy && !isSpeaking ? <Loader2 size={44} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Mic size={56} aria-hidden="true" />}
           </button>
         </div>
-        <p className="patient-body-copy mt-4 font-bold text-ink">
+        <p className={`patient-body-copy font-bold text-ink ${patientFixedMic ? "mt-1" : "mt-4"}`}>
           {room.status === "ended" ? copy.primary.ended : isSpeaking ? activeSpeakingLabel : micEnabled ? copy.primary.ready : copy.primary.waiting}
         </p>
         {isSpeaking ? <p className="patient-helper-copy mt-2 font-semibold text-text-muted">{activeSpeakingHelper}</p> : null}

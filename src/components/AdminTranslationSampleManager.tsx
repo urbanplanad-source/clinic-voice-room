@@ -299,11 +299,11 @@ export function AdminTranslationSampleManager() {
                       <td className="w-[560px] px-4 py-4">
                         <div className="grid gap-3">
                           <div>
-                            <p className="text-[11px] font-bold uppercase text-slate-400">Source</p>
+                            <p className="text-xs font-bold uppercase text-muted">Source</p>
                             <p className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold leading-6 text-ink">{item.sourceText}</p>
                           </div>
                           <div>
-                            <p className="text-[11px] font-bold uppercase text-slate-400">Translation</p>
+                            <p className="text-xs font-bold uppercase text-muted">Translation</p>
                             <p className="mt-1 whitespace-pre-wrap rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold leading-6 text-ink">{item.translatedText}</p>
                           </div>
                         </div>
@@ -326,7 +326,7 @@ export function AdminTranslationSampleManager() {
                           <button
                             type="button"
                             onClick={() => setExpandedId(expanded ? "" : item.id)}
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-100 px-3 text-sm font-bold text-ink"
+                            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-slate-100 px-3 text-sm font-bold text-ink"
                           >
                             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                             {expanded ? "검수 닫기" : "검수하기"}
@@ -388,7 +388,7 @@ function QualitySignals({ guardFlags }: { guardFlags: Record<string, unknown> | 
   }
   if (canonicalization.changed === true) signals.push({ label: "원문 표준화", style: "bg-violet-50 text-violet-800" });
 
-  if (signals.length === 0) return <p className="text-xs font-semibold text-slate-400">자동 품질 신호 없음</p>;
+  if (signals.length === 0) return <p className="text-xs font-semibold text-muted">자동 품질 신호 없음</p>;
   return (
     <div className="flex flex-wrap gap-1.5">
       {signals.map((signal) => (
@@ -434,7 +434,7 @@ function SampleReviewPanel({
         <label className="grid gap-1.5">
           <span className="text-xs font-bold text-slate-600">검수 메모</span>
           <input
-            className="h-10 w-full rounded-lg border border-line bg-white px-3 text-sm font-semibold outline-none focus:border-trust"
+            className="h-11 w-full rounded-lg border border-line bg-white px-3 text-sm font-semibold outline-none focus:border-trust"
             value={draft.reviewNote}
             onChange={(event) => onChange({ reviewNote: event.target.value })}
             placeholder="필요한 경우만 입력"
@@ -453,7 +453,7 @@ function SampleReviewPanel({
             />
           </label>
           <div className="flex justify-end">
-            <button type="button" onClick={onExtract} className="inline-flex h-10 items-center gap-2 rounded-lg bg-white px-3 text-sm font-bold text-ink shadow-sm">
+            <button type="button" onClick={onExtract} className="inline-flex h-11 items-center gap-2 rounded-lg bg-white px-3 text-sm font-bold text-ink shadow-sm">
               <ScanSearch size={16} />
               다른 구간 추출
             </button>
@@ -461,11 +461,11 @@ function SampleReviewPanel({
           <div className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1.5">
               <span className="text-xs font-bold text-slate-600">잘못 인식된 구간</span>
-              <input className="h-10 rounded-lg border border-line bg-white px-3 text-sm font-semibold outline-none focus:border-trust" value={draft.hintObservedForm} onChange={(event) => onChange({ hintObservedForm: event.target.value })} />
+              <input className="h-11 rounded-lg border border-line bg-white px-3 text-sm font-semibold outline-none focus:border-trust" value={draft.hintObservedForm} onChange={(event) => onChange({ hintObservedForm: event.target.value })} />
             </label>
             <label className="grid gap-1.5">
               <span className="text-xs font-bold text-slate-600">표준 표현</span>
-              <input className="h-10 rounded-lg border border-line bg-white px-3 text-sm font-semibold outline-none focus:border-trust" value={draft.hintCanonicalForm} onChange={(event) => onChange({ hintCanonicalForm: event.target.value })} />
+              <input className="h-11 rounded-lg border border-line bg-white px-3 text-sm font-semibold outline-none focus:border-trust" value={draft.hintCanonicalForm} onChange={(event) => onChange({ hintCanonicalForm: event.target.value })} />
             </label>
           </div>
           <label className={`flex items-center gap-2 text-sm font-bold ${canPromote ? "text-ink" : "text-slate-400"}`}>
@@ -492,7 +492,7 @@ function SampleReviewPanel({
               </label>
               <label className="grid gap-1.5">
                 <span className="text-xs font-bold text-slate-600">힌트 분류</span>
-                <input className="h-10 rounded-lg border border-line bg-white px-3 text-sm font-semibold outline-none focus:border-trust" value={draft.hintCategory} onChange={(event) => onChange({ hintCategory: event.target.value })} />
+                <input className="h-11 rounded-lg border border-line bg-white px-3 text-sm font-semibold outline-none focus:border-trust" value={draft.hintCategory} onChange={(event) => onChange({ hintCategory: event.target.value })} />
               </label>
             </div>
           ) : null}
@@ -500,7 +500,7 @@ function SampleReviewPanel({
       ) : null}
 
       <div className="flex justify-end border-t border-line pt-4">
-        <button type="button" onClick={onSave} disabled={saving} className="inline-flex h-10 items-center gap-2 rounded-lg bg-trust px-4 text-sm font-bold text-white disabled:opacity-50">
+        <button type="button" onClick={onSave} disabled={saving} className="inline-flex h-11 items-center gap-2 rounded-lg bg-trust px-4 text-sm font-bold text-white disabled:opacity-50">
           <Save size={16} />
           {saving ? "저장 중..." : "검수 저장"}
         </button>
@@ -512,7 +512,7 @@ function SampleReviewPanel({
 function SummaryStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg bg-white p-4 shadow-soft">
-      <p className="text-xs font-bold uppercase text-slate-400">{label}</p>
+      <p className="text-xs font-bold uppercase text-muted">{label}</p>
       <p className="mt-1 text-2xl font-bold text-ink">{value}</p>
     </div>
   );
@@ -520,7 +520,7 @@ function SummaryStat({ label, value }: { label: string; value: string }) {
 
 function Select({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
   return (
-    <select className="h-10 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white" value={value} onChange={(event) => onChange(event.target.value)}>
+    <select className="h-11 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white" value={value} onChange={(event) => onChange(event.target.value)}>
       {options.map(([optionValue, label]) => (
         <option key={optionValue} value={optionValue}>
           {label}

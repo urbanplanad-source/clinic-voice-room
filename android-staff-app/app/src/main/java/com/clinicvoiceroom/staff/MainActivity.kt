@@ -236,7 +236,7 @@ private fun staffLayoutMetrics(maxWidth: Dp): StaffLayoutMetrics {
 }
 
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
-private const val AppDisplayVersion = "0.3.39"
+private const val AppDisplayVersion = "0.3.40"
 private const val StaffSessionCookieName = "cvr_session"
 private const val LocalMetricOutboxPreferenceName = "local_metric_outbox"
 private const val LocalMetricOutboxPreferenceKey = "payloads"
@@ -5361,10 +5361,11 @@ private fun StaffAppScreen(
                 onStatusTap = onStatusTap,
             )
         } else {
+            val fixedActionScreen = screenKey == "conversation" || screenKey == "ended"
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(if (screenKey == "language") Modifier else Modifier.verticalScroll(rememberScrollState()))
+                    .then(if (screenKey == "language" || fixedActionScreen) Modifier else Modifier.verticalScroll(rememberScrollState()))
                     .padding(horizontal = metrics.outerHorizontalPadding, vertical = metrics.outerVerticalPadding),
                 contentAlignment = Alignment.TopCenter
             ) {
@@ -5372,7 +5373,7 @@ private fun StaffAppScreen(
                     modifier = Modifier
                         .widthIn(max = metrics.contentMaxWidth)
                         .fillMaxWidth()
-                        .then(if (screenKey == "language") Modifier.fillMaxHeight() else Modifier),
+                        .then(if (screenKey == "language" || fixedActionScreen) Modifier.fillMaxHeight() else Modifier),
                     verticalArrangement = Arrangement.spacedBy(metrics.screenSpacing)
                 ) {
                     if (screenKey != "conversation" && screenKey != "ended" && screenKey != "language") {
@@ -5381,7 +5382,7 @@ private fun StaffAppScreen(
 
                     AnimatedContent(
                         targetState = screenKey,
-                        modifier = if (screenKey == "language") Modifier.weight(1f) else Modifier,
+                        modifier = if (screenKey == "language" || fixedActionScreen) Modifier.weight(1f) else Modifier,
                         label = "staff-flow-screen",
                         transitionSpec = {
                             val forward = staffScreenOrder(targetState) >= staffScreenOrder(initialState)
@@ -5389,7 +5390,7 @@ private fun StaffAppScreen(
                                 .togetherWith(slideOutHorizontally(animationSpec = tween(180)) { width -> if (forward) -width / 5 else width / 5 } + fadeOut(tween(140)))
                         }
                     ) { screen ->
-                        Column(modifier = if (screen == "language") Modifier.fillMaxSize() else Modifier, verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)) {
+                        Column(modifier = if (screen == "language" || screen == "conversation" || screen == "ended") Modifier.fillMaxSize() else Modifier, verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)) {
                             when (screen) {
                                 "login" -> LoginPanel(
                                     state = state,
@@ -5428,43 +5429,35 @@ private fun StaffAppScreen(
                                     onDiagnostics = openDiagnostics
                                 )
 
-                                 "ended" -> {
-                                     StatusPanel(state, metrics, onStatusTap)
-                                     TranslationPanel(
-                                        state = state,
-                                        metrics = metrics,
-                                        onToggleSpeak = onToggleSpeak,
-                                        onReplayTranslation = onReplayTranslation,
-                                        onTextInputChange = onTextInputChange,
-                                        onSubmitText = onSubmitText,
-                                        onTtsEnabled = onTtsEnabled,
-                                        onRequestMicPermission = onRequestMicPermission
-                                    )
-                                    RoomActionBar(
-                                        onCopyLink = onCopyLink,
-                                        onEndRoom = onRequestEndRoom,
-                                        onDiagnostics = openDiagnostics
-                                    )
-                                }
+                                 "ended" -> ConversationRoomScreen(
+                                     state = state,
+                                     metrics = metrics,
+                                     onStatusTap = onStatusTap,
+                                     onToggleSpeak = onToggleSpeak,
+                                     onReplayTranslation = onReplayTranslation,
+                                     onTextInputChange = onTextInputChange,
+                                     onSubmitText = onSubmitText,
+                                     onTtsEnabled = onTtsEnabled,
+                                     onRequestMicPermission = onRequestMicPermission,
+                                     onCopyLink = onCopyLink,
+                                     onEndRoom = onRequestEndRoom,
+                                     onDiagnostics = openDiagnostics
+                                 )
 
-                                 else -> {
-                                     StatusPanel(state, metrics, onStatusTap)
-                                     TranslationPanel(
-                                        state = state,
-                                        metrics = metrics,
-                                        onToggleSpeak = onToggleSpeak,
-                                        onReplayTranslation = onReplayTranslation,
-                                        onTextInputChange = onTextInputChange,
-                                        onSubmitText = onSubmitText,
-                                        onTtsEnabled = onTtsEnabled,
-                                        onRequestMicPermission = onRequestMicPermission
-                                    )
-                                    RoomActionBar(
-                                        onCopyLink = onCopyLink,
-                                        onEndRoom = onRequestEndRoom,
-                                        onDiagnostics = openDiagnostics
-                                    )
-                                }
+                                 else -> ConversationRoomScreen(
+                                     state = state,
+                                     metrics = metrics,
+                                     onStatusTap = onStatusTap,
+                                     onToggleSpeak = onToggleSpeak,
+                                     onReplayTranslation = onReplayTranslation,
+                                     onTextInputChange = onTextInputChange,
+                                     onSubmitText = onSubmitText,
+                                     onTtsEnabled = onTtsEnabled,
+                                     onRequestMicPermission = onRequestMicPermission,
+                                     onCopyLink = onCopyLink,
+                                     onEndRoom = onRequestEndRoom,
+                                     onDiagnostics = openDiagnostics
+                                 )
                             }
                         }
                     }
@@ -6340,7 +6333,7 @@ private fun LocalInterpreterScreen(
                 label = patientLanguageLabel,
                 text = visiblePatientLanguageText,
                 active = patientActive,
-                busy = state.busy,
+                busy = state.busy && state.localTurnDirection == LocalDirectionPatientToKo,
                 micLevelBucket = if (patientActive) state.micLevelBucket else 0,
                 noVoiceWarning = patientActive && state.noVoiceWarning,
                 emphasizeText = realtimeConnecting,
@@ -6374,7 +6367,7 @@ private fun LocalInterpreterScreen(
                 label = "한국어",
                 text = visibleKoreanText,
                 active = staffActive,
-                busy = state.busy,
+                busy = state.busy && state.localTurnDirection != LocalDirectionPatientToKo,
                 micLevelBucket = if (staffActive) state.micLevelBucket else 0,
                 noVoiceWarning = staffActive && state.noVoiceWarning,
                 emphasizeText = realtimeConnecting,
@@ -6653,11 +6646,29 @@ private fun LocalConversationSummaryDialog(
     onDismiss: () -> Unit,
     onStartNewConversation: () -> Unit
 ) {
+    val showNewConversationConfirm = androidx.compose.runtime.remember { mutableStateOf(false) }
+    if (showNewConversationConfirm.value) {
+        AlertDialog(
+            onDismissRequest = { showNewConversationConfirm.value = false },
+            title = { Text("새 대화를 시작할까요?", color = Ink, fontWeight = FontWeight.Bold) },
+            text = { Text("현재 대화와 요약이 초기화됩니다.", color = SlateText, fontWeight = FontWeight.SemiBold) },
+            confirmButton = {
+                TextButton(onClick = onStartNewConversation) {
+                    Text("초기화하고 시작", fontWeight = FontWeight.Bold, color = Coral)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNewConversationConfirm.value = false }) {
+                    Text("취소", fontWeight = FontWeight.Bold, color = Trust)
+                }
+            }
+        )
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(
-                onClick = onStartNewConversation,
+                onClick = { showNewConversationConfirm.value = true },
                 enabled = !state.busy && !state.speaking
             ) {
                 Text("새 대화", fontWeight = FontWeight.Bold, color = Coral)
@@ -6730,6 +6741,19 @@ private fun LocalInterpreterControlStrip(
     onStatusTap: () -> Unit,
 ) {
     val experimentalMode = isExperimentalLocalInterpreterMode(state.selectedRoomMode)
+    val phaseLabel = when {
+        state.ttsPlaybackActive -> "음성 재생 중"
+        state.busy && state.status.contains("요약") -> "요약 중"
+        state.busy -> "번역 중"
+        state.speaking -> "녹음 중"
+        else -> "대면모드"
+    }
+    val phaseDescription = when {
+        state.ttsPlaybackActive -> "번역 음성을 재생하고 있습니다."
+        state.busy -> state.status.ifBlank { "번역을 처리하고 있습니다." }
+        state.speaking -> "말이 끝나면 같은 마이크를 다시 누르세요."
+        else -> state.status
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -6740,21 +6764,13 @@ private fun LocalInterpreterControlStrip(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                if (state.busy && state.status.contains("요약")) {
-                    "요약 중"
-                } else if (state.busy) {
-                    "번역 중"
-                } else if (state.speaking) {
-                    "녹음 중"
-                } else {
-                    "대면모드"
-                },
+                phaseLabel,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.titleMedium
             )
             Text(
-                state.status,
+                phaseDescription,
                 color = Color(0xFFCBD5E1),
                 fontWeight = FontWeight.SemiBold,
                 style = MaterialTheme.typography.bodySmall,
@@ -6779,11 +6795,33 @@ private fun LocalInterpreterControlStrip(
         OutlinedButton(
             onClick = onReplayTranslation,
             enabled = state.translatedDraft.isNotBlank() && !state.busy && !state.speaking && !state.ttsPlaybackActive,
-            shape = RoundedCornerShape(10.dp)
+            modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp),
+            shape = RoundedCornerShape(10.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = Color.White,
+                disabledContentColor = Color(0xFF94A3B8)
+            ),
+            contentPadding = PaddingValues(10.dp)
         ) {
-            Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "번역 다시 듣기", modifier = Modifier.size(20.dp))
         }
-        Switch(checked = state.ttsEnabled, onCheckedChange = onTtsEnabled)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                if (compact) "자동" else "자동 재생",
+                color = Color(0xFFCBD5E1),
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+            Switch(
+                checked = state.ttsEnabled,
+                onCheckedChange = onTtsEnabled,
+                modifier = Modifier.semantics {
+                    contentDescription = "번역 음성 자동 재생"
+                    stateDescription = if (state.ttsEnabled) "켜짐" else "꺼짐"
+                }
+            )
+        }
         TextButton(
             onClick = onExit,
             enabled = !state.busy && !state.speaking && !state.ttsPlaybackActive
@@ -6868,7 +6906,7 @@ private fun QrWaitingScreen(
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Box(
                             modifier = Modifier
-                                .widthIn(max = metrics.qrMaxSize)
+                                .widthIn(max = if (metrics.isTablet) metrics.qrMaxSize else 300.dp)
                                 .fillMaxWidth()
                                 .aspectRatio(1f)
                                 .background(Color.White, RoundedCornerShape(12.dp))
@@ -6881,28 +6919,23 @@ private fun QrWaitingScreen(
                     }
                 }
 
-                Box(
+                Row(
                     modifier = Modifier
-                        .size(if (metrics.isTablet) 58.dp else 48.dp)
-                        .background(BlueTint, RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .background(BlueTint, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(Icons.Outlined.QrCodeScanner, contentDescription = null, tint = Trust, modifier = Modifier.size(if (metrics.isTablet) 32.dp else 28.dp))
+                    Icon(Icons.Outlined.QrCodeScanner, contentDescription = null, tint = Trust, modifier = Modifier.size(28.dp))
+                    Text(
+                        qrWaitingTitle(room.patientLanguage),
+                        color = Ink,
+                        style = if (metrics.isTablet) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
-                Text(
-                    qrWaitingTitle(room.patientLanguage),
-                    color = Ink,
-                    style = if (metrics.isTablet) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
-                Text(
-                    qrWaitingBody(room.patientLanguage),
-                    color = SlateText,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
-                )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     Button(
@@ -7017,6 +7050,52 @@ private fun PatientNoticePreview(roomMode: String, languageLabel: String) {
 }
 
 @Composable
+private fun ConversationRoomScreen(
+    state: StaffUiState,
+    metrics: StaffLayoutMetrics,
+    onStatusTap: () -> Unit,
+    onToggleSpeak: () -> Unit,
+    onReplayTranslation: () -> Unit,
+    onTextInputChange: (String) -> Unit,
+    onSubmitText: () -> Unit,
+    onTtsEnabled: (Boolean) -> Unit,
+    onRequestMicPermission: () -> Unit,
+    onCopyLink: () -> Unit,
+    onEndRoom: () -> Unit,
+    onDiagnostics: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(metrics.contentSpacing)
+        ) {
+            StatusPanel(state, metrics, onStatusTap)
+            TranslationPanel(
+                state = state,
+                metrics = metrics,
+                onToggleSpeak = onToggleSpeak,
+                onReplayTranslation = onReplayTranslation,
+                onTextInputChange = onTextInputChange,
+                onSubmitText = onSubmitText,
+                onTtsEnabled = onTtsEnabled,
+                onRequestMicPermission = onRequestMicPermission
+            )
+            Spacer(Modifier.height(2.dp))
+        }
+        RoomActionBar(
+            onCopyLink = onCopyLink,
+            onEndRoom = onEndRoom,
+            onDiagnostics = onDiagnostics
+        )
+    }
+}
+
+@Composable
 private fun RoomActionBar(onCopyLink: () -> Unit, onEndRoom: () -> Unit, onDiagnostics: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -7087,6 +7166,7 @@ private fun StatusPanel(state: StaffUiState, metrics: StaffLayoutMetrics, onStat
     val room = state.room
     val color = when {
         state.speaking -> Coral
+        state.ttsPlaybackActive -> Trust
         state.busy -> Trust
         room?.patientJoinedAt != null && room.status != "ended" -> Mint
         else -> Trust
@@ -7094,13 +7174,24 @@ private fun StatusPanel(state: StaffUiState, metrics: StaffLayoutMetrics, onStat
     val label = when {
         !state.loggedIn -> "로그인 필요"
         state.speaking -> "말하는 중"
+        state.ttsPlaybackActive -> "음성 재생 중"
         state.busy -> "처리 중"
         room?.status == "ended" -> "종료"
         room?.patientJoinedAt != null -> "환자 입장 완료"
         room != null -> "QR 대기"
         else -> "방 생성 전"
     }
-    val statusLine = room?.let { roomStatusLabel(it.status, it.patientJoinedAt) } ?: label
+    val statusLine = when {
+        state.speaking -> "직원 발화"
+        state.ttsPlaybackActive -> "환자 언어 번역"
+        state.busy -> "번역 처리"
+        else -> room?.let { roomStatusLabel(it.status, it.patientJoinedAt) } ?: label
+    }
+    val statusDescription = when {
+        state.ttsPlaybackActive -> "번역 음성을 직원폰에서 재생하고 있습니다."
+        state.busy -> state.status.ifBlank { "번역을 처리하고 있습니다." }
+        else -> state.status
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -7119,7 +7210,7 @@ private fun StatusPanel(state: StaffUiState, metrics: StaffLayoutMetrics, onStat
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            state.status,
+            statusDescription,
             color = SlateText,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.hiddenDebugTap(onStatusTap)
@@ -7584,7 +7675,11 @@ private fun MicControlBox(
     }
     val panelPadding = if (large) metrics.cardPadding else 12.dp
     val micButtonEnabled = state.speaking || (!state.busy && canSpeak)
-    val disabledMicColor = if (state.busy) Ink else Color(0xFFCBD5E1)
+    val disabledMicColor = when {
+        state.ttsPlaybackActive -> Trust
+        state.busy -> Ink
+        else -> Color(0xFFCBD5E1)
+    }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -7596,6 +7691,7 @@ private fun MicControlBox(
             Text(
                 when {
                     state.speaking -> "말하는 중"
+                    state.ttsPlaybackActive -> "음성 재생 중"
                     state.busy -> "번역 중"
                     else -> "마이크"
                 },
@@ -7616,15 +7712,21 @@ private fun MicControlBox(
                 )
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        if (state.speaking) Icons.Filled.Stop else Icons.Filled.Mic,
-                        contentDescription = if (state.speaking) "녹음 종료" else "말하기 시작",
-                        modifier = Modifier.size(iconSize)
-                    )
+                    when {
+                        state.speaking -> Icon(Icons.Filled.Stop, contentDescription = "녹음 종료", modifier = Modifier.size(iconSize))
+                        state.ttsPlaybackActive -> Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "번역 음성 재생 중", modifier = Modifier.size(iconSize))
+                        state.busy -> CircularProgressIndicator(
+                            modifier = Modifier.size(iconSize),
+                            color = Color.White,
+                            strokeWidth = 3.dp
+                        )
+                        else -> Icon(Icons.Filled.Mic, contentDescription = "말하기 시작", modifier = Modifier.size(iconSize))
+                    }
                     Spacer(Modifier.height(4.dp))
                     Text(
                         when {
                             state.speaking -> "종료"
+                            state.ttsPlaybackActive -> "재생 중"
                             state.busy -> "처리 중"
                             else -> "말하기"
                         },
@@ -7640,6 +7742,7 @@ private fun MicControlBox(
                     !patientReady -> "환자가 입장하면 마이크가 활성화됩니다."
                     !state.recordAudioGranted -> "마이크 권한이 필요합니다."
                     patientSpeaking -> "환자가 말하는 중입니다. 잠시 기다려주세요."
+                    state.ttsPlaybackActive -> "번역 음성을 재생하고 있습니다."
                     state.busy -> "번역을 처리하고 있습니다."
                     else -> "짧게 누르고 말한 뒤 다시 누르세요."
                 },

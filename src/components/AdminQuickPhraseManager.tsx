@@ -338,7 +338,7 @@ export function AdminQuickPhraseManager() {
                           options={[["", stageLabels[""]], ...stages.map((stage) => [stage, stageLabels[stage]] as [string, string])]}
                         />
                         <input
-                          className="h-10 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white"
+                          className="h-11 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white"
                           type="number"
                           value={edit.sortOrder}
                           onChange={(event) => updateEdit(phrase.id, "sortOrder", Number(event.target.value))}
@@ -349,12 +349,12 @@ export function AdminQuickPhraseManager() {
                       <TranslationGrid translations={edit.translations} onChange={(key, value) => updateTranslation(phrase.id, key, value)} compact />
                     </td>
                     <td className="w-[110px] px-4 py-4">
-                      <button type="button" onClick={() => void toggleActive(phrase)} className={`h-10 rounded-lg px-3 text-sm font-bold ${edit.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                      <button type="button" onClick={() => void toggleActive(phrase)} className={`h-11 rounded-lg px-3 text-sm font-bold ${edit.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
                         {edit.isActive ? "Active" : "Inactive"}
                       </button>
                     </td>
                     <td className="w-[120px] px-4 py-4">
-                      <button type="button" onClick={() => void savePhrase(phrase.id)} disabled={busy || !edit.ko.trim()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-trust px-3 text-sm font-bold text-white disabled:opacity-50">
+                      <button type="button" onClick={() => void savePhrase(phrase.id)} disabled={busy || !edit.ko.trim()} className="inline-flex h-11 items-center gap-2 rounded-lg bg-trust px-3 text-sm font-bold text-white disabled:opacity-50">
                         <Save size={16} />
                         Save
                       </button>
@@ -397,7 +397,7 @@ function QuickPhraseFields({
           options={[["", stageLabels[""]], ...stages.map((stage) => [stage, stageLabels[stage]] as [string, string])]}
         />
         <input
-          className="h-10 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white"
+          className="h-11 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white"
           type="number"
           value={draft.sortOrder}
           onChange={(event) => onChange("sortOrder", Number(event.target.value))}
@@ -405,7 +405,7 @@ function QuickPhraseFields({
         <button
           type="button"
           onClick={() => onChange("isActive", !draft.isActive)}
-          className={`h-10 rounded-lg px-3 text-sm font-bold ${draft.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}
+          className={`h-11 rounded-lg px-3 text-sm font-bold ${draft.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}
         >
           {draft.isActive ? "Active" : "Inactive"}
         </button>
@@ -436,7 +436,7 @@ function TranslationGrid({
         <label key={language} className="block">
           <span className="text-[11px] font-bold text-slate-500">{languageLabels[language].english}</span>
           <input
-            className="mt-1 h-9 w-full rounded-lg border border-line bg-slate-50 px-2 text-xs font-semibold outline-none focus:border-trust focus:bg-white"
+            className="mt-1 h-11 w-full rounded-lg border border-line bg-slate-50 px-2 text-xs font-semibold outline-none focus:border-trust focus:bg-white"
             value={translations[language] ?? ""}
             onChange={(event) => onChange(language, event.target.value)}
           />
@@ -448,7 +448,7 @@ function TranslationGrid({
 
 function Select({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
   return (
-    <select className="h-10 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white" value={value} onChange={(event) => onChange(event.target.value)}>
+    <select className="h-11 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white" value={value} onChange={(event) => onChange(event.target.value)}>
       {options.map(([optionValue, label]) => (
         <option key={optionValue} value={optionValue}>
           {label}

@@ -10,6 +10,7 @@ describe("MediVoice accessibility and visual safety contracts", () => {
     }
     expect(control).toContain("medivoice:patient-text-size");
     expect(control).toContain('aria-pressed={selected}');
+    expect(control).toContain("min-h-11 min-w-11");
     expect(control).toContain('"patient-text-default"');
     expect(control).toContain('"patient-text-large"');
     expect(control).toContain('"patient-text-largest"');
@@ -24,6 +25,16 @@ describe("MediVoice accessibility and visual safety contracts", () => {
     expect(join).toContain("patient-text-surface");
     expect(consultation).toContain('role === "patient" ? `patient-text-surface');
     expect(procedure).toContain('role === "patient" ? `patient-text-surface');
+    expect(procedure).toContain("patientFixedMic");
+    expect(procedure).toContain("env(safe-area-inset-bottom)");
+    expect(procedure).toContain("fixed inset-x-4");
+    expect(procedure).toContain("whitespace-pre-wrap break-words");
+  });
+
+  it("keeps patient message spacing readable at every text size", () => {
+    const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+    expect(css).toContain(".patient-text-surface .patient-message-copy");
+    expect(css).toContain("line-height: 1.55");
   });
 
   it("provides visible focus and reduced-motion fallbacks", () => {

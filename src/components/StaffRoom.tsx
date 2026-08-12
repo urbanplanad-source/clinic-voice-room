@@ -374,7 +374,7 @@ export function StaffRoom({ room, joinUrl, roomMode = "consultation" }: StaffRoo
             <p className="mt-2 break-all rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold leading-5 text-slate-600">{secondaryQrCopy.url}</p>
             <button
               onClick={() => copyLink(secondaryQrCopy.url, secondaryQrCopy.target)}
-              className="mt-3 inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-100 px-4 text-sm font-bold text-ink transition hover:bg-slate-200"
+              className="mt-3 inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-slate-100 px-4 text-sm font-bold text-ink transition hover:bg-slate-200"
             >
               {copied === secondaryQrCopy.target ? <Check size={16} /> : <Copy size={16} />}
               {copied === secondaryQrCopy.target ? "복사됨" : "복사"}

@@ -28,7 +28,8 @@ describe("MediVoice UI safety contracts", () => {
     expect(android).toContain("Please choose your language.");
     expect(android).toContain("val columnCount = if (maxWidth > maxHeight) 6 else 3");
     expect(android).toContain("선택 완료 · Confirm");
-    expect(android).toContain('.then(if (screenKey == "language") Modifier else Modifier.verticalScroll');
+    expect(android).toContain('if (screenKey == "language" || fixedActionScreen) Modifier else Modifier.verticalScroll');
+    expect(android).toContain('val fixedActionScreen = screenKey == "conversation" || screenKey == "ended"');
     expect(android).toContain("Role.RadioButton");
     expect(android).toContain("isNetworkConnectionRequired");
     expect(android).not.toContain("selectedLanguage = patientLanguage");
@@ -47,5 +48,14 @@ describe("MediVoice UI safety contracts", () => {
   it("does not require patient taps for procedure-room messages", () => {
     const route = readFileSync(new URL("../app/api/procedure-turns/route.ts", import.meta.url), "utf8");
     expect(route).not.toContain("pendingPatientConfirmationGuard");
+  });
+
+  it("keeps Android room actions visible and processing states explicit", () => {
+    const android = readFileSync(new URL("../../android-staff-app/app/src/main/java/com/clinicvoiceroom/staff/MainActivity.kt", import.meta.url), "utf8");
+    expect(android).toContain("ConversationRoomScreen(");
+    expect(android).toContain("state.busy && state.localTurnDirection == LocalDirectionPatientToKo");
+    expect(android).toContain('state.ttsPlaybackActive -> "음성 재생 중"');
+    expect(android).toContain('contentDescription = "번역 음성 자동 재생"');
+    expect(android).toContain('Text("현재 대화와 요약이 초기화됩니다."');
   });
 });

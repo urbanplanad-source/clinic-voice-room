@@ -1395,7 +1395,7 @@ export function ConsultationChatRoom({
             <button
               type="button"
               onClick={replayLastIncomingMessage}
-              className="mx-auto mt-3 inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-trust-text shadow-sm transition hover:bg-blue-50 md:h-10 md:px-4 md:text-sm"
+              className="mx-auto mt-3 inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-trust-text shadow-sm transition hover:bg-blue-50 md:px-4 md:text-sm"
               aria-label={replayLabel}
               title={replayLabel}
             >
@@ -1415,7 +1415,7 @@ export function ConsultationChatRoom({
               <select
                 value={quickPhraseStage}
                 onChange={(event) => setQuickPhraseStage(event.target.value as QuickPhraseStage | "all")}
-                className="h-9 shrink-0 rounded-lg border border-line bg-white px-2 text-xs font-bold text-ink outline-none focus:border-trust"
+                className="h-11 shrink-0 rounded-lg border border-line bg-white px-2 text-xs font-bold text-ink outline-none focus:border-trust"
                 aria-label="Quick phrase stage"
               >
                 <option value="all">{quickPhraseStageLabels.all}</option>
@@ -1441,7 +1441,7 @@ export function ConsultationChatRoom({
                       onClick={() => sendQuickPhrase(phrase)}
                       disabled={textSubmitting || room.status === "ended"}
                       title={phrase.translatedText ?? phrase.ko}
-                      className="min-h-10 max-w-[240px] shrink-0 rounded-lg border border-line bg-white px-3 py-2 text-left text-xs font-bold leading-5 text-ink shadow-sm transition hover:border-trust hover:bg-blue-50 disabled:opacity-50 md:max-w-[320px]"
+                      className="min-h-11 max-w-[240px] shrink-0 rounded-lg border border-line bg-white px-3 py-2 text-left text-xs font-bold leading-5 text-ink shadow-sm transition hover:border-trust hover:bg-blue-50 disabled:opacity-50 md:max-w-[320px]"
                     >
                       <span className="line-clamp-2">{phrase.ko}</span>
                     </button>
@@ -1468,13 +1468,13 @@ export function ConsultationChatRoom({
             placeholder={role === "staff" ? voiceText.fallback : voiceText.fallback}
             disabled={room.status === "ended" || textSubmitting}
             rows={1}
-            className="max-h-24 min-h-10 flex-1 resize-none bg-transparent px-3 py-1.5 text-base font-semibold leading-7 text-ink outline-none disabled:opacity-60 md:max-h-28 md:min-h-11 md:py-2"
+            className="max-h-24 min-h-11 flex-1 resize-none bg-transparent px-3 py-1.5 text-base font-semibold leading-7 text-ink outline-none disabled:opacity-60 md:max-h-28 md:py-2"
           />
           <button
             type="button"
             onClick={() => void submitTextMessage()}
             disabled={!canSubmitText}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-trust text-white transition hover:bg-blue-600 disabled:opacity-50 md:h-11 md:w-11"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-trust text-white transition hover:bg-blue-600 disabled:opacity-50"
             aria-label={role === "staff" ? "번역 보내기" : copy.submit}
             title={role === "staff" ? "번역 보내기" : copy.submit}
           >
@@ -1508,7 +1508,7 @@ export function ConsultationChatRoom({
               <button
                 type="button"
                 onClick={() => setFeedbackTarget(null)}
-                className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"
+                className="grid h-11 w-11 place-items-center rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"
                 aria-label="닫기"
                 title="닫기"
               >

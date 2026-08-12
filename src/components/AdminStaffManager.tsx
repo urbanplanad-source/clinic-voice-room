@@ -315,7 +315,7 @@ export function AdminStaffManager() {
                       <RoleSelect value={edit.role} onChange={(value) => updateEdit(staffUser.id, "role", value)} includeInternalAdmin disabled={disabled} compact />
                     </td>
                     <td className="px-4 py-4">
-                      <label className="flex h-10 items-center gap-2 rounded-lg border border-line bg-slate-50 px-3 font-semibold text-slate-700">
+                      <label className="flex h-11 items-center gap-2 rounded-lg border border-line bg-slate-50 px-3 font-semibold text-slate-700">
                         <input
                           type="checkbox"
                           checked={edit.isActive}
@@ -342,7 +342,7 @@ export function AdminStaffManager() {
                           type="button"
                           onClick={() => saveEdit(staffUser.id)}
                           disabled={disabled}
-                          className="inline-flex h-10 items-center gap-2 rounded-lg bg-trust px-3 font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
+                          className="inline-flex h-11 items-center gap-2 rounded-lg bg-trust px-3 font-bold text-white transition hover:bg-blue-600 disabled:opacity-50"
                         >
                           {disabled ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                           저장
@@ -351,7 +351,7 @@ export function AdminStaffManager() {
                           type="button"
                           onClick={() => saveEdit(staffUser.id, true)}
                           disabled={disabled}
-                          className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-100 px-3 font-bold text-ink transition hover:bg-slate-200 disabled:opacity-50"
+                          className="inline-flex h-11 items-center gap-2 rounded-lg bg-slate-100 px-3 font-bold text-ink transition hover:bg-slate-200 disabled:opacity-50"
                         >
                           <KeyRound size={16} />
                           자동 비번
@@ -360,7 +360,7 @@ export function AdminStaffManager() {
                           type="button"
                           onClick={() => deleteStaff(staffUser)}
                           disabled={disabled}
-                          className="inline-flex h-10 items-center gap-2 rounded-lg bg-rose-50 px-3 font-bold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+                          className="inline-flex h-11 items-center gap-2 rounded-lg bg-rose-50 px-3 font-bold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
                         >
                           <Trash2 size={16} />
                           삭제
@@ -393,7 +393,7 @@ function SpecialtySelect({
     <label className="block">
       {!compact ? <span className="text-sm font-semibold text-slate-600">진료과</span> : null}
       <select
-        className={`${compact ? "h-10" : "mt-2 h-12"} w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none transition focus:border-trust focus:bg-white disabled:opacity-60`}
+        className={`${compact ? "h-11" : "mt-2 h-12"} w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none transition focus:border-trust focus:bg-white disabled:opacity-60`}
         value={value}
         onChange={(event) => onChange(event.target.value as HospitalSpecialty)}
         disabled={disabled}
@@ -425,7 +425,7 @@ function RoleSelect({
     <label className="block">
       {!compact ? <span className="text-sm font-semibold text-slate-600">권한</span> : null}
       <select
-        className={`${compact ? "h-10" : "mt-2 h-12"} w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none transition focus:border-trust focus:bg-white disabled:opacity-60`}
+        className={`${compact ? "h-11" : "mt-2 h-12"} w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none transition focus:border-trust focus:bg-white disabled:opacity-60`}
         value={value}
         onChange={(event) => onChange(event.target.value as StaffRole)}
         disabled={disabled}
@@ -483,7 +483,7 @@ function InlineInput({
 }) {
   return (
     <input
-      className="h-10 w-full min-w-[130px] rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-trust focus:bg-white disabled:opacity-60"
+      className="h-11 w-full min-w-[130px] rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-trust focus:bg-white disabled:opacity-60"
       value={value}
       onChange={(event) => onChange(event.target.value)}
       type={type}

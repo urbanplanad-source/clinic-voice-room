@@ -356,9 +356,9 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
                 <div className="mt-3 flex items-center justify-between gap-3">
                   <p className="text-xs font-semibold text-slate-500">{decision.resolved ? `${decision.reviewer} · 결정 저장됨` : blockers[0] ?? "결정 가능"}</p>
                   {decision.resolved ? (
-                    <button type="button" onClick={() => patchConflict(conflict, { resolved: false })} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-line bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"><RotateCcw size={15} aria-hidden="true" /> 결정 수정</button>
+                    <button type="button" onClick={() => patchConflict(conflict, { resolved: false })} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-line bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"><RotateCcw size={15} aria-hidden="true" /> 결정 수정</button>
                   ) : (
-                    <button type="button" disabled={blockers.length > 0} onClick={() => confirmConflict(conflict)} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-ink px-3 text-xs font-bold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"><Check size={15} aria-hidden="true" /> 결정 확정</button>
+                    <button type="button" disabled={blockers.length > 0} onClick={() => confirmConflict(conflict)} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-ink px-3 text-xs font-bold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"><Check size={15} aria-hidden="true" /> 결정 확정</button>
                   )}
                 </div>
               </article>
@@ -376,8 +376,8 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
               <h3 className="font-bold text-ink">검토 대기열</h3>
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_140px] lg:grid-cols-1 xl:grid-cols-[minmax(0,1fr)_140px]">
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="문장·용어·ID 검색" className="h-10 rounded-xl border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white" />
-              <select aria-label="검토 상태 필터" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "" | CandidateReviewStatus)} className="h-10 rounded-xl border border-line bg-white px-3 text-sm font-semibold outline-none focus:border-trust">
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="문장·용어·ID 검색" className="h-11 rounded-xl border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white" />
+              <select aria-label="검토 상태 필터" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "" | CandidateReviewStatus)} className="h-11 rounded-xl border border-line bg-white px-3 text-sm font-semibold outline-none focus:border-trust">
                 <option value="">전체 상태</option>
                 {(Object.keys(statusLabels) as CandidateReviewStatus[]).map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}
               </select>
@@ -498,8 +498,8 @@ export function AdminDatasetReviewWorkspace({ result }: { result: DatasetDryRunR
           <p className="text-xs font-semibold leading-5 text-slate-300"><b className="text-white">안전 게이트:</b> 여기서의 승인은 한국어 기준 데이터 승인입니다. 실제 승격은 17개 언어 번역·숫자 보존·의료 QA를 마친 별도 패키지에서만 허용됩니다.</p>
         </div>
         <div className="flex shrink-0 gap-2">
-          <button type="button" onClick={resetReview} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-600 px-3 text-xs font-bold text-slate-300 hover:bg-slate-800"><RotateCcw size={15} aria-hidden="true" /> 초기화</button>
-          <button type="button" onClick={exportReviewPackage} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-500"><Save size={15} aria-hidden="true" /> 검토본 저장</button>
+          <button type="button" onClick={resetReview} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-600 px-3 text-xs font-bold text-slate-300 hover:bg-slate-800"><RotateCcw size={15} aria-hidden="true" /> 초기화</button>
+          <button type="button" onClick={exportReviewPackage} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-500"><Save size={15} aria-hidden="true" /> 검토본 저장</button>
         </div>
       </footer>
     </section>

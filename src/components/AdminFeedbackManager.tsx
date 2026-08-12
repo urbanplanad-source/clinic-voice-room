@@ -193,11 +193,11 @@ export function AdminFeedbackManager() {
                   <td className="w-[520px] px-4 py-4">
                     <div className="grid gap-3">
                       <div>
-                        <p className="text-[11px] font-bold uppercase text-slate-400">Source</p>
+                        <p className="text-xs font-bold uppercase text-muted">Source</p>
                         <p className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold leading-6 text-ink">{item.sourceText}</p>
                       </div>
                       <div>
-                        <p className="text-[11px] font-bold uppercase text-slate-400">Translation</p>
+                        <p className="text-xs font-bold uppercase text-muted">Translation</p>
                         <p className="mt-1 whitespace-pre-wrap rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold leading-6 text-ink">{item.translatedText}</p>
                       </div>
                     </div>
@@ -220,7 +220,7 @@ export function AdminFeedbackManager() {
                   </td>
                   <td className="w-[220px] px-4 py-4">
                     <div className="grid gap-2">
-                      <Link href={`/admin/glossary?feedbackId=${encodeURIComponent(item.id)}`} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-trust px-3 text-sm font-bold text-white">
+                      <Link href={`/admin/glossary?feedbackId=${encodeURIComponent(item.id)}`} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-trust px-3 text-sm font-bold text-white">
                         <BookOpen size={16} />
                         Make glossary
                       </Link>
@@ -228,7 +228,7 @@ export function AdminFeedbackManager() {
                         type="button"
                         onClick={() => void updateStatus(item, item.status === "fixed" ? "reviewed" : "fixed")}
                         disabled={busyId === item.id}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-100 px-3 text-sm font-bold text-ink disabled:opacity-50"
+                        className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-slate-100 px-3 text-sm font-bold text-ink disabled:opacity-50"
                       >
                         {busyId === item.id ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                         {item.status === "fixed" ? "Mark reviewed" : "Mark fixed"}
@@ -247,7 +247,7 @@ export function AdminFeedbackManager() {
 
 function Select({ value, onChange, options }: { value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
   return (
-    <select className="h-10 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white" value={value} onChange={(event) => onChange(event.target.value)}>
+    <select className="h-11 w-full rounded-lg border border-line bg-slate-50 px-3 text-sm font-semibold outline-none focus:border-trust focus:bg-white" value={value} onChange={(event) => onChange(event.target.value)}>
       {options.map(([optionValue, label]) => (
         <option key={optionValue} value={optionValue}>
           {label}

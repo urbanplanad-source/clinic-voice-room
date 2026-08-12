@@ -63,7 +63,7 @@ export function PatientTextSizeControl({ language, value, onChange }: { language
       {options.map((option) => {
         const selected = option.value === value;
         return (
-          <button key={option.value} type="button" onClick={() => onChange(option.value)} aria-pressed={selected} aria-label={`${copy.label}: ${option.label}`} className={`min-h-9 min-w-11 rounded-md px-2 text-sm font-bold ${selected ? "bg-ink text-white" : "bg-white text-text-secondary hover:bg-surface-muted"}`}>
+          <button key={option.value} type="button" onClick={() => onChange(option.value)} aria-pressed={selected} aria-label={`${copy.label}: ${option.label}`} className={`min-h-11 min-w-11 rounded-md px-2 text-sm font-bold ${selected ? "bg-ink text-white" : "bg-white text-text-secondary hover:bg-surface-muted"}`}>
             {option.visual}
           </button>
         );

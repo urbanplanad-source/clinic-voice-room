@@ -307,7 +307,7 @@ export function AdminTranslationQualityWorkspace() {
                 <section aria-labelledby="evidence-title">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">검수 대상</p>
+                      <p className="text-xs font-bold uppercase tracking-wide text-muted">검수 대상</p>
                       <h2 id="evidence-title" className="mt-1 text-lg font-bold text-ink">원문과 번역 증거</h2>
                     </div>
                     <div className="flex items-center gap-2">
@@ -353,7 +353,7 @@ export function AdminTranslationQualityWorkspace() {
                       <h2 id="asset-title" className="text-lg font-bold text-ink">품질 자산으로 반영</h2>
                       <p className="mt-1 text-sm font-semibold text-slate-500">검증한 내용을 선택한 범위의 다음 번역부터 사용합니다.</p>
                     </div>
-                    <button type="button" onClick={() => updateDraft({ assetType: "none" })} className="min-h-10 rounded-lg px-3 text-sm font-bold text-slate-500 hover:bg-slate-100">자산화 안 함</button>
+                    <button type="button" onClick={() => updateDraft({ assetType: "none" })} className="min-h-11 rounded-lg px-3 text-sm font-bold text-slate-500 hover:bg-slate-100">자산화 안 함</button>
                   </div>
                   <div className="mt-4 grid gap-3 md:grid-cols-3">
                     {(Object.keys(assetLabels) as Array<Exclude<AssetType, "none">>).map((type) => {
@@ -428,7 +428,7 @@ export function AdminTranslationQualityWorkspace() {
 }
 
 function Step({ number, title, subtitle, active }: { number: string; title: string; subtitle: string; active: boolean }) {
-  return <div className={`flex min-w-0 items-center gap-2 ${active ? "text-trust-text" : "text-slate-400"}`}><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-bold ${active ? "bg-trust text-white" : "bg-slate-100 text-slate-500"}`}>{number}</span><span className="min-w-0"><span className="block truncate text-sm font-bold">{title}</span><span className="hidden truncate text-xs font-semibold text-slate-400 sm:block">{subtitle}</span></span></div>;
+  return <div className={`flex min-w-0 items-center gap-2 ${active ? "text-trust-text" : "text-muted"}`}><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-bold ${active ? "bg-trust text-white" : "bg-slate-100 text-slate-500"}`}>{number}</span><span className="min-w-0"><span className="block truncate text-sm font-bold">{title}</span><span className="hidden truncate text-xs font-semibold text-muted sm:block">{subtitle}</span></span></div>;
 }
 
 function EvidenceColumn({ label, value, tone = "plain" }: { label: string; value: string; tone?: "plain" | "blue" }) {
@@ -438,11 +438,11 @@ function EvidenceColumn({ label, value, tone = "plain" }: { label: string; value
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   }
-  return <div className="min-w-0 px-1 py-4 lg:px-5"><div className="flex items-center justify-between gap-3"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p><button type="button" onClick={() => void copy()} className="inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-bold text-slate-500 hover:bg-slate-100"><Copy size={15} />{copied ? "복사됨" : "복사"}</button></div><p className={`mt-3 whitespace-pre-wrap rounded-lg px-3 py-3 text-base font-bold leading-7 text-ink ${tone === "blue" ? "bg-blue-50" : "bg-slate-50"}`}>{value}</p></div>;
+  return <div className="min-w-0 px-1 py-4 lg:px-5"><div className="flex items-center justify-between gap-3"><p className="text-xs font-bold uppercase tracking-wide text-muted">{label}</p><button type="button" onClick={() => void copy()} className="inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-xs font-bold text-slate-500 hover:bg-slate-100"><Copy size={15} />{copied ? "복사됨" : "복사"}</button></div><p className={`mt-3 whitespace-pre-wrap rounded-lg px-3 py-3 text-base font-bold leading-7 text-ink ${tone === "blue" ? "bg-blue-50" : "bg-slate-50"}`}>{value}</p></div>;
 }
 
 function Meta({ label, value }: { label: string; value: string }) {
-  return <div className="min-w-0"><dt className="text-xs font-bold text-slate-400">{label}</dt><dd className="mt-1 truncate font-bold text-ink">{value}</dd></div>;
+  return <div className="min-w-0"><dt className="text-xs font-bold text-muted">{label}</dt><dd className="mt-1 truncate font-bold text-ink">{value}</dd></div>;
 }
 
 function LabeledTextarea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
