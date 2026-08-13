@@ -109,6 +109,34 @@ const englishScaleNumbers: Record<string, number> = {
   million: 1_000_000,
   billion: 1_000_000_000
 };
+const englishMonthNumbers: Record<string, number> = {
+  january: 1,
+  february: 2,
+  march: 3,
+  april: 4,
+  may: 5,
+  june: 6,
+  july: 7,
+  august: 8,
+  september: 9,
+  october: 10,
+  november: 11,
+  december: 12
+};
+const thaiMonthNumbers: Record<string, number> = {
+  "มกราคม": 1,
+  "กุมภาพันธ์": 2,
+  "มีนาคม": 3,
+  "เมษายน": 4,
+  "พฤษภาคม": 5,
+  "มิถุนายน": 6,
+  "กรกฎาคม": 7,
+  "สิงหาคม": 8,
+  "กันยายน": 9,
+  "ตุลาคม": 10,
+  "พฤศจิกายน": 11,
+  "ธันวาคม": 12
+};
 
 function parseEnglishNumberPhrase(value: string) {
   const tokens = value.toLocaleLowerCase().split(/[\s-]+/).filter(Boolean);
@@ -240,7 +268,7 @@ export function extractNumericSignature(text: string) {
     pushNumber(numbers, value);
   }
 
-  const koreanHalfPattern = /반\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알)/g;
+  const koreanHalfPattern = /(?<![가-힣])반\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알)/g;
   for (const match of normalized.matchAll(koreanHalfPattern)) {
     if (match[0]) pushNumber(numbers, 0.5);
   }
@@ -256,7 +284,23 @@ export function extractNumericSignature(text: string) {
     pushNumber(numbers, match[1].toLocaleLowerCase() === "once" ? 1 : 2);
   }
 
-  const nativePattern = /(하나|다섯|여섯|일곱|여덟|아홉|둘|셋|넷|열|한|두|세|네)\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알)(?=$|[^가-힣]|(?:입니다|이에요|예요|이었다|이었|부터|까지|정도|가량|씩|마다|동안|간|후|전|째|으로|에서|에게|을|를|은|는|이|가|에|도|만))/g;
+  const englishMonthPattern = new RegExp(`\\b(${Object.keys(englishMonthNumbers).join("|")})\\b`, "gi");
+  for (const match of normalized.matchAll(englishMonthPattern)) {
+    const index = match.index ?? 0;
+    const nearbyDateText = normalized.slice(Math.max(0, index - 12), index + match[0].length + 12);
+    if (!/\d/u.test(nearbyDateText)) continue;
+    pushNumber(numbers, englishMonthNumbers[match[1].toLocaleLowerCase()]);
+  }
+
+  const thaiMonthPattern = new RegExp(Object.keys(thaiMonthNumbers).join("|"), "gu");
+  for (const match of normalized.matchAll(thaiMonthPattern)) {
+    const index = match.index ?? 0;
+    const nearbyDateText = normalized.slice(Math.max(0, index - 12), index + match[0].length + 12);
+    if (!/\d/u.test(nearbyDateText)) continue;
+    pushNumber(numbers, thaiMonthNumbers[match[0]]);
+  }
+
+  const nativePattern = /(하나|다섯|여섯|일곱|여덟|아홉|둘|셋|넷|열|한|두|세|네)\s*(?:번|회|일|주|주일|개월|달|시간|분|개|명|병|정|알)(?=$|[^가-힣]|(?:입니다|이에요|예요|이었다|이었|부터|까지|정도|가량|씩|마다|동안|간|후|전|째|으로|에서|에게|을|를|은|는|이|가|에|도|와|과|만))/g;
   for (const match of normalized.matchAll(nativePattern)) {
     const start = match.index ?? 0;
     const remaining = normalized.slice(start);

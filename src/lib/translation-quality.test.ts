@@ -174,6 +174,24 @@ describe("translation quality deterministic checks", () => {
     expect(result.failureReasons).toContain("stop_or_refusal_mismatch");
   });
 
+  it("recognizes inflected Korean and Japanese stop expressions", () => {
+    const korean = analyzeDeterministicTranslation({
+      sourceText: "지금 멈춰 주세요.",
+      translatedText: "Please stop now.",
+      direction: "ko_to_patient",
+      targetLanguage: "en"
+    });
+    const japanese = analyzeDeterministicTranslation({
+      sourceText: "呼吸が止まったら、119に連絡してください。",
+      translatedText: "호흡이 멈추면 119에 연락하세요.",
+      direction: "patient_to_ko",
+      targetLanguage: "ko"
+    });
+
+    expect(korean.stopOrRefusalPreserved).toBe(true);
+    expect(japanese.stopOrRefusalPreserved).toBe(true);
+  });
+
   it("raises contextual medication and consent risks", () => {
     expect(classifyTranslationRisk("지금 시술 진행에 동의하시나요?").riskReasons)
       .toContain("consent_or_refusal_in_execution_context");

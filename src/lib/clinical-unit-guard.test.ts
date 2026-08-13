@@ -52,4 +52,13 @@ describe("clinical unit guard", () => {
   it("ignores ordinary visit counts", () => {
     expect(extractClinicalUnitSignature("2\uD68C \uBC29\uBB38\uD558\uC138\uC694.")).toEqual([]);
   });
+
+  it("does not read g inside non-ASCII words as grams", () => {
+    expect(extractClinicalUnitSignature("Nếu tôi khó thở, hãy gọi 119.")).toEqual([]);
+    expect(extractClinicalUnitSignature("anesthésie générale")).toEqual([]);
+  });
+
+  it("treats Russian milliliter notation as mL", () => {
+    expect(compareClinicalUnitSignatures("Введите 5 мл.", "5mL를 주입하세요.").ok).toBe(true);
+  });
 });

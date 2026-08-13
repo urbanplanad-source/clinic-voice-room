@@ -45,6 +45,23 @@ describe("number guard", () => {
     expect(extractNumericSignature("한 번역 결과입니다.")).toEqual([]);
   });
 
+  it("does not read the middle of an ordinary Korean word as one half", () => {
+    expect(extractNumericSignature("이것은 약침액이고 일반 주사약이 아닙니다.")).toEqual([]);
+  });
+
+  it("keeps native Korean counters before conjunction particles", () => {
+    expect(compareNumericSignatures(
+      "점 세 개와 점 두 개를 표시했습니다.",
+      "I marked three moles and two moles."
+    ).ok).toBe(true);
+  });
+
+  it("normalizes English and Thai month names to Korean month numbers", () => {
+    expect(compareNumericSignatures("8월 20일에 오세요.", "Please come on August 20.").ok).toBe(true);
+    expect(compareNumericSignatures("8월 20일에 오세요.", "กรุณามาวันที่ 20 สิงหาคม").ok).toBe(true);
+    expect(extractNumericSignature("You may continue the treatment.")).toEqual([]);
+  });
+
   it("does not treat 한 번에 as a separately preservable numeric one", () => {
     const source = "한 번에 5mL씩 하루 2회, 7일 동안 복용하세요.";
     const translated = "Take 5 mL at a time, twice a day, for 7 days.";

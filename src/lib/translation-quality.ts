@@ -103,8 +103,8 @@ const negationPatterns = [
 ];
 
 const stopOrRefusalPatterns = [
-  /(?:중단|멈추|그만|거부|취소)/u,
-  /(?:中止|停止|止め|拒否|取消)/u,
+  /(?:중단|멈추|멈춰|그만|거부|취소)/u,
+  /(?:中止|停止|止め|止ま|拒否|取消)/u,
   /(?:停止|中止|停(?:針|针)?|拒绝|拒絕|取消)/u,
   /\b(?:stop|halt|discontinue|refus(?:e|al|ed|ing)?|cancel(?:led|ing)?|hentikan|berhenti|dừng|dung|arrêt(?:ez|er)?|arretez|pare|parar|interromp(?:a|er)|หยุด)\b/iu,
   /(?:останов|прекрат)/iu

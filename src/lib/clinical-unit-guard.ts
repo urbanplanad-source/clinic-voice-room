@@ -23,27 +23,27 @@ type ClinicalUnitOccurrence = {
 const clinicalUnitDefinitions: ClinicalUnitDefinition[] = [
   {
     canonical: "volume_ml",
-    pattern: /(?<![A-Za-z])(?:cc|ml)(?![A-Za-z])|\bmillilit(?:er|re)s?\b|\u6BEB\u5347|\u30DF\u30EA\u30EA\u30C3\u30C8\u30EB|\uBC00\uB9AC\uB9AC\uD130/giu
+    pattern: /(?<!\p{Script=Latin})(?:cc|ml)(?!\p{Script=Latin})|(?<!\p{L})мл(?!\p{L})|\bmillilit(?:er|re)s?\b|\u6BEB\u5347|\u30DF\u30EA\u30EA\u30C3\u30C8\u30EB|\uBC00\uB9AC\uB9AC\uD130/giu
   },
   {
     canonical: "mass_mg",
-    pattern: /(?<![A-Za-z])mg(?![A-Za-z])|\bmilligrams?\b|\u6BEB\u514B|\u30DF\u30EA\u30B0\u30E9\u30E0|\uBC00\uB9AC\uADF8\uB7A8/giu
+    pattern: /(?<!\p{Script=Latin})mg(?!\p{Script=Latin})|\bmilligrams?\b|\u6BEB\u514B|\u30DF\u30EA\u30B0\u30E9\u30E0|\uBC00\uB9AC\uADF8\uB7A8/giu
   },
   {
     canonical: "mass_kg",
-    pattern: /(?<![A-Za-z])kg(?![A-Za-z])|\bkilograms?\b|\u516C\u65A4|\u5343\u514B|\u30AD\u30ED\u30B0\u30E9\u30E0|\uD0AC\uB85C\uADF8\uB7A8/giu
+    pattern: /(?<!\p{Script=Latin})kg(?!\p{Script=Latin})|\bkilograms?\b|\u516C\u65A4|\u5343\u514B|\u30AD\u30ED\u30B0\u30E9\u30E0|\uD0AC\uB85C\uADF8\uB7A8/giu
   },
   {
     canonical: "mass_g",
-    pattern: /(?<![A-Za-z])g(?![A-Za-z])|\bgrams?\b|(?<![\u6BEB\u5343])\u514B|(?<!\u30DF\u30EA)(?<!\u30AD\u30ED)\u30B0\u30E9\u30E0|(?<!\uBC00\uB9AC)(?<!\uD0AC\uB85C)\uADF8\uB7A8/giu
+    pattern: /(?<!\p{Script=Latin})g(?!\p{Script=Latin})|\bgrams?\b|(?<![\u6BEB\u5343])\u514B|(?<!\u30DF\u30EA)(?<!\u30AD\u30ED)\u30B0\u30E9\u30E0|(?<!\uBC00\uB9AC)(?<!\uD0AC\uB85C)\uADF8\uB7A8/giu
   },
   {
     canonical: "length_mm",
-    pattern: /(?<![A-Za-z])mm(?![A-Za-z])|\bmillimet(?:er|re)s?\b|\u6BEB\u7C73|\u30DF\u30EA\u30E1\u30FC\u30C8\u30EB|\uBC00\uB9AC\uBBF8\uD130/giu
+    pattern: /(?<!\p{Script=Latin})mm(?!\p{Script=Latin})|\bmillimet(?:er|re)s?\b|\u6BEB\u7C73|\u30DF\u30EA\u30E1\u30FC\u30C8\u30EB|\uBC00\uB9AC\uBBF8\uD130/giu
   },
   {
     canonical: "length_cm",
-    pattern: /(?<![A-Za-z])cm(?![A-Za-z])|\bcentimet(?:er|re)s?\b|\u5398\u7C73|\u516C\u5206|\u30BB\u30F3\u30C1\u30E1\u30FC\u30C8\u30EB|\uC13C\uD2F0\uBBF8\uD130/giu
+    pattern: /(?<!\p{Script=Latin})cm(?!\p{Script=Latin})|\bcentimet(?:er|re)s?\b|\u5398\u7C73|\u516C\u5206|\u30BB\u30F3\u30C1\u30E1\u30FC\u30C8\u30EB|\uC13C\uD2F0\uBBF8\uD130/giu
   },
   {
     canonical: "percent",
@@ -51,15 +51,15 @@ const clinicalUnitDefinitions: ClinicalUnitDefinition[] = [
   },
   {
     canonical: "shot",
-    pattern: /(?<![A-Za-z])shots?(?![A-Za-z])|\uC0F7|\u30B7\u30E7\u30C3\u30C8|\p{Nd}+\s*[\u53D1\u767C]/giu
+    pattern: /(?<!\p{Script=Latin})shots?(?!\p{Script=Latin})|\uC0F7|\u30B7\u30E7\u30C3\u30C8|\p{Nd}+\s*[\u53D1\u767C]/giu
   },
   {
     canonical: "ampoule",
-    pattern: /(?<![A-Za-z])ampoules?(?![A-Za-z])|\uC568\uD50C|\uC5E0\uD50C|\u30A2\u30F3\u30D7\u30EB|\u5B89\u74F6/giu
+    pattern: /(?<!\p{Script=Latin})ampoules?(?!\p{Script=Latin})|\uC568\uD50C|\uC5E0\uD50C|\u30A2\u30F3\u30D7\u30EB|\u5B89\u74F6/giu
   },
   {
     canonical: "iu",
-    pattern: /(?<![A-Za-z])iu(?![A-Za-z])|\binternational\s+units?\b/giu
+    pattern: /(?<!\p{Script=Latin})iu(?!\p{Script=Latin})|\binternational\s+units?\b/giu
   }
 ];
 
